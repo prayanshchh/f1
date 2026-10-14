@@ -1,0 +1,10 @@
+{
+  "name": "browser-formula-foundation",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/foundation/*.test.mjs",
+    "test:foundation": "node --test tests/foundation/*.test.mjs"
+  },
+  "engines": { "node": ">=20" }
+}

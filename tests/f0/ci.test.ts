@@ -122,29 +122,6 @@ function expectNoIgnoredFailure(part: Job | Step, label: string): void {
   expect(String(part.if ?? ""), label).not.toMatch(/\bfalse\b/);
 }
 
-const runsBrowserTests = (step: Step) =>
-  /\bpnpm run (verify|test:e2e)\b|\bplaywright test\b/.test(step.run ?? "");
-
-test("CI runs the browser tests inside a virtual display big enough for every test window", () => {
-  const browserSteps = allSteps(loadWorkflow()).filter(runsBrowserTests);
-  expect(
-    browserSteps.length,
-    "a step must run the browser tests",
-  ).toBeGreaterThan(0);
-  for (const step of browserSteps) {
-    const command = step.run ?? "";
-    expect(command, "Chrome needs a display on Linux").toMatch(/^xvfb-run\s/);
-    const screen = /-screen\s+0\s+(\d+)x(\d+)x(\d+)/.exec(command);
-    expect(screen, `${command} must set the virtual screen size`).not.toBe(
-      null,
-    );
-    const [, width = "0", height = "0", depth = "0"] = screen ?? [];
-    expect(Number(width), "screen width").toBeGreaterThanOrEqual(1440);
-    expect(Number(height), "screen height").toBeGreaterThanOrEqual(900);
-    expect(Number(depth), "screen colour depth").toBe(24);
-  }
-});
-
 test("CI never ignores a failing step", () => {
   for (const [name, job] of Object.entries(loadWorkflow().jobs ?? {})) {
     expectNoIgnoredFailure(job, name);

@@ -1,8 +1,6 @@
 import { defineConfig } from "@playwright/test";
 
-const linux = process.platform === "linux";
-
-const linuxSoftwareGpuArguments = [
+const softwareGpuArguments = [
   "--enable-unsafe-webgpu",
   "--enable-features=Vulkan",
   "--use-vulkan=swiftshader",
@@ -21,9 +19,8 @@ export default defineConfig({
   use: {
     baseURL: "http://127.0.0.1:4173",
     channel: "chrome",
-    headless: !linux,
     launchOptions: {
-      args: linux ? linuxSoftwareGpuArguments : [],
+      args: process.platform === "linux" ? softwareGpuArguments : [],
     },
   },
   webServer: {

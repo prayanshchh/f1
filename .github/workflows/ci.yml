@@ -15,6 +15,10 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install chrome
+      - name: Diagnose Linux WebGPU startup
+        run: pnpm run test:e2e
+        env:
+          DEBUG: pw:browser
       - run: cargo install cargo-machete --locked
       - run: pnpm run verify
       - uses: actions/upload-artifact@v7.0.2

@@ -166,10 +166,13 @@ async function start(): Promise<void> {
     draw(device, context, pipeline).catch(showFailure);
   });
   device.lost
-    .then(() => {
+    .then((info) => {
       observer.disconnect();
       showFailure(
-        new GpuFailure("device-lost", "The WebGPU graphics device was lost."),
+        new GpuFailure(
+          "device-lost",
+          `The WebGPU graphics device was lost (${info.reason}). ${info.message}`.trim(),
+        ),
       );
     })
     .catch(showFailure);

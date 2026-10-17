@@ -1,0 +1,12 @@
+packages:
+  - apps/*
+minimumReleaseAgeExclude:
+  - eslint@10.13.0
+onlyBuiltDependencies:
+  - esbuild
+  - "@ast-grep/cli"
+  - lefthook
+allowBuilds:
+  esbuild: true
+  "@ast-grep/cli": true
+  lefthook: true

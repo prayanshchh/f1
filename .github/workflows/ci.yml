@@ -1,0 +1,30 @@
+name: CI
+on:
+  push:
+    branches: [master]
+  pull_request:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: pnpm/action-setup@v6.1.0
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install chrome
+      - name: Diagnose Linux WebGPU startup
+        run: pnpm run test:e2e
+        env:
+          DEBUG: pw:browser
+      - run: cargo install cargo-machete --locked
+      - run: pnpm run verify
+      - uses: actions/upload-artifact@v7.0.2
+        if: failure()
+        with:
+          name: playwright-failure-context
+          path: test-results/
+          if-no-files-found: error
+          retention-days: 7

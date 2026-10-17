@@ -1,0 +1,11 @@
+{
+  "workspaces": {
+    ".": {
+      "entry": ["tests/**/*.test.ts", "tests/**/*.e2e.ts", "*.config.ts"],
+      "project": ["tests/**/*.ts", "*.config.ts", "*.mjs"]
+    },
+    "apps/client": {
+      "project": ["src/**/*.ts"]
+    }
+  }
+}

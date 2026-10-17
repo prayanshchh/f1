@@ -1,0 +1,51 @@
+{
+  "name": "f1",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "24.22.0"
+  },
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "24.22.0",
+      "onFail": "download"
+    }
+  },
+  "packageManager": "pnpm@12.14.0",
+  "scripts": {
+    "prepare": "lefthook install",
+    "format:check": "prettier --check . --ignore-path .gitignore --ignore-path .prettierignore && cargo fmt --all --check",
+    "lint": "ast-grep scan --no-ignore hidden && eslint --max-warnings 0 . && cargo clippy --workspace --all-targets --locked -- -D warnings",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p apps/client/tsconfig.json",
+    "unused": "knip && cargo machete",
+    "duplicates": "jscpd .",
+    "check": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run unused && pnpm run duplicates",
+    "build": "pnpm --filter ./apps/client run build",
+    "test:rust": "cargo test --workspace --locked",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "verify": "pnpm run check && pnpm run test:rust && pnpm run build && pnpm run test && pnpm run test:e2e"
+  },
+  "devDependencies": {
+    "@ast-grep/cli": "0.51.0",
+    "@eslint/js": "10.0.1",
+    "@playwright/test": "1.64.1",
+    "@types/node": "26.6.5",
+    "@types/pngjs": "6.0.5",
+    "@vitest/eslint-plugin": "1.6.27",
+    "@webgpu/types": "0.1.74",
+    "eslint": "10.13.0",
+    "eslint-plugin-playwright": "2.12.1",
+    "globals": "17.13.0",
+    "jscpd": "5.4.1",
+    "knip": "6.41.0",
+    "lefthook": "2.2.2",
+    "pngjs": "7.0.0",
+    "prettier": "3.9.10",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.71.2",
+    "vitest": "5.0.5",
+    "yaml": "2.9.1"
+  }
+}

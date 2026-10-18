@@ -129,6 +129,7 @@ export interface CargoPackage {
   edition: string;
   manifest_path: string;
   targets: { kind: string[] }[];
+  dependencies: { name: string; kind: string | null }[];
 }
 
 export function cargoPackages(): CargoPackage[] {

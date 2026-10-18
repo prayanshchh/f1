@@ -1,5 +1,6 @@
 {
   "threshold": 0,
   "minLines": 10,
-  "minTokens": 70
+  "minTokens": 70,
+  "ignore": ["apps/client/wasm/**"]
 }

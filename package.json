@@ -20,12 +20,15 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p apps/client/tsconfig.json",
     "unused": "knip && cargo machete",
     "duplicates": "jscpd .",
-    "check": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run unused && pnpm run duplicates",
-    "build": "pnpm --filter ./apps/client run build",
+    "check": "pnpm run contracts:check && pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run unused && pnpm run duplicates",
+    "build": "pnpm run build:wasm && pnpm --filter ./apps/client run build",
     "test:rust": "cargo test --workspace --locked",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "verify": "pnpm run check && pnpm run test:rust && pnpm run build && pnpm run test && pnpm run test:e2e"
+    "verify": "pnpm run check && pnpm run test:rust && pnpm run build && pnpm run test && pnpm run test:e2e",
+    "contracts:generate": "node tools/contracts.mjs",
+    "contracts:check": "node tools/contracts.mjs --check",
+    "build:wasm": "node tools/build-wasm.mjs"
   },
   "devDependencies": {
     "@ast-grep/cli": "0.51.0",

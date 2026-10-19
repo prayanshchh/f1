@@ -11,6 +11,7 @@ import {
   removeArtifacts,
   type Artifacts,
 } from "../support/artifacts.ts";
+import { recordProblems } from "../../support/bundle.ts";
 import {
   hillLoop,
   randomInputs,
@@ -59,15 +60,7 @@ const contentTypes: Record<string, string> = {
 test("Chrome runs the WebAssembly physics tick for tick identically to the native server build", async ({
   page,
 }) => {
-  const problems: string[] = [];
-  page.on("console", (message) => {
-    if (["error", "warning"].includes(message.type())) {
-      problems.push(`${message.type()}: ${message.text()}`);
-    }
-  });
-  page.on("pageerror", (error) => {
-    problems.push(error.message);
-  });
+  const problems = recordProblems(page);
   await page.route("**/__f1/*", async (route) => {
     const name = path.basename(new URL(route.request().url()).pathname);
     const type = contentTypes[name];

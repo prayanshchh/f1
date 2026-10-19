@@ -4,6 +4,7 @@
       "entry": [
         "tests/**/*.test.ts",
         "tests/**/*.e2e.ts",
+        "tests/support/*.ts",
         "*.config.ts",
         "tools/*.mjs"
       ],

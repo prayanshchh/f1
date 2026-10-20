@@ -1,27 +1,40 @@
-name: CI
+name: Integration tests
 on:
   push:
     branches: [master]
   pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
-  verify:
+  native:
+    name: Native and WebAssembly integration
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: pnpm/action-setup@v6.1.0
-      - uses: actions/setup-node@v7.1.0
+      - uses: ./.github/actions/setup
         with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm exec playwright install chrome
-      - run: cargo install cargo-machete --locked
-      - run: node tools/install-wasm-bindgen.mjs
-      - run: pnpm run verify
+          wasm-bindings: "true"
+      - run: pnpm run test:integration
+  browser:
+    name: Browser integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: ./.github/actions/setup
+        with:
+          wasm-bindings: "true"
+          chrome: "true"
+      - run: pnpm run test:e2e
       - uses: actions/upload-artifact@v7.0.2
         if: failure()
         with:
-          name: playwright-failure-context
+          name: browser-integration-failures
           path: test-results/
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 7

@@ -1,0 +1,42 @@
+name: Quality tooling unit tests
+on:
+  pull_request:
+    paths: &paths
+      - "tests/quality/**"
+      - "tests/support/repo.ts"
+      - "rules/**"
+      - "eslint.config.mjs"
+      - "sgconfig.yml"
+      - ".jscpd.json"
+      - ".prettierignore"
+      - ".prettierrc.json"
+      - "knip.json"
+      - "lefthook.yml"
+      - "Cargo.*"
+      - "rust-toolchain.toml"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - ".nvmrc"
+      - "tsconfig.json"
+      - "vitest.config.ts"
+      - "vitest.unit.config.ts"
+      - ".github/workflows/_unit.yml"
+      - ".github/actions/setup/**"
+      - ".github/workflows/unit-tooling.yml"
+  push:
+    branches: [master]
+    paths: *paths
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  tooling:
+    uses: ./.github/workflows/_unit.yml
+    with:
+      suite: "tests/quality"
+      machete: true
+      wasm-bindings: true

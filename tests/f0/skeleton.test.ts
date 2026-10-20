@@ -10,7 +10,6 @@ import {
   readRepoFile,
   repoRoot,
   run,
-  runScript,
 } from "../support/repo.ts";
 
 function mentionsScript(command: string, script: string): boolean {
@@ -153,16 +152,6 @@ test("the physics crate compiles for WebAssembly", () => {
     "--locked",
   ]);
   expect(build.code, build.output).toBe(0);
-});
-
-test("the Rust tests pass and the production build writes the client page", () => {
-  const rust = runScript("test:rust");
-  expect(rust.code, rust.output).toBe(0);
-  const build = runScript("build");
-  expect(build.code, build.output).toBe(0);
-  expect(existsSync(path.join(repoRoot, "apps/client/dist/index.html"))).toBe(
-    true,
-  );
 });
 
 test("build output, dependencies and OS junk are ignored and never committed", () => {

@@ -1,0 +1,37 @@
+name: Foundation unit tests
+on:
+  pull_request:
+    paths: &paths
+      - "tests/f0/**"
+      - "crates/*/Cargo.toml"
+      - "apps/client/src/main.ts"
+      - "apps/client/src/style.css"
+      - "apps/client/index.html"
+      - ".github/workflows/**"
+      - "Cargo.*"
+      - "rust-toolchain.toml"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - ".nvmrc"
+      - "tsconfig.json"
+      - "vitest.config.ts"
+      - "vitest.unit.config.ts"
+      - ".github/workflows/_unit.yml"
+      - ".github/actions/setup/**"
+      - ".github/workflows/unit-foundation.yml"
+  push:
+    branches: [master]
+    paths: *paths
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  foundation:
+    uses: ./.github/workflows/_unit.yml
+    with:
+      suite: "tests/f0"
+      exclude: "tests/f0/workspace.test.ts"

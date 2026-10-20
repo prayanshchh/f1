@@ -1,0 +1,59 @@
+name: Unit test runner
+on:
+  workflow_call:
+    inputs:
+      crate:
+        description: Rust package to test, when applicable
+        type: string
+        default: ""
+      suite:
+        description: Component Vitest suite, when applicable
+        type: string
+        default: ""
+      exclude:
+        description: Separately owned suite to leave out
+        type: string
+        default: ""
+      wasm-bindings:
+        type: boolean
+        default: false
+      machete:
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  unit:
+    name: ${{ inputs.crate || inputs.suite }} unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      UNIT_CRATE: ${{ inputs.crate }}
+      UNIT_SUITE: ${{ inputs.suite }}
+      UNIT_EXCLUDE: ${{ inputs.exclude }}
+    steps:
+      - name: Require a unit-test target
+        run: test -n "$UNIT_CRATE$UNIT_SUITE"
+      - uses: actions/checkout@v7.0.1
+      - uses: ./.github/actions/setup
+        with:
+          javascript: ${{ inputs.suite != '' }}
+          wasm-bindings: ${{ inputs.wasm-bindings }}
+          machete: ${{ inputs.machete }}
+      - name: Crate lint
+        if: inputs.crate != ''
+        run: cargo clippy --locked --package "$UNIT_CRATE" --all-targets -- -D warnings
+      - name: Crate native tests
+        if: ${{ !cancelled() && inputs.crate != '' }}
+        run: cargo test --locked --package "$UNIT_CRATE" --all-targets -- --include-ignored
+      - name: Crate WebAssembly build
+        if: ${{ !cancelled() && inputs.crate != '' }}
+        run: cargo build --locked --package "$UNIT_CRATE" --target wasm32-unknown-unknown
+      - name: Component specifications
+        if: ${{ !cancelled() && inputs.suite != '' }}
+        run: |
+          args=(run --config vitest.unit.config.ts "$UNIT_SUITE")
+          if [[ -n "$UNIT_EXCLUDE" ]]; then
+            args+=(--exclude "$UNIT_EXCLUDE")
+          fi
+          pnpm exec vitest "${args[@]}"

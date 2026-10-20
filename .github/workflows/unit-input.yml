@@ -1,0 +1,30 @@
+name: Input unit tests
+on:
+  pull_request:
+    paths: &paths
+      - "apps/client/src/input/**"
+      - "tests/g1/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - ".nvmrc"
+      - "tsconfig.json"
+      - "vitest.config.ts"
+      - "vitest.unit.config.ts"
+      - ".github/workflows/_unit.yml"
+      - ".github/actions/setup/**"
+      - ".github/workflows/unit-input.yml"
+  push:
+    branches: [master]
+    paths: *paths
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  input:
+    uses: ./.github/workflows/_unit.yml
+    with:
+      suite: "tests/g1"

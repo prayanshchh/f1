@@ -1,0 +1,27 @@
+name: Physics-wasm unit tests
+on:
+  pull_request:
+    paths: &paths
+      - "crates/chassis/**"
+      - "crates/contracts/**"
+      - "crates/physics/**"
+      - "crates/physics-wasm/**"
+      - "Cargo.*"
+      - "rust-toolchain.toml"
+      - ".github/workflows/_unit.yml"
+      - ".github/actions/setup/**"
+      - ".github/workflows/unit-physics-wasm.yml"
+  push:
+    branches: [master]
+    paths: *paths
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  physics-wasm:
+    uses: ./.github/workflows/_unit.yml
+    with:
+      crate: "physics-wasm"

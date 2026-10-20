@@ -1,0 +1,25 @@
+name: Physics unit tests
+on:
+  pull_request:
+    paths: &paths
+      - "crates/contracts/**"
+      - "crates/physics/**"
+      - "Cargo.*"
+      - "rust-toolchain.toml"
+      - ".github/workflows/_unit.yml"
+      - ".github/actions/setup/**"
+      - ".github/workflows/unit-physics.yml"
+  push:
+    branches: [master]
+    paths: *paths
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  physics:
+    uses: ./.github/workflows/_unit.yml
+    with:
+      crate: "physics"

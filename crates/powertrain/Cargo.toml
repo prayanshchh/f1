@@ -1,0 +1,15 @@
+[package]
+name = "powertrain"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+libm = "0.2"
+
+[[test]]
+name = "spec"
+path = "../../tests/p3/rust/powertrain.rs"
+
+[lints]
+workspace = true

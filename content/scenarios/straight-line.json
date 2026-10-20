@@ -1,0 +1,43 @@
+{
+  "name": "Straight line",
+  "setup": {
+    "track": {
+      "name": "Long straight",
+      "width": 14,
+      "centerline": [
+        { "x": 0, "y": 0, "z": 0 },
+        { "x": 0, "y": 0, "z": 1000 },
+        { "x": 40, "y": 0, "z": 1000 },
+        { "x": 40, "y": 0, "z": 0 }
+      ]
+    },
+    "cars": [{ "id": 1, "startDistance": 0 }]
+  },
+  "ticks": 5000,
+  "inputs": [
+    {
+      "fromTick": 0,
+      "cars": [
+        {
+          "steer": 0,
+          "throttle": 1,
+          "brake": 0,
+          "shiftUp": false,
+          "shiftDown": false
+        }
+      ]
+    },
+    {
+      "fromTick": 3000,
+      "cars": [
+        {
+          "steer": 0,
+          "throttle": 0,
+          "brake": 1,
+          "shiftUp": false,
+          "shiftDown": false
+        }
+      ]
+    }
+  ]
+}

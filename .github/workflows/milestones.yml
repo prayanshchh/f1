@@ -1,0 +1,85 @@
+name: Milestone evidence
+on:
+  push:
+    branches: [master]
+  pull_request:
+jobs:
+  milestones:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out the integrated PR
+        uses: actions/checkout@v7.0.1
+      - name: Set up the pinned package manager
+        uses: pnpm/action-setup@v6.1.0
+      - name: Set up the pinned Node runtime
+        uses: actions/setup-node@v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - name: Install locked JavaScript dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install Chrome for browser evidence
+        run: pnpm exec playwright install chrome
+      - name: Install the Rust dependency checker
+        run: cargo install cargo-machete --locked
+      - name: Install the matching WebAssembly bindings tool
+        run: node tools/install-wasm-bindgen.mjs
+      - name: Rust formatting
+        run: cargo fmt --all --check
+      - name: Rust lint
+        if: ${{ !cancelled() }}
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Native Rust tests
+        if: ${{ !cancelled() }}
+        run: pnpm run test:rust
+      - name: Build
+        id: build
+        if: ${{ !cancelled() }}
+        run: pnpm run build
+      - name: F0, F1 and P1 tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: pnpm exec vitest run tests/f0 tests/f1 tests/p1
+      - name: P2 tyre tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: pnpm exec vitest run tests/p2
+      - name: P3 powertrain tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: pnpm exec vitest run tests/p3
+      - name: P4 aero tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: pnpm exec vitest run tests/p4
+      - name: F0, F1 and P1 browser tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: pnpm exec playwright test tests/f0 tests/f1 tests/p1
+      - name: G2 HUD tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && hashFiles('apps/client/src/hud/index.ts') != '' }}
+        run: pnpm exec vitest run tests/g2
+      - name: T1 telemetry tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && hashFiles('crates/scenario/Cargo.toml') != '' }}
+        run: pnpm exec vitest run tests/t1
+      - name: T2 asset pipeline tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && hashFiles('tools/assets.mjs') != '' }}
+        run: pnpm exec vitest run tests/t2
+      - name: C1 car content tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && hashFiles('content/cars/*/car.json') != '' }}
+        run: pnpm exec vitest run tests/c1
+      - name: C2 track content tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && hashFiles('content/tracks/*/track.json') != '' }}
+        run: pnpm exec vitest run tests/c2
+      - name: G2 HUD browser tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && hashFiles('apps/client/src/hud/index.ts') != '' }}
+        run: pnpm exec playwright test tests/g2
+      - name: T1 telemetry browser tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && hashFiles('apps/telemetry/package.json') != '' }}
+        run: pnpm exec playwright test tests/t1
+      - name: W1 worker browser tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && hashFiles('apps/client/play.html') != '' }}
+        run: pnpm exec playwright test tests/w1
+      - uses: actions/upload-artifact@v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: milestone-test-results
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7

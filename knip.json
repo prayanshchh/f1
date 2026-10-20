@@ -11,6 +11,7 @@
       "project": ["tests/**/*.ts", "*.config.ts", "*.mjs", "tools/*.mjs"]
     },
     "apps/client": {
+      "entry": ["src/hud/index.ts"],
       "project": ["src/**/*.ts"]
     },
     "apps/telemetry": {

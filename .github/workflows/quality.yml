@@ -2,7 +2,7 @@ name: Quality checks
 on:
   pull_request:
   push:
-    branches: [master]
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read

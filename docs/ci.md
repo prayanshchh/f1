@@ -10,7 +10,7 @@ workflow in
 
 `ci.yml` runs two independent jobs: native/WebAssembly integration tests and all
 Playwright browser tests. Neither waits for quality checks or a crate unit job.
-Both also run on every push to `master`, including documentation changes.
+Both also run on every push to `main`, including documentation changes.
 Unimplemented networking, audio, and rendering features remain visible as test
 failures; there are no implementation-existence conditions or ignored failures.
 

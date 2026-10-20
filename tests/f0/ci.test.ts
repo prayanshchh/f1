@@ -69,11 +69,11 @@ function unitPaths(workflow: Workflow): string[] {
   return typeof paths === "string" ? paths.trim().split("\n") : [];
 }
 
-test("integration and quality run on every push to master and every pull request", () => {
+test("integration and quality run on every push to main and every pull request", () => {
   for (const file of ["ci.yml", "quality.yml"]) {
     const triggers = loadWorkflow(file).on;
     expect(typeof triggers, "on: must be a mapping").toBe("object");
-    expect(triggers?.["push"]?.branches, "push to master").toContain("master");
+    expect(triggers?.["push"]?.branches, "push to main").toContain("main");
     expect(Object.hasOwn(triggers ?? {}, "pull_request"), "pull_request").toBe(
       true,
     );
@@ -197,7 +197,7 @@ test("each Rust crate has its own conditional unit workflow", () => {
     expect(workflow.on?.["push"]?.paths).toBeUndefined();
     expect(workflow.on?.["pull_request"]?.paths).toBeUndefined();
     expect(Object.hasOwn(workflow.on ?? {}, "pull_request")).toBe(true);
-    expect(workflow.on?.["push"]?.branches).toContain("master");
+    expect(workflow.on?.["push"]?.branches).toContain("main");
     expect(paths).toContain(".github/scripts/unit-changes.mjs");
     expect(job.uses).toBe("./.github/workflows/_unit.yml");
   }
@@ -323,6 +323,7 @@ test("all unit workflows report a check even when their suite is unaffected", ()
   )) {
     expect(Object.hasOwn(caller.on ?? {}, "pull_request")).toBe(true);
     expect(caller.on?.["pull_request"]?.paths).toBeUndefined();
+    expect(caller.on?.["push"]?.branches).toEqual(["main"]);
     expect(unitPaths(caller).length).toBeGreaterThan(0);
   }
 });

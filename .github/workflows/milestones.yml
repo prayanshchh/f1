@@ -8,16 +8,23 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: pnpm/action-setup@v6.1.0
-      - uses: actions/setup-node@v7.1.0
+      - name: Check out the integrated PR
+        uses: actions/checkout@v7.0.1
+      - name: Set up the pinned package manager
+        uses: pnpm/action-setup@v6.1.0
+      - name: Set up the pinned Node runtime
+        uses: actions/setup-node@v7.1.0
         with:
           node-version-file: .nvmrc
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm exec playwright install chrome
-      - run: cargo install cargo-machete --locked
-      - run: node tools/install-wasm-bindgen.mjs
+      - name: Install locked JavaScript dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install Chrome for browser evidence
+        run: pnpm exec playwright install chrome
+      - name: Install the Rust dependency checker
+        run: cargo install cargo-machete --locked
+      - name: Install the matching WebAssembly bindings tool
+        run: node tools/install-wasm-bindgen.mjs
       - name: Rust formatting
         run: cargo fmt --all --check
       - name: Rust lint

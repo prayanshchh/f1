@@ -1,0 +1,30 @@
+{
+  "lodCount": { "car": 4, "prop": 3 },
+  "tiers": {
+    "ultra": {
+      "maxTextureSize": 4096,
+      "triangles": { "car": 200000, "prop": 20000 },
+      "bytes": { "car": 50331648, "prop": 4194304 }
+    },
+    "high": {
+      "maxTextureSize": 2048,
+      "triangles": { "car": 120000, "prop": 10000 },
+      "bytes": { "car": 25165824, "prop": 2097152 }
+    },
+    "medium": {
+      "maxTextureSize": 1024,
+      "triangles": { "car": 60000, "prop": 5000 },
+      "bytes": { "car": 12582912, "prop": 1048576 }
+    },
+    "low": {
+      "maxTextureSize": 1024,
+      "triangles": { "car": 30000, "prop": 2500 },
+      "bytes": { "car": 6291456, "prop": 524288 }
+    },
+    "basic": {
+      "maxTextureSize": 512,
+      "triangles": { "car": 15000, "prop": 1200 },
+      "bytes": { "car": 3145728, "prop": 262144 }
+    }
+  }
+}

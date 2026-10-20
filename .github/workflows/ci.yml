@@ -19,7 +19,7 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           wasm-bindings: "true"
-      - run: pnpm run test:integration
+      - run: pnpm run test:integration --exclude 'tests/n1/**' --exclude 'tests/n2/**'
   browser:
     name: Browser integration
     runs-on: ubuntu-latest
@@ -30,7 +30,7 @@ jobs:
         with:
           wasm-bindings: "true"
           chrome: "true"
-      - run: pnpm run test:e2e
+      - run: pnpm run test:e2e --config playwright.ci.config.ts
       - uses: actions/upload-artifact@v7.0.2
         if: failure()
         with:

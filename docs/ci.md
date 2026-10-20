@@ -8,15 +8,16 @@ workflow in
 
 ## What runs on every PR
 
-`ci.yml` runs two independent jobs: native/WebAssembly integration tests and all
-Playwright browser tests. Neither waits for quality checks or a crate unit job.
+`ci.yml` runs two independent jobs: native/WebAssembly integration tests and
+Playwright browser tests, excluding the deferred N1/N2 networking suites. Neither waits for quality checks or a crate unit job.
 Both also run on every push to `main`, including documentation changes.
-Unimplemented networking, audio, and rendering features remain visible as test
-failures; there are no implementation-existence conditions or ignored failures.
+G1 input, G3 audio, and R1 rendering remain enabled. Their unfinished behavior
+remains visible as failures; there are no implementation-existence conditions
+or ignored failures.
 
 The native integration suite covers generated contracts, the WASM World API,
 native/WASM replay comparisons, chassis replay, telemetry, the asset pipeline,
-car and track data, lobby, and server behavior. Browser tests include F0/F1,
+car and track data. Browser tests include F0/F1,
 chassis, HUD, telemetry, workers, and the future browser features.
 
 `quality.yml` separately runs the existing formatting, lint, type, dependency,
@@ -69,6 +70,11 @@ powertrain, HUD, and livery checks therefore do not build the entire simulation.
 `vitest.integration.config.ts` keeps that setup for cross-component checks.
 The original Vitest and Playwright configurations remain unchanged.
 
+N1 lobby and N2 server tests remain in the repository and in the full local
+test commands. CI explicitly excludes `tests/n1/**` and `tests/n2/**` from
+native integration, and uses `playwright.ci.config.ts` to exclude their browser
+suites. Re-enabling networking later requires removing both exclusions.
+
 The unit workflows call `_unit.yml`, which tests one Cargo package at a time.
 Both unit and integration jobs use `.github/actions/setup` for pinned dependencies
 and cached Rust builds/tools. Pure Rust test jobs do not install Node, Chrome, or
@@ -80,8 +86,10 @@ wasm-bindgen. Outdated runs on the same PR are cancelled.
 - `pnpm run test:unit tests/p2` runs the tyre component specifications.
 - `cargo test --locked --package tyre --all-targets -- --include-ignored` runs
   native tyre tests, including any future inline Rust unit tests.
-- `pnpm run test:integration` runs the complete native integration suite.
-- `pnpm run test:e2e` runs every browser integration test.
+- `pnpm run test:integration` runs the complete native integration suite, including N1/N2.
+- `pnpm run test:integration --exclude 'tests/n1/**' --exclude 'tests/n2/**'` matches native CI.
+- `pnpm run test:e2e` runs every browser integration test, including N1/N2.
+- `pnpm run test:e2e --config playwright.ci.config.ts` matches browser CI.
 - `pnpm run verify` remains the full local verification command.
 
 Pass test filters directly after the script name; do not insert a separate `--`

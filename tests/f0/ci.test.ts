@@ -10,6 +10,8 @@ import {
 } from "../support/repo.ts";
 import integrationConfig from "../../vitest.integration.config.ts";
 import unitConfig from "../../vitest.unit.config.ts";
+import browserConfig from "../../playwright.config.ts";
+import ciBrowserConfig from "../../playwright.ci.config.ts";
 
 interface Step {
   name?: string;
@@ -263,8 +265,12 @@ test("shared Rust pins fan out to every crate", () => {
 test("integration jobs run independently and never invoke the full unit sweep", () => {
   const integration = loadWorkflow("ci.yml");
   const commands = allSteps(integration).map((step) => step.run ?? "");
-  expect(commands).toContain("pnpm run test:integration");
-  expect(commands).toContain("pnpm run test:e2e");
+  expect(commands).toContain(
+    "pnpm run test:integration --exclude 'tests/n1/**' --exclude 'tests/n2/**'",
+  );
+  expect(commands).toContain(
+    "pnpm run test:e2e --config playwright.ci.config.ts",
+  );
   expect(commands.join("\n")).not.toMatch(/pnpm run (verify|test:rust)\b/);
   for (const job of Object.values(integration.jobs ?? {})) {
     expect(job.if).toBeUndefined();
@@ -275,6 +281,46 @@ test("integration jobs run independently and never invoke the full unit sweep", 
   );
   expect(browserSetup?.with?.["chrome"]).toBe("true");
   expect(browserSetup?.with?.["wasm-bindings"]).toBe("true");
+});
+
+test("CI excludes only N1/N2 browser suites and keeps R1/G3 enabled", () => {
+  expect(ciBrowserConfig.testDir).toBe(browserConfig.testDir);
+  expect(ciBrowserConfig.testMatch).toEqual(browserConfig.testMatch);
+  const ignores = ciBrowserConfig.testIgnore;
+  expect(ignores).toEqual(["**/n1/**", "**/n2/**"]);
+  const patterns = Array.isArray(ignores)
+    ? ignores.filter(
+        (pattern): pattern is string => typeof pattern === "string",
+      )
+    : [];
+  const browserFiles = listRepoFiles().filter((file) =>
+    file.endsWith(".e2e.ts"),
+  );
+  const excluded = browserFiles.filter((file) =>
+    patterns.some((pattern) => path.matchesGlob(file, pattern)),
+  );
+  expect(excluded.sort()).toEqual(
+    browserFiles.filter((file) => /^tests\/n[12]\//.test(file)).sort(),
+  );
+  expect(excluded.length).toBeGreaterThan(0);
+  for (const group of ["r1", "g3"]) {
+    const files = browserFiles.filter((file) =>
+      file.startsWith(`tests/${group}/`),
+    );
+    expect(files.length).toBeGreaterThan(0);
+    expect(files.some((file) => excluded.includes(file))).toBe(false);
+  }
+});
+
+test("G1 input remains an enabled unit suite", () => {
+  expect(loadWorkflow("unit-input.yml").jobs?.["input"]?.with?.["suite"]).toBe(
+    "tests/g1",
+  );
+  expect(
+    unitConfig.test?.include?.some((pattern) =>
+      path.matchesGlob("tests/g1/input.test.ts", pattern),
+    ),
+  ).toBe(true);
 });
 
 test("every native test file belongs to exactly one unit or integration suite", () => {

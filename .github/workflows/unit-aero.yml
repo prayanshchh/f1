@@ -1,25 +1,8 @@
 name: Aero unit tests
 on:
   pull_request:
-    paths: &paths
-      - "crates/aero/**"
-      - "Cargo.*"
-      - "rust-toolchain.toml"
-      - "tests/p4/**"
-      - "tests/support/**"
-      - "package.json"
-      - "pnpm-lock.yaml"
-      - "pnpm-workspace.yaml"
-      - ".nvmrc"
-      - "tsconfig.json"
-      - "vitest.config.ts"
-      - "vitest.unit.config.ts"
-      - ".github/workflows/_unit.yml"
-      - ".github/actions/setup/**"
-      - ".github/workflows/unit-aero.yml"
   push:
     branches: [master]
-    paths: *paths
   workflow_dispatch:
 permissions:
   contents: read
@@ -30,5 +13,22 @@ jobs:
   aero:
     uses: ./.github/workflows/_unit.yml
     with:
+      paths: |
+        crates/aero/**
+        Cargo.*
+        rust-toolchain.toml
+        tests/p4/**
+        tests/support/**
+        package.json
+        pnpm-lock.yaml
+        pnpm-workspace.yaml
+        .nvmrc
+        tsconfig.json
+        vitest.config.ts
+        vitest.unit.config.ts
+        .github/workflows/_unit.yml
+        .github/actions/setup/**
+        .github/workflows/unit-aero.yml
+        .github/scripts/unit-changes.mjs
       crate: "aero"
       suite: "tests/p4"

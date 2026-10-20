@@ -2,6 +2,10 @@ name: Unit test runner
 on:
   workflow_call:
     inputs:
+      paths:
+        description: Newline-separated paths affecting this unit suite
+        type: string
+        required: true
       crate:
         description: Rust package to test, when applicable
         type: string
@@ -23,8 +27,28 @@ on:
 permissions:
   contents: read
 jobs:
+  changes:
+    name: Check affected files
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      affected: ${{ steps.diff.outputs.affected }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - name: Match the complete change list
+        id: diff
+        env:
+          UNIT_PATHS: ${{ inputs.paths }}
+        run: node .github/scripts/unit-changes.mjs
   unit:
     name: ${{ inputs.crate || inputs.suite }} unit tests
+    needs: changes
+    if: needs.changes.outputs.affected == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:

@@ -1,25 +1,8 @@
 name: Workspace unit tests
 on:
   pull_request:
-    paths: &paths
-      - "Cargo.*"
-      - "rust-toolchain.toml"
-      - "package.json"
-      - "pnpm-lock.yaml"
-      - "pnpm-workspace.yaml"
-      - ".nvmrc"
-      - "tsconfig.json"
-      - "vitest.config.ts"
-      - "vitest.unit.config.ts"
-      - "tests/f0/workspace.test.ts"
-      - "tools/build-wasm.mjs"
-      - "tools/contracts.mjs"
-      - ".github/workflows/_unit.yml"
-      - ".github/actions/setup/**"
-      - ".github/workflows/unit-workspace.yml"
   push:
     branches: [master]
-    paths: *paths
   workflow_dispatch:
 permissions:
   contents: read
@@ -30,5 +13,22 @@ jobs:
   workspace:
     uses: ./.github/workflows/_unit.yml
     with:
+      paths: |
+        Cargo.*
+        rust-toolchain.toml
+        package.json
+        pnpm-lock.yaml
+        pnpm-workspace.yaml
+        .nvmrc
+        tsconfig.json
+        vitest.config.ts
+        vitest.unit.config.ts
+        tests/f0/workspace.test.ts
+        tools/build-wasm.mjs
+        tools/contracts.mjs
+        .github/workflows/_unit.yml
+        .github/actions/setup/**
+        .github/workflows/unit-workspace.yml
+        .github/scripts/unit-changes.mjs
       suite: "tests/f0/workspace.test.ts"
       wasm-bindings: true

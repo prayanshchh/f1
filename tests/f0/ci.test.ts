@@ -61,8 +61,12 @@ function crateWorkflows(): [string, Workflow, Job][] {
   );
 }
 
-function pullRequestPaths(workflow: Workflow): string[] {
-  return workflow.on?.["pull_request"]?.paths ?? [];
+function unitPaths(workflow: Workflow): string[] {
+  const runner = Object.values(workflow.jobs ?? {}).find(
+    (job) => job.uses === "./.github/workflows/_unit.yml",
+  );
+  const paths = runner?.with?.["paths"];
+  return typeof paths === "string" ? paths.trim().split("\n") : [];
 }
 
 test("integration and quality run on every push to master and every pull request", () => {
@@ -131,7 +135,11 @@ test("CI installs exactly what the lockfiles and pins say before running tests",
         (step) => step.uses === "./.github/actions/setup",
       );
       expect(checkout).toBeGreaterThanOrEqual(0);
-      expect(setup).toBeGreaterThan(checkout);
+      if (setup !== -1) {
+        expect(setup).toBeGreaterThan(checkout);
+      } else {
+        expect(job).toEqual(loadWorkflow("_unit.yml").jobs?.["changes"]);
+      }
     }
   }
   expectPinnedInstalls([
@@ -172,7 +180,7 @@ test("CI never ignores a failing step", () => {
   }
 });
 
-test("each Rust crate has its own path-filtered unit workflow", () => {
+test("each Rust crate has its own conditional unit workflow", () => {
   const entries = crateWorkflows();
   const packages = cargoPackages();
   expect(entries.map(([, , job]) => job.with?.["crate"]).sort()).toEqual(
@@ -180,13 +188,17 @@ test("each Rust crate has its own path-filtered unit workflow", () => {
   );
   for (const [file, workflow, job] of entries) {
     const crate = String(job.with?.["crate"]);
-    const paths = workflow.on?.["pull_request"]?.paths;
+    const paths = unitPaths(workflow);
     expect(paths, `${file}: own crate`).toContain(`crates/${crate}/**`);
     expect(paths, `${file}: workflow edits`).toContain(
       `.github/workflows/${file}`,
     );
     expect(paths, `${file}: dependencies`).toContain("Cargo.*");
-    expect(workflow.on?.["push"]?.paths).toEqual(paths);
+    expect(workflow.on?.["push"]?.paths).toBeUndefined();
+    expect(workflow.on?.["pull_request"]?.paths).toBeUndefined();
+    expect(Object.hasOwn(workflow.on ?? {}, "pull_request")).toBe(true);
+    expect(workflow.on?.["push"]?.branches).toContain("master");
+    expect(paths).toContain(".github/scripts/unit-changes.mjs");
     expect(job.uses).toBe("./.github/workflows/_unit.yml");
   }
   const commands = allSteps(loadWorkflow("_unit.yml"))
@@ -201,9 +213,7 @@ function affectedCrates(files: string[]): string[] {
   return crateWorkflows()
     .filter(([, workflow]) =>
       files.some((file) =>
-        pullRequestPaths(workflow).some((pattern) =>
-          path.matchesGlob(file, pattern),
-        ),
+        unitPaths(workflow).some((pattern) => path.matchesGlob(file, pattern)),
       ),
     )
     .map(([, , job]) => String(job.with?.["crate"]))
@@ -282,8 +292,37 @@ test("every native test file belongs to exactly one unit or integration suite", 
   }
   const foundation = loadWorkflow("unit-foundation.yml").jobs?.["foundation"];
   expect(foundation?.with?.["exclude"]).toBe("tests/f0/workspace.test.ts");
-  const workspacePaths = pullRequestPaths(loadWorkflow("unit-workspace.yml"));
+  const workspacePaths = unitPaths(loadWorkflow("unit-workspace.yml"));
   expect(workspacePaths.some((pattern) => pattern.startsWith("crates/"))).toBe(
     false,
   );
+});
+
+test("unaffected unit jobs are skipped before allocating a test runner", () => {
+  const workflow = loadWorkflow("_unit.yml");
+  const unit = workflow.jobs?.["unit"];
+  expect(unit?.needs).toBe("changes");
+  expect(unit?.if).toBe("needs.changes.outputs.affected == 'true'");
+  const steps = workflow.jobs?.["changes"]?.steps ?? [];
+  expect(
+    steps.some((step) => step.run === "node .github/scripts/unit-changes.mjs"),
+  ).toBe(true);
+  expect(steps.some((step) => step.uses === "./.github/actions/setup")).toBe(
+    false,
+  );
+  expect(
+    steps.find((step) => step.uses?.startsWith("actions/checkout@"))?.with?.[
+      "fetch-depth"
+    ],
+  ).toBe(0);
+});
+
+test("all unit workflows report a check even when their suite is unaffected", () => {
+  for (const [, caller] of workflows().filter(([file]) =>
+    file.startsWith("unit-"),
+  )) {
+    expect(Object.hasOwn(caller.on ?? {}, "pull_request")).toBe(true);
+    expect(caller.on?.["pull_request"]?.paths).toBeUndefined();
+    expect(unitPaths(caller).length).toBeGreaterThan(0);
+  }
 });

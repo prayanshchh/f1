@@ -1,16 +1,8 @@
 name: Contracts unit tests
 on:
   pull_request:
-    paths: &paths
-      - "crates/contracts/**"
-      - "Cargo.*"
-      - "rust-toolchain.toml"
-      - ".github/workflows/_unit.yml"
-      - ".github/actions/setup/**"
-      - ".github/workflows/unit-contracts.yml"
   push:
     branches: [master]
-    paths: *paths
   workflow_dispatch:
 permissions:
   contents: read
@@ -21,4 +13,12 @@ jobs:
   contracts:
     uses: ./.github/workflows/_unit.yml
     with:
+      paths: |
+        crates/contracts/**
+        Cargo.*
+        rust-toolchain.toml
+        .github/workflows/_unit.yml
+        .github/actions/setup/**
+        .github/workflows/unit-contracts.yml
+        .github/scripts/unit-changes.mjs
       crate: "contracts"

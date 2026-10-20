@@ -1,25 +1,8 @@
 name: Tyre unit tests
 on:
   pull_request:
-    paths: &paths
-      - "crates/tyre/**"
-      - "Cargo.*"
-      - "rust-toolchain.toml"
-      - "tests/p2/**"
-      - "tests/support/**"
-      - "package.json"
-      - "pnpm-lock.yaml"
-      - "pnpm-workspace.yaml"
-      - ".nvmrc"
-      - "tsconfig.json"
-      - "vitest.config.ts"
-      - "vitest.unit.config.ts"
-      - ".github/workflows/_unit.yml"
-      - ".github/actions/setup/**"
-      - ".github/workflows/unit-tyre.yml"
   push:
     branches: [master]
-    paths: *paths
   workflow_dispatch:
 permissions:
   contents: read
@@ -30,5 +13,22 @@ jobs:
   tyre:
     uses: ./.github/workflows/_unit.yml
     with:
+      paths: |
+        crates/tyre/**
+        Cargo.*
+        rust-toolchain.toml
+        tests/p2/**
+        tests/support/**
+        package.json
+        pnpm-lock.yaml
+        pnpm-workspace.yaml
+        .nvmrc
+        tsconfig.json
+        vitest.config.ts
+        vitest.unit.config.ts
+        .github/workflows/_unit.yml
+        .github/actions/setup/**
+        .github/workflows/unit-tyre.yml
+        .github/scripts/unit-changes.mjs
       crate: "tyre"
       suite: "tests/p2"

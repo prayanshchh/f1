@@ -1,18 +1,8 @@
 name: Replay unit tests
 on:
   pull_request:
-    paths: &paths
-      - "crates/contracts/**"
-      - "crates/physics/**"
-      - "crates/replay/**"
-      - "Cargo.*"
-      - "rust-toolchain.toml"
-      - ".github/workflows/_unit.yml"
-      - ".github/actions/setup/**"
-      - ".github/workflows/unit-replay.yml"
   push:
     branches: [master]
-    paths: *paths
   workflow_dispatch:
 permissions:
   contents: read
@@ -23,4 +13,14 @@ jobs:
   replay:
     uses: ./.github/workflows/_unit.yml
     with:
+      paths: |
+        crates/contracts/**
+        crates/physics/**
+        crates/replay/**
+        Cargo.*
+        rust-toolchain.toml
+        .github/workflows/_unit.yml
+        .github/actions/setup/**
+        .github/workflows/unit-replay.yml
+        .github/scripts/unit-changes.mjs
       crate: "replay"

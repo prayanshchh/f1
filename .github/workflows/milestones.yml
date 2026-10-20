@@ -52,12 +52,30 @@ jobs:
       - name: F0, F1 and P1 browser tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: pnpm exec playwright test tests/f0 tests/f1 tests/p1
-      - name: All unit tests
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: pnpm run test
-      - name: All browser tests
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: pnpm run test:e2e --workers=4
+      - name: G2 HUD tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && hashFiles('apps/client/src/hud/index.ts') != '' }}
+        run: pnpm exec vitest run tests/g2
+      - name: T1 telemetry tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && hashFiles('crates/scenario/Cargo.toml') != '' }}
+        run: pnpm exec vitest run tests/t1
+      - name: T2 asset pipeline tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && hashFiles('tools/assets.mjs') != '' }}
+        run: pnpm exec vitest run tests/t2
+      - name: C1 car content tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && hashFiles('content/cars/*/car.json') != '' }}
+        run: pnpm exec vitest run tests/c1
+      - name: C2 track content tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && hashFiles('content/tracks/*/track.json') != '' }}
+        run: pnpm exec vitest run tests/c2
+      - name: G2 HUD browser tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && hashFiles('apps/client/src/hud/index.ts') != '' }}
+        run: pnpm exec playwright test tests/g2
+      - name: T1 telemetry browser tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && hashFiles('apps/telemetry/package.json') != '' }}
+        run: pnpm exec playwright test tests/t1
+      - name: W1 worker browser tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && hashFiles('apps/client/play.html') != '' }}
+        run: pnpm exec playwright test tests/w1
       - uses: actions/upload-artifact@v7.0.2
         if: ${{ !cancelled() }}
         with:

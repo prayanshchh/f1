@@ -49,15 +49,15 @@ jobs:
       - name: P4 aero tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: pnpm exec vitest run tests/p4
-      - name: F0, F1, P1 and W1 browser tests
+      - name: F0, F1 and P1 browser tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: pnpm exec playwright test tests/f0 tests/f1 tests/p1 tests/w1
+        run: pnpm exec playwright test tests/f0 tests/f1 tests/p1
       - name: All unit tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: pnpm run test
       - name: All browser tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: pnpm run test:e2e
+        run: pnpm run test:e2e --workers=4
       - uses: actions/upload-artifact@v7.0.2
         if: ${{ !cancelled() }}
         with:

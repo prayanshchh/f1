@@ -1,0 +1,60 @@
+name: Milestone evidence
+on:
+  push:
+    branches: [master]
+  pull_request:
+jobs:
+  milestones:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: pnpm/action-setup@v6.1.0
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install chrome
+      - run: cargo install cargo-machete --locked
+      - run: node tools/install-wasm-bindgen.mjs
+      - name: Rust formatting
+        run: cargo fmt --all --check
+      - name: Rust lint
+        if: ${{ !cancelled() }}
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Native Rust tests
+        if: ${{ !cancelled() }}
+        run: pnpm run test:rust
+      - name: Build
+        id: build
+        if: ${{ !cancelled() }}
+        run: pnpm run build
+      - name: F0, F1 and P1 tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: pnpm exec vitest run tests/f0 tests/f1 tests/p1
+      - name: P2 tyre tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: pnpm exec vitest run tests/p2
+      - name: P3 powertrain tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: pnpm exec vitest run tests/p3
+      - name: P4 aero tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: pnpm exec vitest run tests/p4
+      - name: F0, F1, P1 and W1 browser tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: pnpm exec playwright test tests/f0 tests/f1 tests/p1 tests/w1
+      - name: All unit tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: pnpm run test
+      - name: All browser tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: pnpm run test:e2e
+      - uses: actions/upload-artifact@v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: milestone-test-results
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7

@@ -28,7 +28,8 @@
     "verify": "pnpm run check && pnpm run test:rust && pnpm run build && pnpm run test && pnpm run test:e2e",
     "contracts:generate": "node tools/contracts.mjs",
     "contracts:check": "node tools/contracts.mjs --check",
-    "build:wasm": "node tools/build-wasm.mjs"
+    "build:wasm": "node tools/build-wasm.mjs",
+    "content:cars": "node tools/cars.mjs"
   },
   "devDependencies": {
     "@ast-grep/cli": "0.51.0",

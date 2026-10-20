@@ -1,0 +1,11 @@
+{
+  "id": "vanta-26",
+  "name": "Vanta V26",
+  "lods": ["lod0.glb", "lod1.glb", "lod2.glb", "lod3.glb"],
+  "liveryMask": "livery-mask.png",
+  "liveries": [
+    "liveries/ember.json",
+    "liveries/glacier.json",
+    "liveries/nightjar.json"
+  ]
+}

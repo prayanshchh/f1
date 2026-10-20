@@ -29,6 +29,7 @@
     "contracts:generate": "node tools/contracts.mjs",
     "contracts:check": "node tools/contracts.mjs --check",
     "build:wasm": "node tools/build-wasm.mjs",
+    "content:cars": "node tools/cars.mjs",
     "assets:build": "node tools/assets.mjs"
   },
   "devDependencies": {

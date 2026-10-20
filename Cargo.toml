@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/contracts", "crates/physics", "crates/physics-wasm", "crates/replay", "crates/chassis", "crates/chassis-replay"]
+members = ["crates/aero", "crates/contracts", "crates/physics", "crates/physics-wasm", "crates/powertrain", "crates/replay", "crates/tyre", "crates/chassis", "crates/chassis-replay", "crates/scenario"]
 resolver = "3"
 
 [workspace.package]

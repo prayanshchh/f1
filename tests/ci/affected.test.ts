@@ -50,6 +50,7 @@ function select(files: string[], after = base, workspace = members): string[] {
   const crates = workspaceCrates(
     root(workspace),
     (file) => manifests[file] ?? "",
+    () => [],
   );
   return affectedCrates({ files, crates, before: base, after });
 }
@@ -103,4 +104,21 @@ test("changing shared workspace settings runs every crate", () => {
   expect(
     select(["Cargo.toml"], { root: root(members, "warn"), lock: base.lock }),
   ).toEqual(["a", "b", "c"]);
+});
+
+test("a crates/* member glob expands to every crate directory", () => {
+  const crates = workspaceCrates(
+    root(["crates/*"]),
+    (file) => manifests[file] ?? "",
+    (directory) => (directory === "crates" ? ["c", "a", "b"] : []),
+  );
+  expect(crates.map((crate) => crate.name)).toEqual(["a", "b", "c"]);
+  expect(
+    affectedCrates({
+      files: ["crates/a/src/lib.rs"],
+      crates,
+      before: base,
+      after: base,
+    }),
+  ).toEqual(["a", "b"]);
 });

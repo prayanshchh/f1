@@ -6,12 +6,19 @@
         "tests/**/*.e2e.ts",
         "tests/support/*.ts",
         "*.config.ts",
-        "tools/*.mjs"
+        "tools/*.mjs",
+        ".github/scripts/*.ts"
       ],
-      "project": ["tests/**/*.ts", "*.config.ts", "*.mjs", "tools/*.mjs"]
+      "project": [
+        "tests/**/*.ts",
+        "*.config.ts",
+        "*.mjs",
+        "tools/*.mjs",
+        ".github/scripts/*.ts"
+      ]
     },
     "apps/client": {
-      "entry": ["src/hud/index.ts"],
+      "entry": ["src/hud/index.ts", "src/contracts/index.ts"],
       "project": ["src/**/*.ts"]
     },
     "apps/telemetry": {

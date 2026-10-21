@@ -1,0 +1,54 @@
+name: CI toolchain
+description: Install the pinned toolchain and cache reusable build inputs
+inputs:
+  cache-key:
+    description: Rust build cache name for this job
+    required: true
+  javascript:
+    description: Install Node and JavaScript dependencies
+    default: "true"
+  wasm-bindings:
+    description: Install the wasm-bindgen CLI matching Cargo.lock
+    default: "false"
+  chrome:
+    description: Install Chrome for browser tests
+    default: "false"
+  machete:
+    description: Install the Rust dependency checker
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v6.1.0
+      if: inputs.javascript == 'true'
+    - uses: actions/setup-node@v7.1.0
+      if: inputs.javascript == 'true'
+      with:
+        node-version-file: .nvmrc
+        cache: pnpm
+    - name: Install locked JavaScript dependencies
+      if: inputs.javascript == 'true'
+      shell: bash
+      run: pnpm install --frozen-lockfile
+    - uses: Swatinem/rust-cache@v2.9.3
+      with:
+        key: ${{ inputs.cache-key }}
+        cache-on-failure: true
+        save-if: ${{ github.ref == 'refs/heads/main' }}
+    - name: Read the wasm-bindgen version from Cargo.lock
+      id: bindgen
+      if: inputs.wasm-bindings == 'true'
+      shell: bash
+      run: echo "version=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/"/, "", $3); print $3 }' Cargo.lock)" >> "$GITHUB_OUTPUT"
+    - uses: taiki-e/install-action@v2.87.29
+      if: inputs.wasm-bindings == 'true'
+      with:
+        tool: wasm-bindgen@${{ steps.bindgen.outputs.version }}
+    - uses: taiki-e/install-action@v2.87.29
+      if: inputs.machete == 'true'
+      with:
+        tool: cargo-machete
+    - name: Install Chrome
+      if: inputs.chrome == 'true'
+      shell: bash
+      run: pnpm exec playwright install chrome

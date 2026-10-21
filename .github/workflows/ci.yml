@@ -1,27 +1,111 @@
 name: CI
 on:
-  push:
-    branches: [master]
   pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
-  verify:
+  changes:
+    name: Affected code
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      crates: ${{ steps.affected.outputs.crates }}
+      code: ${{ steps.affected.outputs.code }}
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: pnpm/action-setup@v6.1.0
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v7.1.0
         with:
           node-version-file: .nvmrc
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm exec playwright install chrome
-      - run: cargo install cargo-machete --locked
-      - run: node tools/install-wasm-bindgen.mjs
-      - run: pnpm run verify
+      - id: affected
+        run: node .github/scripts/affected.ts
+  rust:
+    name: Rust unit (${{ matrix.crate }})
+    needs: changes
+    if: needs.changes.outputs.crates != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        crate: ${{ fromJSON(needs.changes.outputs.crates) }}
+    env:
+      CRATE: ${{ matrix.crate }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: ./.github/actions/setup
+        with:
+          cache-key: rust-${{ matrix.crate }}
+          javascript: "false"
+      - run: cargo clippy --locked --package "$CRATE" --all-targets -- -D warnings
+      - run: cargo test --locked --package "$CRATE" --all-targets
+      - run: cargo build --locked --package "$CRATE" --target wasm32-unknown-unknown
+  quality:
+    name: Formatting, lint, types and dependencies
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: ./.github/actions/setup
+        with:
+          cache-key: quality
+          machete: "true"
+      - run: pnpm run check
+  node:
+    name: Node integration
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: ./.github/actions/setup
+        with:
+          cache-key: node
+          wasm-bindings: "true"
+      - run: pnpm run test
+  browser:
+    name: Browser integration
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: ./.github/actions/setup
+        with:
+          cache-key: browser
+          wasm-bindings: "true"
+          chrome: "true"
+      - run: pnpm run test:e2e
       - uses: actions/upload-artifact@v7.0.2
         if: failure()
         with:
-          name: playwright-failure-context
+          name: browser-integration-failures
           path: test-results/
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 7
+  result:
+    name: CI result
+    if: always()
+    needs: [changes, rust, quality, node, browser]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every selected job to pass
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "$RESULTS"
+          for result in $RESULTS; do
+            [[ "$result" == success || "$result" == skipped ]] || exit 1
+          done

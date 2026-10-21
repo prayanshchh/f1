@@ -27,7 +27,7 @@ jobs:
       - id: affected
         run: node .github/scripts/affected.ts
   rust:
-    name: Rust unit (${{ matrix.crate }})
+    name: Rust unit
     needs: changes
     if: needs.changes.outputs.crates != '[]'
     runs-on: ubuntu-latest

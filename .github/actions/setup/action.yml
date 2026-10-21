@@ -1,11 +1,14 @@
 name: CI toolchain
 description: Install the pinned toolchain and cache reusable build inputs
 inputs:
+  cache-key:
+    description: Rust build cache name for this job
+    required: true
   javascript:
     description: Install Node and JavaScript dependencies
     default: "true"
   wasm-bindings:
-    description: Install the matching wasm-bindgen CLI
+    description: Install the wasm-bindgen CLI matching Cargo.lock
     default: "false"
   chrome:
     description: Install Chrome for browser tests
@@ -27,35 +30,24 @@ runs:
       if: inputs.javascript == 'true'
       shell: bash
       run: pnpm install --frozen-lockfile
-    - name: Cache Rust dependencies and builds
-      uses: actions/cache@v6.1.0
+    - uses: Swatinem/rust-cache@v2.9.3
       with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          target
-        key: ${{ runner.os }}-rust-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}-${{ github.workflow }}-${{ github.job }}
-        restore-keys: |
-          ${{ runner.os }}-rust-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}-
-    - name: Configure the CI tool directory
-      shell: bash
-      run: |
-        echo "CARGO_INSTALL_ROOT=$RUNNER_TOOL_CACHE/f1-cargo-tools" >> "$GITHUB_ENV"
-        echo "$RUNNER_TOOL_CACHE/f1-cargo-tools/bin" >> "$GITHUB_PATH"
-    - name: Cache Rust command-line tools
-      if: inputs.wasm-bindings == 'true' || inputs.machete == 'true'
-      uses: actions/cache@v6.1.0
-      with:
-        path: ${{ runner.tool_cache }}/f1-cargo-tools
-        key: ${{ runner.os }}-rust-tools-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
-    - name: Install matching WebAssembly bindings
+        key: ${{ inputs.cache-key }}
+        cache-on-failure: true
+        save-if: ${{ github.ref == 'refs/heads/main' }}
+    - name: Read the wasm-bindgen version from Cargo.lock
+      id: bindgen
       if: inputs.wasm-bindings == 'true'
       shell: bash
-      run: node tools/install-wasm-bindgen.mjs
-    - name: Install cargo-machete
+      run: echo "version=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/"/, "", $3); print $3 }' Cargo.lock)" >> "$GITHUB_OUTPUT"
+    - uses: taiki-e/install-action@v2.87.29
+      if: inputs.wasm-bindings == 'true'
+      with:
+        tool: wasm-bindgen@${{ steps.bindgen.outputs.version }}
+    - uses: taiki-e/install-action@v2.87.29
       if: inputs.machete == 'true'
-      shell: bash
-      run: cargo install cargo-machete --locked
+      with:
+        tool: cargo-machete
     - name: Install Chrome
       if: inputs.chrome == 'true'
       shell: bash

@@ -18,7 +18,11 @@
       ]
     },
     "apps/client": {
-      "entry": ["src/hud/index.ts", "src/contracts/index.ts"],
+      "entry": [
+        "src/hud/index.ts",
+        "src/contracts/index.ts",
+        "src/audio/index.ts"
+      ],
       "project": ["src/**/*.ts"]
     },
     "apps/telemetry": {

@@ -18,5 +18,5 @@
     "types": ["node", "@webgpu/types"],
     "lib": ["ES2023", "DOM"]
   },
-  "include": ["tests/**/*.ts", "*.config.ts"]
+  "include": ["tests/**/*.ts", "*.config.ts", ".github/scripts/*.ts"]
 }

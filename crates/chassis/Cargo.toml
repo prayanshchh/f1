@@ -12,7 +12,7 @@ libm = "0.2"
 
 [[test]]
 name = "spec"
-path = "../../tests/p1/rust/chassis.rs"
+path = "../../tests/chassis/rust/chassis.rs"
 
 [lints]
 workspace = true

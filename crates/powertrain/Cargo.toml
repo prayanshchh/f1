@@ -9,7 +9,7 @@ libm = "0.2"
 
 [[test]]
 name = "spec"
-path = "../../tests/p3/rust/powertrain.rs"
+path = "../../tests/powertrain/rust/powertrain.rs"
 
 [lints]
 workspace = true

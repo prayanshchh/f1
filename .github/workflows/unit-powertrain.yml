@@ -1,0 +1,34 @@
+name: Powertrain unit tests
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  powertrain:
+    uses: ./.github/workflows/_unit.yml
+    with:
+      paths: |
+        crates/powertrain/**
+        Cargo.*
+        rust-toolchain.toml
+        tests/p3/**
+        tests/support/**
+        package.json
+        pnpm-lock.yaml
+        pnpm-workspace.yaml
+        .nvmrc
+        tsconfig.json
+        vitest.config.ts
+        vitest.unit.config.ts
+        .github/workflows/_unit.yml
+        .github/actions/setup/**
+        .github/workflows/unit-powertrain.yml
+        .github/scripts/unit-changes.mjs
+      crate: "powertrain"
+      suite: "tests/p3"

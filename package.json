@@ -24,6 +24,8 @@
     "build": "pnpm run build:wasm && pnpm --filter ./apps/client run build && pnpm --filter ./apps/telemetry run build",
     "test:rust": "cargo test --workspace --locked",
     "test": "vitest run",
+    "test:unit": "vitest run --config vitest.unit.config.ts",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:e2e": "playwright test",
     "verify": "pnpm run check && pnpm run test:rust && pnpm run build && pnpm run test && pnpm run test:e2e",
     "contracts:generate": "node tools/contracts.mjs",

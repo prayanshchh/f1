@@ -1,0 +1,66 @@
+:root {
+  color: #edf7ff;
+  background: #182737;
+  font:
+    14px system-ui,
+    sans-serif;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+}
+
+canvas {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+}
+
+header {
+  position: fixed;
+  top: 32px;
+  left: 36px;
+  pointer-events: none;
+  text-shadow: 0 2px 12px #10202f;
+}
+
+header span {
+  letter-spacing: 0.18em;
+  color: #84e0df;
+  font-size: 11px;
+}
+
+h1 {
+  margin: 8px 0;
+  font-size: 36px;
+  font-weight: 500;
+}
+
+header p {
+  color: #c6d4e0;
+}
+
+output {
+  position: fixed;
+  bottom: 24px;
+  left: 24px;
+  padding: 14px 20px;
+  background: #0e1c2be8;
+  border: 1px solid #72929b66;
+  border-radius: 8px;
+  font:
+    12px/1.8 ui-monospace,
+    monospace;
+  white-space: pre-line;
+}
+
+[role="alert"] {
+  position: fixed;
+  top: 40%;
+  left: 10%;
+  right: 10%;
+  padding: 24px;
+  background: #451e2d;
+  border: 1px solid #fc9eae;
+}

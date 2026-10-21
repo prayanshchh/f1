@@ -1,0 +1,62 @@
+name: CI toolchain
+description: Install the pinned toolchain and cache reusable build inputs
+inputs:
+  javascript:
+    description: Install Node and JavaScript dependencies
+    default: "true"
+  wasm-bindings:
+    description: Install the matching wasm-bindgen CLI
+    default: "false"
+  chrome:
+    description: Install Chrome for browser tests
+    default: "false"
+  machete:
+    description: Install the Rust dependency checker
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v6.1.0
+      if: inputs.javascript == 'true'
+    - uses: actions/setup-node@v7.1.0
+      if: inputs.javascript == 'true'
+      with:
+        node-version-file: .nvmrc
+        cache: pnpm
+    - name: Install locked JavaScript dependencies
+      if: inputs.javascript == 'true'
+      shell: bash
+      run: pnpm install --frozen-lockfile
+    - name: Cache Rust dependencies and builds
+      uses: actions/cache@v6.1.0
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-rust-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}-${{ github.workflow }}-${{ github.job }}
+        restore-keys: |
+          ${{ runner.os }}-rust-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}-
+    - name: Configure the CI tool directory
+      shell: bash
+      run: |
+        echo "CARGO_INSTALL_ROOT=$RUNNER_TOOL_CACHE/f1-cargo-tools" >> "$GITHUB_ENV"
+        echo "$RUNNER_TOOL_CACHE/f1-cargo-tools/bin" >> "$GITHUB_PATH"
+    - name: Cache Rust command-line tools
+      if: inputs.wasm-bindings == 'true' || inputs.machete == 'true'
+      uses: actions/cache@v6.1.0
+      with:
+        path: ${{ runner.tool_cache }}/f1-cargo-tools
+        key: ${{ runner.os }}-rust-tools-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
+    - name: Install matching WebAssembly bindings
+      if: inputs.wasm-bindings == 'true'
+      shell: bash
+      run: node tools/install-wasm-bindgen.mjs
+    - name: Install cargo-machete
+      if: inputs.machete == 'true'
+      shell: bash
+      run: cargo install cargo-machete --locked
+    - name: Install Chrome
+      if: inputs.chrome == 'true'
+      shell: bash
+      run: pnpm exec playwright install chrome

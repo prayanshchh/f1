@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { appendFileSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 export interface Crate {
@@ -120,10 +120,18 @@ export function affectedCrates(change: Change): string[] {
 export function workspaceCrates(
   root: string,
   read: (file: string) => string,
+  children: (directory: string) => string[],
 ): Crate[] {
   const members = /^members\s*=\s*\[([^\]]*)\]/m.exec(root)?.[1] ?? "";
-  return [...members.matchAll(/"([^"]+)"/g)].map((match) => {
-    const directory = match[1] ?? "";
+  const directories = [...members.matchAll(/"([^"]+)"/g)].flatMap((match) => {
+    const member = match[1] ?? "";
+    return member.endsWith("/*")
+      ? children(member.slice(0, -2)).map((child) =>
+          path.join(member.slice(0, -2), child),
+        )
+      : [member];
+  });
+  return directories.sort().map((directory) => {
     const manifest = read(path.join(directory, "Cargo.toml"));
     const name = /^name\s*=\s*"([^"]+)"/m.exec(manifest)?.[1];
     if (name === undefined) {
@@ -178,7 +186,18 @@ function comparedRange(event: GitHubEvent): [string, string] | undefined {
 function selection(event: GitHubEvent): { crates: string[]; code: boolean } {
   const range = comparedRange(event);
   const root = readFileSync("Cargo.toml", "utf8");
-  const crates = workspaceCrates(root, (file) => readFileSync(file, "utf8"));
+  const crates = workspaceCrates(
+    root,
+    (file) => readFileSync(file, "utf8"),
+    (directory) =>
+      readdirSync(directory, { withFileTypes: true })
+        .filter(
+          (entry) =>
+            entry.isDirectory() &&
+            existsSync(path.join(directory, entry.name, "Cargo.toml")),
+        )
+        .map((entry) => entry.name),
+  );
   if (range === undefined) {
     return { crates: crates.map((crate) => crate.name).sort(), code: true };
   }

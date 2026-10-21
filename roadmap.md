@@ -1,6 +1,8 @@
 # Roadmap
 
-Status values: **Done**, **Not started**. A task is done only when its tests in `tests/<name>/` pass in CI.
+Status values: **Done**, **Not started**. A task is done only when its tests in `tests/<name>/` pass in CI. Each task has a plan for its implementer in `plans/<name>/plan.md`.
+
+The first goal is a fully local prototype: one player races AI cars in the browser with no server. The Network, Data and Security sections are deferred until after that.
 
 Everything above the "Later (V2)" section belongs to the V1 architecture: one game server, one PostgreSQL database, no Redis, no object storage.
 
@@ -13,18 +15,19 @@ Everything above the "Later (V2)" section belongs to the V1 architecture: one ga
 
 ## Physics
 
-| Name           | Task                                                                                                           | Needs                                      | Done when                                                                                                         | Status      |
-| -------------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- | ----------- |
-| chassis        | Chassis, 4 suspension corners, fixed step, save/load, determinism check                                        | world                                      | The car settles after a drop; browser and server-build state hashes match for 10,000 ticks                        | Done        |
-| tyre           | Tyre forces: Pacejka formula, combined slip, load sensitivity (pure functions)                                 | world                                      | Curve unit tests pass; plots look right                                                                           | Done        |
-| powertrain     | Engine, 8-speed gearbox, differential, brakes and brake bias, 2026 hybrid energy system                        | world                                      | Wheel-torque and energy-balance tests pass                                                                        | Done        |
-| aero           | Aero: drag, front/rear downforce, ride-height effect, active-aero modes                                        | world                                      | Tests against target curves pass                                                                                  | Done        |
-| car-model      | Combine into one car and calibrate it                                                                          | chassis, tyre, powertrain, aero, telemetry | 0–100 ≈ 2.6 s, top ≈ 340–350 km/h, ~5 g cornering and braking                                                     | Not started |
-| track-contact  | Track contact: asphalt, kerbs, grass, gravel, bumps, walls (Rapier with `enhanced-determinism`), no tunnelling | car-model, track                           | Surface scenarios pass; a 300 km/h wall hit never passes through; hashes still match browser vs native            | Not started |
-| tyre-wear      | Tyre temperature, wear, Soft/Medium/Hard, fuel mass                                                            | car-model                                  | Soft is fastest over 3 laps but slower over 25; wear depends on driving style                                     | Not started |
-| car-collisions | Car-to-car collisions                                                                                          | track-contact                              | Side, rear and pile-up scenarios stay stable                                                                      | Not started |
-| slipstream     | Slipstream and dirty air                                                                                       | car-model                                  | Following car gains on straights and loses grip in corners                                                        | Not started |
-| assists        | Actuators and assists inside the car model: steering-rack rate limit, pedal travel, TC, ABS                    | powertrain                                 | A step input reaches the wheels at the rack's rate; an assisted car and a perfectly scripted car lap within noise | Not started |
+| Name            | Task                                                                                                           | Needs                                      | Done when                                                                                                                             | Status      |
+| --------------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
+| chassis         | Chassis, 4 suspension corners, fixed step, save/load, determinism check                                        | world                                      | The car settles after a drop; browser and server-build state hashes match for 10,000 ticks                                            | Done        |
+| tyre            | Tyre forces: Pacejka formula, combined slip, load sensitivity (pure functions)                                 | world                                      | Curve unit tests pass; plots look right                                                                                               | Done        |
+| powertrain      | Engine, 8-speed gearbox, differential, brakes and brake bias, 2026 hybrid energy system                        | world                                      | Wheel-torque and energy-balance tests pass                                                                                            | Done        |
+| aero            | Aero: drag, front/rear downforce, ride-height effect, active-aero modes                                        | world                                      | Tests against target curves pass                                                                                                      | Done        |
+| car-model       | Combine into one car and calibrate it                                                                          | chassis, tyre, powertrain, aero, telemetry | 0–100 ≈ 2.6 s, top ≈ 340–350 km/h, ~5 g cornering and braking                                                                         | Not started |
+| track-contact   | Track contact: asphalt, kerbs, grass, gravel, bumps, walls (Rapier with `enhanced-determinism`), no tunnelling | car-model, track                           | Surface scenarios pass; a 300 km/h wall hit never passes through; hashes still match browser vs native                                | Not started |
+| tyre-wear       | Pure functions: tyre temperature, wear, Soft/Medium/Hard, fuel mass                                            | tyre                                       | Soft is fastest over 3 laps but slower over 25; wear depends on driving style                                                         | Not started |
+| car-collisions  | Car-to-car collisions                                                                                          | track-contact                              | Side, rear and pile-up scenarios stay stable                                                                                          | Not started |
+| slipstream      | Pure functions: slipstream and dirty air from the gap to the car ahead                                         | aero                                       | Following car gains on straights and loses grip in corners                                                                            | Not started |
+| assists         | Pure functions: steering-rack rate limit, pedal travel, TC, ABS                                                | powertrain                                 | A step input reaches the wheels at the rack's rate; an assisted car and a perfectly scripted car lap within noise                     | Not started |
+| car-integration | Plug assists, tyre wear and slipstream into the full car model                                                 | car-model, assists, tyre-wear, slipstream  | The assisted car laps within noise of a perfectly scripted car; tyres wear and fuel burns during a run; a follower gains on straights | Not started |
 
 ## Tooling
 
@@ -44,7 +47,7 @@ Everything above the "Later (V2)" section belongs to the V1 architecture: one ga
 
 | Name          | Task                                                                                                                            | Needs             | Done when                                                                                                | Status      |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------- | ----------------- | -------------------------------------------------------------------------------------------------------- | ----------- |
-| render        | Render core: render worker (OffscreenCanvas), cameras, glTF, PBR, GPU-timing overlay; reads state from runtime and interpolates | world, runtime    | Placeholder scene at 60 FPS with GPU timings shown; the world's stub car is drawn moving along the track | Done        |
+| render        | Render core: render worker (OffscreenCanvas), cameras, glTF, PBR, GPU-timing overlay; reads state from runtime and interpolates | world, runtime    | Placeholder scene at 60 FPS with GPU timings shown; the world's stub car is drawn moving along the track | In progress |
 | quality-tiers | Quality tiers, startup benchmark, dynamic resolution, temporal upscaler, shader warm-up, WebGL2 Basic tier                      | render            | Air vs Pro pick different tiers; no first-sight hitches; no WebGPU → Basic tier instead of an error      | Not started |
 | car-render    | Car rendering: paint and carbon materials, cockpit, halo, mirrors                                                               | render, car       | Side-by-side with the reference screenshots                                                              | Not started |
 | track-render  | Track environment: terrain, baked lighting, grandstands, crowds, sky                                                            | render, track-art | Target FPS per tier holds                                                                                | Not started |
@@ -54,24 +57,26 @@ Everything above the "Later (V2)" section belongs to the V1 architecture: one ga
 
 ## Content
 
-| Name        | Task                                                                        | Needs            | Done when                          | Status      |
-| ----------- | --------------------------------------------------------------------------- | ---------------- | ---------------------------------- | ----------- |
-| car         | Original 2026-style car: exterior, cockpit, levels of detail, livery system | world            | Passes the asset budgets           | Done        |
-| track       | Track 1 data: layout, elevation, surfaces, walls, pit lane, sectors         | world            | Drivable in the stub world         | Done        |
-| track-art   | Track 1 environment art                                                     | track            | Passes the asset budgets           | Not started |
-| teams       | Fictional teams, drivers, liveries                                          | —                | 10 teams × 2 drivers defined       | Not started |
-| more-tracks | Each additional track (one agent per track)                                 | track's pipeline | Same checks as track and track-art | Not started |
+| Name        | Task                                                                        | Needs            | Done when                                 | Status      |
+| ----------- | --------------------------------------------------------------------------- | ---------------- | ----------------------------------------- | ----------- |
+| car         | Original 2026-style car: exterior, cockpit, levels of detail, livery system | world            | Passes the asset budgets                  | Done        |
+| track       | Track 1 data: layout, elevation, surfaces, walls, pit lane, sectors         | world            | Drivable in the stub world                | Done        |
+| track-art   | Track 1 environment art                                                     | track            | Passes the asset budgets                  | Not started |
+| teams       | Fictional teams, drivers, liveries                                          | —                | 11 teams × 2 drivers fill the 22-car grid | Not started |
+| more-tracks | Each additional track (one agent per track)                                 | track's pipeline | Same checks as track and track-art        | Not started |
 
 ## Game
 
-| Name         | Task                                                                  | Needs                 | Done when                                | Status      |
-| ------------ | --------------------------------------------------------------------- | --------------------- | ---------------------------------------- | ----------- |
-| input        | Input: keyboard smoothing, gamepad, WebHID wheel with force feedback  | world, runtime        | Clean keyboard driving; wheel works      | Done        |
-| hud          | HUD and menus: speed, gear, energy, tyre temperatures and wear, delta | world                 | Shows only real sim values               | Done        |
-| audio        | Engine and tyre audio (AudioWorklet fed from shared state)            | world, runtime        | Pitch follows RPM and load               | Done        |
-| lap-timing   | Lap timing, sectors, track limits                                     | track, car-model      | Shortcuts or reversing can't create laps | Not started |
-| pit-stops    | Pit lane, speed limiter, pit stops                                    | lap-timing, tyre-wear | 1-stop vs 2-stop is a real trade-off     | Not started |
-| race-session | Race session: lights, grid, penalties, results                        | lap-timing            | Full race runs start to finish           | Not started |
+| Name         | Task                                                                                                                               | Needs                                   | Done when                                                        | Status      |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- | ---------------------------------------------------------------- | ----------- |
+| input        | Input: keyboard smoothing, gamepad, WebHID wheel with force feedback                                                               | world, runtime                          | Clean keyboard driving; wheel works                              | In progress |
+| hud          | HUD and menus: speed, gear, energy, tyre temperatures and wear, delta                                                              | world                                   | Shows only real sim values                                       | In progress |
+| audio        | Engine and tyre audio (AudioWorklet fed from shared state)                                                                         | world, runtime                          | Pitch follows RPM and load                                       | Done        |
+| drive        | Drive page: car drawn at the world's position with a chase camera, input module drives the world, HUD lap times, plain road ribbon | runtime, render, input, hud             | A lap driven on screen with the keyboard shows a lap time        | Not started |
+| lap-timing   | Lap timing, sectors, track limits from position traces                                                                             | track                                   | Shortcuts or reversing can't create laps                         | Not started |
+| pit-stops    | Pit lane, speed limiter, pit stops                                                                                                 | lap-timing, tyre-wear                   | 1-stop vs 2-stop is a real trade-off                             | Not started |
+| race-session | Race session: lights, grid, penalties, results                                                                                     | lap-timing                              | Full race runs start to finish                                   | Not started |
+| solo-race    | Fully local race in the browser: 1 human + 21 AI cars, no server                                                                   | runtime, ai-driver, race-session, teams | A full solo race runs start to finish with no network connection | Not started |
 
 ## AI
 
@@ -79,13 +84,13 @@ AI is a deterministic Rust crate (`crates/ai`) that produces an `Input` per AI c
 
 | Name         | Task                                                                                                                                              | Needs                                       | Done when                                                                                                                                                          | Status      |
 | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------- |
-| racing-line  | Racing line + speed plan                                                                                                                          | track, car-model                            | Line and speed profile generated for Track 1                                                                                                                       | Not started |
+| racing-line  | Racing line + speed plan from track geometry and a grip/power envelope                                                                            | track                                       | Line and speed profile generated for Track 1                                                                                                                       | Not started |
 | ai-driver    | AI driving controller in `crates/ai` (same car, no extra grip, deterministic, internal state saved with the world)                                | racing-line                                 | Clean laps within a few % of a good human; the same race gives identical hashes in Chrome and native; save → load → continue matches an uninterrupted run          | Not started |
 | ai-racecraft | AI racecraft: overtaking, defending, avoidance                                                                                                    | ai-driver, car-collisions                   | 20-car race without pile-ups                                                                                                                                       | Not started |
 | ai-incidents | AI incident handling: reacts to contact, spins, damage and being pushed off track; recovers and rejoins safely; avoids cars stopped after a crash | ai-racecraft, car-collisions, track-contact | After a human hits an AI car at any angle, the AI either recovers and rejoins without hitting anyone, or retires if too damaged; same outcome in Chrome and native | Not started |
 | ai-strategy  | AI tyre and pit strategy                                                                                                                          | ai-driver, tyre-wear, pit-stops             | AI cars choose different strategies                                                                                                                                | Not started |
 
-## Network (V1: one game server)
+## Network (V1: one game server, deferred until after the local prototype)
 
 | Name             | Task                                                                                                                                                                                                                                                                           | Needs                                  | Done when                                                                                                                                          | Status      |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
@@ -100,7 +105,7 @@ AI is a deterministic Rust crate (`crates/ai`) that produces an `Input` per AI c
 | race-modes       | Race modes: solo (1 human + 21 AI, fully local, no server), mixed (humans + AI on the server), all-human (server)                                                                                                                                                              | runtime, ai-driver, server             | A solo race opens no network connection; in a 2-human + 20-AI room both browsers show the same AI cars                                             | Not started |
 | deployment       | V1 deployment: one public VM, domain + TLS certificate, UDP and TCP 443 open, game server + PostgreSQL, static client on a CDN                                                                                                                                                 | server                                 | Two browsers on different networks race through the public server; restarting the VM brings everything back                                        | Not started |
 
-## Data (V1: PostgreSQL only)
+## Data (V1: PostgreSQL only, deferred until after the local prototype)
 
 | Name          | Task                                                                                                                                                                                                                                        | Needs                       | Done when                                                                                      | Status      |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- | ---------------------------------------------------------------------------------------------- | ----------- |
@@ -108,7 +113,7 @@ AI is a deterministic Rust crate (`crates/ai`) that produces an `Input` per AI c
 | results       | Results schema in PostgreSQL: players, races, participants, laps, sector times, leaderboards; the server writes through an async writer task                                                                                                | lap-timing, replays         | The tick loop never waits for the database; solo laps never appear on the verified leaderboard | Not started |
 | lap-telemetry | Lap telemetry in PostgreSQL: one row per car per lap with compressed channel arrays (speed, throttle, brake, steer, gear, RPM)                                                                                                              | replays, results, telemetry | Querying any stored lap returns its channels; a full 22-car race stays under its size budget   | Not started |
 
-## Security and operations (V1)
+## Security and operations (V1, deferred until after the local prototype)
 
 | Name    | Task                                                                                                                            | Needs  | Done when                                                            | Status      |
 | ------- | ------------------------------------------------------------------------------------------------------------------------------- | ------ | -------------------------------------------------------------------- | ----------- |

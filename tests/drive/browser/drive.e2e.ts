@@ -99,8 +99,26 @@ async function accelerate(page: Page): Promise<void> {
   await expect
     .poll(async () => carAt((await world(page)).snapshot).lapDistance, {
       timeout: 30_000,
+      intervals: [20, 50, 100],
     })
     .toBeGreaterThanOrEqual(80);
+}
+
+async function holdThrottleAndLeft(
+  page: Page,
+  timeout = 10_000,
+): Promise<void> {
+  await page.keyboard.down("ArrowLeft");
+  await page.keyboard.down("ArrowUp");
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => window.drive.inputLog())).some(
+          (i) => i.steer === 1 && i.throttle === 1,
+        ),
+      { timeout },
+    )
+    .toBe(true);
 }
 
 test("holding throttle moves the drawn car with the world", async ({
@@ -120,18 +138,29 @@ test("holding throttle moves the drawn car with the world", async ({
     distanceBetween((await rendered(page)).position, start.position),
   ).toBeLessThan(1e-3);
   await accelerate(page);
-  const observed = await page.evaluate(() => {
-    const element = document.querySelector('[data-testid="drive-canvas"]');
-    return {
-      state: window.drive.state(),
-      tick: Number(element?.getAttribute("data-rendered-tick")),
-      position: {
-        x: Number(element?.getAttribute("data-car-x")),
-        y: Number(element?.getAttribute("data-car-y")),
-        z: Number(element?.getAttribute("data-car-z")),
+  const observe = () =>
+    page.evaluate(() => {
+      const element = document.querySelector('[data-testid="drive-canvas"]');
+      return {
+        state: window.drive.state(),
+        tick: Number(element?.getAttribute("data-rendered-tick")),
+        position: {
+          x: Number(element?.getAttribute("data-car-x")),
+          y: Number(element?.getAttribute("data-car-y")),
+          z: Number(element?.getAttribute("data-car-z")),
+        },
+      };
+    });
+  let observed = await observe();
+  await expect
+    .poll(
+      async () => {
+        observed = await observe();
+        return observed.state.tick - observed.tick;
       },
-    };
-  });
+      { timeout: 30_000, intervals: [20, 50, 100] },
+    )
+    .toBeLessThanOrEqual(250);
   expect(
     distanceBetween(observed.position, start.position),
   ).toBeGreaterThanOrEqual(50);
@@ -159,6 +188,19 @@ test("the chase camera keeps the car in place on screen while the road moves pas
   await page.waitForTimeout(500);
   expect(changed(a, await shot(page))).toBeLessThan(0.01);
   await accelerate(page);
+  await page.keyboard.up("ArrowUp");
+  await page.keyboard.down("ArrowDown");
+  await expect
+    .poll(async () => magnitude(carAt((await world(page)).snapshot).velocity), {
+      timeout: 15_000,
+    })
+    .toBe(0);
+  await page.keyboard.up("ArrowDown");
+  expect(carAt((await world(page)).snapshot).lapDistance).toBeLessThan(175);
+  const stoppedTick = (await world(page)).tick;
+  await expect
+    .poll(async () => (await rendered(page)).tick, { timeout: 30_000 })
+    .toBeGreaterThanOrEqual(stoppedTick);
   for (let frame = 0; frame < 3; frame += 1) {
     const previous = (await rendered(page)).tick;
     await expect
@@ -218,12 +260,18 @@ test("keyboard and gamepad both reach the world, steering included", async ({
     });
   });
   await openDrive(page);
-  await page.keyboard.down("ArrowLeft");
-  await page.keyboard.down("ArrowUp");
-  await page.waitForTimeout(600);
+  await holdThrottleAndLeft(page);
   await page.keyboard.up("ArrowLeft");
   await page.keyboard.up("ArrowUp");
-  await page.waitForTimeout(600);
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => window.drive.inputLog()))
+          .slice(-50)
+          .every((i) => i.steer === 0 && i.throttle === 0 && i.brake === 0),
+      { timeout: 10_000 },
+    )
+    .toBe(true);
   const keyboard = await page.evaluate(() => window.drive.inputLog());
   expect(
     keyboard.some((input) => input.steer === 1 && input.throttle === 1),
@@ -273,4 +321,34 @@ test("a bad start distance is refused with a visible explanation", async ({
       "error",
     );
   }
+});
+
+test("controls and the lap clock keep updating between slow display frames", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    window.requestAnimationFrame = (callback) =>
+      window.setTimeout(() => {
+        callback(performance.now());
+      }, 10_000);
+  });
+  await openDrive(page);
+  await holdThrottleAndLeft(page, 5000);
+  const current = seconds(await page.getByTestId("hud-lap-time").innerText());
+  await expect
+    .poll(async () =>
+      seconds(await page.getByTestId("hud-lap-time").innerText()),
+    )
+    .toBeGreaterThan(current);
+  await page.keyboard.up("ArrowLeft");
+  await page.keyboard.up("ArrowUp");
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => window.drive.inputLog()))
+          .slice(-50)
+          .every((i) => i.steer === 0 && i.throttle === 0),
+      { timeout: 5000 },
+    )
+    .toBe(true);
 });

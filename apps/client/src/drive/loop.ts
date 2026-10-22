@@ -18,46 +18,51 @@ export function startDriveLoop(parts: Parts): void {
   const { runtime, port, controls, hud, lapTimes, onError } = parts;
   const clock = createLapClock();
   let previous: number | undefined;
-  function frame(time: number): void {
-    try {
-      const dt =
-        previous === undefined
-          ? 1 / 60
-          : Math.max(0.001, Math.min(0.1, (time - previous) / 1000));
-      previous = time;
-      runtime.setInput(controls.read(dt));
-      const state = runtime.state();
-      const car = state.snapshot.cars[0];
-      if (car === undefined) throw new Error("The world has no car");
-      port.postMessage({
-        type: "pose",
-        pose: {
-          tick: state.tick,
-          position: car.position,
-          orientation: car.orientation,
-        },
-      } satisfies FollowRequest);
-      const speed = Math.hypot(car.velocity.x, car.velocity.y, car.velocity.z);
-      const times = clock.update({
+  function update(time: number): void {
+    const dt =
+      previous === undefined
+        ? 1 / 60
+        : Math.max(0.001, Math.min(0.1, (time - previous) / 1000));
+    previous = time;
+    runtime.setInput(controls.read(dt));
+    const state = runtime.state();
+    const car = state.snapshot.cars[0];
+    if (car === undefined) throw new Error("The world has no car");
+    port.postMessage({
+      type: "pose",
+      pose: {
         tick: state.tick,
-        lap: car.lap,
-        lapDistance: car.lapDistance,
-        speed,
-      });
-      hud.update({
-        speed,
-        gear: null,
-        rpm: null,
-        energy: null,
-        tyres: null,
-        delta: null,
-        lap: {
-          current: Math.min(times.completed + 1, SESSION_LAPS),
-          total: SESSION_LAPS,
-        },
-      });
-      lapTimes.update({ current: times.current, last: times.last });
-      requestAnimationFrame(frame);
+        position: car.position,
+        orientation: car.orientation,
+      },
+    } satisfies FollowRequest);
+    const speed = Math.hypot(car.velocity.x, car.velocity.y, car.velocity.z);
+    const times = clock.update({
+      tick: state.tick,
+      lap: car.lap,
+      lapDistance: car.lapDistance,
+      speed,
+    });
+    hud.update({
+      speed,
+      gear: null,
+      rpm: null,
+      energy: null,
+      tyres: null,
+      delta: null,
+      lap: {
+        current: Math.min(times.completed + 1, SESSION_LAPS),
+        total: SESSION_LAPS,
+      },
+    });
+    lapTimes.update({ current: times.current, last: times.last });
+  }
+  let timer = 0;
+  function frame(): void {
+    try {
+      if (document.hidden) previous = undefined;
+      else update(performance.now());
+      timer = window.setTimeout(frame, 1000 / 60);
     } catch (error) {
       onError(error);
     }
@@ -65,5 +70,12 @@ export function startDriveLoop(parts: Parts): void {
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) runtime.setInput(idleInput());
   });
-  requestAnimationFrame(frame);
+  window.addEventListener(
+    "pagehide",
+    () => {
+      window.clearTimeout(timer);
+    },
+    { once: true },
+  );
+  frame();
 }

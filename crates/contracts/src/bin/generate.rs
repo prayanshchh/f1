@@ -1,6 +1,6 @@
 use contracts::{
     CarSetup, CarState, ClientMessage, Input, MAX_CARS, PHYSICS_HZ, Quat, SNAPSHOT_INTERVAL_TICKS,
-    ServerMessage, Snapshot, TrackData, Vec3, WorldSetup,
+    ServerMessage, Snapshot, TrackData, Vec3, WheelState, WorldSetup,
 };
 use std::io::{self, Write};
 use ts_rs::TS;
@@ -10,6 +10,7 @@ fn main() -> io::Result<()> {
         Vec3::decl(),
         Quat::decl(),
         Input::decl(),
+        WheelState::decl(),
         CarState::decl(),
         Snapshot::decl(),
         TrackData::decl(),

@@ -65,10 +65,14 @@ describe("the browser build and the server build", () => {
     expect(continued).toEqual(full.hashes.slice(5000));
   });
 
-  test("read numbers exactly: the server places a car starting at 0 exactly on the first centerline point", () => {
+  test("read numbers exactly: the server places a car starting at 0 exactly above the first centerline point", () => {
     const native = replayNatively(directory, oneCar(raceTrack), []);
     expect(native.hashes).toHaveLength(1);
-    expect(native.snapshot.cars[0]?.position).toEqual(raceTrack.centerline[0]);
+    const position = native.snapshot.cars[0]?.position;
+    const point = raceTrack.centerline[0];
+    expect(position?.x).toBe(point?.x);
+    expect(position?.z).toBe(point?.z);
+    expect(position?.y).toBeCloseTo((point?.y ?? 0) + 0.3, 12);
     expect(native.snapshot).toEqual(new World(oneCar(raceTrack)).snapshot());
   });
 });

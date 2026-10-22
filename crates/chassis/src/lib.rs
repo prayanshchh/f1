@@ -11,12 +11,12 @@ pub const GRAVITY: f64 = 9.80665;
 
 const MASS: f64 = 800.0;
 const INERTIA: V3 = V3::new(950.0, 1050.0, 200.0);
-const HALF_TRACK: f64 = 0.8;
-const FRONT_AXLE: f64 = 1.98;
-const REAR_AXLE: f64 = 1.62;
-const SPRING_LENGTH: f64 = 0.33;
-const STATIC_COMPRESSION: f64 = 0.03;
-const BUMP_START: f64 = 0.06;
+pub const HALF_TRACK: f64 = 0.8;
+pub const FRONT_AXLE: f64 = 1.98;
+pub const REAR_AXLE: f64 = 1.62;
+pub const SPRING_LENGTH: f64 = 0.33;
+pub const STATIC_COMPRESSION: f64 = 0.03;
+pub const BUMP_START: f64 = 0.06;
 const BUMP_RATE: f64 = 3.0e6;
 const DAMPING_RATIO: f64 = 0.8;
 const GRIP: f64 = 1.2;
@@ -74,6 +74,7 @@ struct Contact {
     force: V3,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Chassis {
     body: Body,
     corners: [CornerState; 4],
@@ -276,5 +277,120 @@ impl Chassis {
             return Err("the saved chassis state is invalid".into());
         }
         Ok(Self::from_body(body))
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Ground {
+    pub height: f64,
+    pub normal: [f64; 3],
+}
+
+#[derive(Clone, Debug)]
+pub struct External {
+    pub ground: [Ground; 4],
+    pub tyre_forces: [Vec3; 4],
+    pub body_force: Vec3,
+    pub body_torque: Vec3,
+}
+
+fn external_contact(body: &Body, mount: &Mount, ground: Ground) -> Contact {
+    let anchor = body.orientation.rotate(mount.anchor);
+    let compression = SPRING_LENGTH - (body.position.y + anchor.y - ground.height);
+    if compression <= 0.0 {
+        return Contact {
+            corner: CornerState {
+                compression: 0.0,
+                load: 0.0,
+            },
+            arm: V3::ZERO,
+            force: V3::ZERO,
+        };
+    }
+    let arm = V3::new(anchor.x, ground.height - body.position.y, anchor.z);
+    let motion = body.velocity + body.spin.cross(arm);
+    let [x, y, z] = ground.normal;
+    let normal = V3::new(x, y, z);
+    let closing = motion.x * x + motion.y * y + motion.z * z;
+    let bump = (compression - BUMP_START).max(0.0) * BUMP_RATE;
+    let load = (mount.rate * compression - mount.damping * closing + bump).max(0.0);
+    Contact {
+        corner: CornerState { compression, load },
+        arm,
+        force: normal * load,
+    }
+}
+
+impl Chassis {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.body.is_valid() {
+            Ok(())
+        } else {
+            Err("the chassis state became non-finite".into())
+        }
+    }
+
+    pub fn corners_on(&self, ground: &[Ground; 4]) -> [CornerState; 4] {
+        std::array::from_fn(|i| external_contact(&self.body, &mounts()[i], ground[i]).corner)
+    }
+
+    pub fn step_with(&mut self, external: &External) -> Result<(), String> {
+        for g in external.ground {
+            if !g.height.is_finite() || !g.normal.iter().all(|v| v.is_finite()) {
+                return Err("the external forces and ground must be finite".into());
+            }
+            let [x, y, z] = g.normal;
+            if (libm::sqrt(x * x + y * y + z * z) - 1.0).abs() > UNIT_TOLERANCE || y <= 0.0 {
+                return Err("the ground normal must be unit length and point upwards".into());
+            }
+        }
+        if !external
+            .tyre_forces
+            .iter()
+            .chain([&external.body_force, &external.body_torque])
+            .all(|v| V3::from(v).is_finite())
+        {
+            return Err("the external forces and ground must be finite".into());
+        }
+        let mut force = V3::from(&external.body_force);
+        let mut torque = V3::from(&external.body_torque);
+        for (i, mount) in mounts().iter().enumerate() {
+            let contact = external_contact(&self.body, mount, external.ground[i]);
+            if contact.corner.compression > 0.0 {
+                let f = contact.force + V3::from(&external.tyre_forces[i]);
+                force = force + f;
+                torque = torque + contact.arm.cross(f);
+            }
+        }
+        let body = &self.body;
+        let velocity = body.velocity + V3::new(0.0, -GRAVITY * DT, 0.0) + force * (DT / MASS);
+        let momentum = angular_momentum(body.orientation, body.spin) + torque * DT;
+        let orientation = body
+            .orientation
+            .turned(spin_from(body.orientation, momentum), DT);
+        let next = Body {
+            tick: body
+                .tick
+                .checked_add(1)
+                .ok_or("the tick counter overflowed")?,
+            ground: external
+                .ground
+                .iter()
+                .map(|g| g.height)
+                .fold(f64::INFINITY, f64::min),
+            position: body.position + velocity * DT,
+            orientation,
+            velocity,
+            spin: spin_from(orientation, momentum),
+        };
+        if !next.is_valid() {
+            return Err("the chassis state became non-finite".into());
+        }
+        let corners = std::array::from_fn(|i| {
+            external_contact(&next, &mounts()[i], external.ground[i]).corner
+        });
+        self.body = next;
+        self.corners = corners;
+        Ok(())
     }
 }

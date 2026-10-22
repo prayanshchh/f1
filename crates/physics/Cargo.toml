@@ -4,6 +4,8 @@ version = "0.1.0"
 edition.workspace = true
 
 [dependencies]
+car = { path = "../car" }
+chassis = { path = "../chassis" }
 contracts = { path = "../contracts" }
 serde = { version = "1", features = ["derive"] }
 bincode = "1.3"

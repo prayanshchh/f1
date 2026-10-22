@@ -10,6 +10,12 @@ export type Input = {
   shiftUp: boolean;
   shiftDown: boolean;
 };
+export type WheelState = {
+  spin: number;
+  slipRatio: number;
+  slipAngle: number;
+  load: number;
+};
 export type CarState = {
   id: number;
   position: Vec3;
@@ -18,6 +24,13 @@ export type CarState = {
   angularVelocity: Vec3;
   lap: number;
   lapDistance: number;
+  gear: number;
+  engineRpm: number;
+  batteryEnergy: number;
+  ersPower: number;
+  straightMode: number;
+  steerAngle: number;
+  wheels: [WheelState, WheelState, WheelState, WheelState];
 };
 export type Snapshot = { tick: number; cars: Array<CarState> };
 export type TrackData = {

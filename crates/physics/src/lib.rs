@@ -1,20 +1,23 @@
+mod track;
+
 use bincode::Options;
-use contracts::{CarState, Input, MAX_CARS, PHYSICS_HZ, Quat, Snapshot, Vec3, WorldSetup};
+use contracts::{CarState, Input, MAX_CARS, Quat, Snapshot, Vec3, WheelState, WorldSetup};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 #[derive(Clone, Serialize, Deserialize)]
-struct Motion {
+struct Racer {
+    car: car::Car,
     distance: f64,
-    speed: f64,
-    lap: u32,
+    lap: i64,
+    segment: u32,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 struct State {
     setup: WorldSetup,
     tick: u32,
-    motion: Vec<Motion>,
+    racers: Vec<Racer>,
 }
 
 struct Segment {
@@ -22,7 +25,7 @@ struct Segment {
     delta: Vec3,
     length: f64,
     start: f64,
-    forward: Vec3,
+    normal: Vec3,
     orientation: Quat,
 }
 
@@ -30,14 +33,6 @@ pub struct World {
     state: State,
     segments: Vec<Segment>,
     length: f64,
-}
-
-fn zero() -> Vec3 {
-    Vec3 {
-        x: 0.0,
-        y: 0.0,
-        z: 0.0,
-    }
 }
 
 fn scale(v: &Vec3, factor: f64) -> Vec3 {
@@ -106,7 +101,7 @@ fn segments(setup: &WorldSetup) -> Result<(Vec<Segment>, f64), String> {
             length,
             start,
             orientation: orientation(&forward),
-            forward,
+            normal: track::normal(&forward),
         });
         start += length;
     }
@@ -127,7 +122,6 @@ impl World {
             return Err("world must have 1 to 22 cars".into());
         }
         let mut ids = std::collections::HashSet::new();
-        let mut motion = Vec::new();
         for car in &setup.cars {
             if !ids.insert(car.id)
                 || !car.start_distance.is_finite()
@@ -137,25 +131,67 @@ impl World {
                     "car ids must be unique and start distances must be within the lap".into(),
                 );
             }
-            motion.push(Motion {
-                distance: car.start_distance,
-                speed: 0.0,
-                lap: 0,
-            });
         }
-        Ok(Self {
+        let mut world = Self {
             state: State {
                 setup,
                 tick: 0,
-                motion,
+                racers: Vec::new(),
             },
             segments,
             length,
+        };
+        for setup in &world.state.setup.cars {
+            world.state.racers.push(world.start(setup.start_distance)?);
+        }
+        Ok(world)
+    }
+
+    fn start(&self, distance: f64) -> Result<Racer, String> {
+        let i = self
+            .segments
+            .iter()
+            .position(|s| distance < s.start + s.length)
+            .ok_or("invalid start distance")?;
+        let s = &self.segments[i];
+        let offset = scale(&s.delta, (distance - s.start) / s.length);
+        let position = Vec3 {
+            x: s.from.x + offset.x,
+            y: s.from.y + offset.y + car::REST_HEIGHT,
+            z: s.from.z + offset.z,
+        };
+        let forward = scale(&s.delta, 1.0 / s.length);
+        let horizontal = libm::sqrt(forward.x * forward.x + forward.z * forward.z);
+        let left = Vec3 {
+            x: forward.z / horizontal,
+            y: 0.0,
+            z: -forward.x / horizontal,
+        };
+        let ground = [
+            (chassis::HALF_TRACK, chassis::FRONT_AXLE),
+            (-chassis::HALF_TRACK, chassis::FRONT_AXLE),
+            (chassis::HALF_TRACK, -chassis::REAR_AXLE),
+            (-chassis::HALF_TRACK, -chassis::REAR_AXLE),
+        ]
+        .map(|(x, z)| {
+            let point = Vec3 {
+                x: position.x + x * left.x + z * forward.x,
+                y: position.y + z * forward.y,
+                z: position.z + x * left.z + z * forward.z,
+            };
+            self.ground_at(&point, i as u32)
+        });
+        let car = car::Car::new(position, s.orientation.clone(), &ground)?;
+        Ok(Racer {
+            car,
+            distance,
+            lap: 0,
+            segment: i as u32,
         })
     }
 
     pub fn step(&mut self, inputs: &[Input]) -> Result<(), String> {
-        if inputs.len() != self.state.motion.len()
+        if inputs.len() != self.state.racers.len()
             || inputs.iter().any(|input| {
                 !(-1.0..=1.0).contains(&input.steer)
                     || !(0.0..=1.0).contains(&input.throttle)
@@ -165,21 +201,29 @@ impl World {
             return Err("provide one valid input per car".into());
         }
         let tick = self.state.tick.checked_add(1).ok_or("tick overflow")?;
-        let mut next = self.state.motion.clone();
-        for (motion, input) in next.iter_mut().zip(inputs) {
-            motion.speed = (motion.speed
-                + (12.0 * input.throttle - 25.0 * input.brake) / f64::from(PHYSICS_HZ))
-            .clamp(0.0, 85.0);
-            motion.distance += motion.speed / f64::from(PHYSICS_HZ);
-            let laps = libm::floor(motion.distance / self.length);
-            if laps > f64::from(u32::MAX) {
-                return Err("lap overflow".into());
+        let mut next = self.state.racers.clone();
+        for (racer, input) in next.iter_mut().zip(inputs) {
+            let ground = racer
+                .car
+                .wheel_points()
+                .map(|p| self.ground_at(&p, racer.segment));
+            racer.car.step(input, &ground)?;
+            let report = racer.car.report();
+            if report.velocity.x == 0.0 && report.velocity.y == 0.0 && report.velocity.z == 0.0 {
+                continue;
             }
-            let wraps = laps as u32;
-            motion.lap = motion.lap.checked_add(wraps).ok_or("lap overflow")?;
-            motion.distance %= self.length;
+            let (segment, d) = self.project(&report.position, racer.segment);
+            let delta = d - racer.distance;
+            if delta < -self.length / 2.0 {
+                racer.lap = racer.lap.checked_add(1).ok_or("lap overflow")?;
+            }
+            if delta > self.length / 2.0 {
+                racer.lap = racer.lap.checked_sub(1).ok_or("lap overflow")?;
+            }
+            racer.distance = d;
+            racer.segment = segment;
         }
-        self.state.motion = next;
+        self.state.racers = next;
         self.state.tick = tick;
         Ok(())
     }
@@ -190,45 +234,29 @@ impl World {
             .setup
             .cars
             .iter()
-            .zip(&self.state.motion)
-            .map(|(car, motion)| {
-                let segment = self
-                    .segments
-                    .iter()
-                    .find(|s| motion.distance < s.start + s.length)
-                    .or_else(|| self.segments.last());
-                let (position, orientation, velocity) = match segment {
-                    Some(s) => {
-                        let offset = scale(&s.delta, (motion.distance - s.start) / s.length);
-                        (
-                            Vec3 {
-                                x: s.from.x + offset.x,
-                                y: s.from.y + offset.y,
-                                z: s.from.z + offset.z,
-                            },
-                            s.orientation.clone(),
-                            scale(&s.forward, motion.speed),
-                        )
-                    }
-                    None => (
-                        zero(),
-                        Quat {
-                            x: 0.0,
-                            y: 0.0,
-                            z: 0.0,
-                            w: 1.0,
-                        },
-                        zero(),
-                    ),
-                };
+            .zip(&self.state.racers)
+            .map(|(setup, racer)| {
+                let report = racer.car.report();
                 CarState {
-                    id: car.id,
-                    position,
-                    orientation,
-                    velocity,
-                    angular_velocity: zero(),
-                    lap: motion.lap,
-                    lap_distance: motion.distance,
+                    id: setup.id,
+                    position: report.position,
+                    orientation: report.orientation,
+                    velocity: report.velocity,
+                    angular_velocity: report.angular_velocity,
+                    lap: u32::try_from(racer.lap.max(0)).unwrap_or(u32::MAX),
+                    lap_distance: racer.distance,
+                    gear: report.gear,
+                    engine_rpm: report.engine_rpm,
+                    battery_energy: report.battery_energy,
+                    ers_power: report.ers_power,
+                    straight_mode: report.straight_mode,
+                    steer_angle: report.steer_angle,
+                    wheels: report.wheels.map(|w| WheelState {
+                        spin: w.spin,
+                        slip_ratio: w.slip_ratio,
+                        slip_angle: w.slip_angle,
+                        load: w.load,
+                    }),
                 }
             })
             .collect();
@@ -266,15 +294,15 @@ impl World {
             .deserialize(payload)
             .map_err(|e| e.to_string())?;
         let mut world = Self::new(state.setup.clone())?;
-        if state.motion.len() != world.state.motion.len()
-            || state.motion.iter().any(|m| {
-                !m.distance.is_finite()
-                    || !(0.0..world.length).contains(&m.distance)
-                    || !m.speed.is_finite()
-                    || !(0.0..=85.0).contains(&m.speed)
+        if state.racers.len() != world.state.racers.len()
+            || state.racers.iter().any(|r| {
+                !r.distance.is_finite()
+                    || !(0.0..world.length).contains(&r.distance)
+                    || r.segment as usize >= world.segments.len()
+                    || r.car.validate().is_err()
             })
         {
-            return Err("invalid saved motion".into());
+            return Err("invalid saved car state".into());
         }
         world.state = state;
         Ok(world)

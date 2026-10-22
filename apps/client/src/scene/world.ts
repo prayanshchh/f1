@@ -85,6 +85,7 @@ export async function loadScene(
   scene.add(rim);
   circuit(scene, tier);
   const model = await new GLTFLoader().loadAsync(placeholderUrl);
+  model.scene.name = "car";
   scene.add(model.scene);
   let meshes = 0;
   scene.traverse((object) => {

@@ -9,8 +9,7 @@ import {
   Scene,
   BoxGeometry,
 } from "three/webgpu";
-import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import placeholderUrl from "./placeholder.glb?url";
+import { createCar } from "./car/index.ts";
 import type { Camera, Tier } from "./protocol.ts";
 
 export function placeCamera(camera: PerspectiveCamera, view: Camera): void {
@@ -20,8 +19,8 @@ export function placeCamera(camera: PerspectiveCamera, view: Camera): void {
       camera.lookAt(0, 0.45, 0);
       break;
     case "cockpit":
-      camera.position.set(0, 1.05, -0.1);
-      camera.lookAt(0, 0.65, 14);
+      camera.position.set(0, 0.72, 0.38);
+      camera.lookAt(0, 0.55, 3);
       break;
     case "tv":
       camera.position.set(-8, 4.5, 5);
@@ -84,9 +83,7 @@ export async function loadScene(
   rim.position.set(4, 2, 3);
   scene.add(rim);
   circuit(scene, tier);
-  const model = await new GLTFLoader().loadAsync(placeholderUrl);
-  model.scene.name = "car";
-  scene.add(model.scene);
+  scene.add((await createCar(tier)).root);
   let meshes = 0;
   scene.traverse((object) => {
     if (object instanceof Mesh) {

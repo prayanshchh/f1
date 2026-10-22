@@ -78,7 +78,7 @@ impl Aero {
             wing_drag_area: 0.6,
             wing_lift_area: 1.8,
             floor_lift_area: 2.7,
-            straight_wing_drag_cut: 0.5,
+            straight_wing_drag_cut: 0.7,
             straight_wing_lift_cut: 0.8,
             straight_floor_lift_cut: 0.25,
             floor_stall_width: 0.02,

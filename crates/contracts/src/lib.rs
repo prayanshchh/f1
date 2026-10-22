@@ -34,6 +34,15 @@ pub struct Input {
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WheelState {
+    pub spin: f64,
+    pub slip_ratio: f64,
+    pub slip_angle: f64,
+    pub load: f64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CarState {
     pub id: u8,
     pub position: Vec3,
@@ -42,6 +51,13 @@ pub struct CarState {
     pub angular_velocity: Vec3,
     pub lap: u32,
     pub lap_distance: f64,
+    pub gear: u8,
+    pub engine_rpm: f64,
+    pub battery_energy: f64,
+    pub ers_power: f64,
+    pub straight_mode: f64,
+    pub steer_angle: f64,
+    pub wheels: [WheelState; 4],
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]

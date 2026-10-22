@@ -19,7 +19,7 @@ impl Engine {
         Self {
             idle_rpm: 4_000.0,
             limiter_rpm: 13_000.0,
-            cut_band_rpm: 1_500.0,
+            cut_band_rpm: 850.0,
             peak_torque: 345.0,
             peak_torque_rpm: 9_500.0,
             torque_falloff: 3.0e-6,

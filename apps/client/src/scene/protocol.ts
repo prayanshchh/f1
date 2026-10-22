@@ -1,3 +1,4 @@
+import type { TrackData } from "../contracts/index.ts";
 export const cameras = ["chase", "cockpit", "tv"] as const;
 export type Camera = (typeof cameras)[number];
 
@@ -32,7 +33,8 @@ export type SceneRequest =
       height: number;
     }
   | { type: "resize"; width: number; height: number }
-  | { type: "camera"; camera: Camera };
+  | { type: "camera"; camera: Camera }
+  | { type: "drive"; track: TrackData; port: MessagePort };
 
 export interface SceneTimings {
   fps: number;

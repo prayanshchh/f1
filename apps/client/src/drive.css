@@ -1,0 +1,45 @@
+body {
+  margin: 0;
+  overflow: hidden;
+  background: #182737;
+  color: #edf7ff;
+  font:
+    14px system-ui,
+    sans-serif;
+}
+canvas {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+}
+[data-testid="hud"] {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  padding: 14px 18px;
+  background: #101820d9;
+  border-radius: 8px;
+  pointer-events: none;
+}
+section {
+  display: grid;
+  gap: 4px;
+}
+section + section {
+  margin-top: 12px;
+}
+label {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+}
+output {
+  font-variant-numeric: tabular-nums;
+}
+[role="alert"] {
+  position: fixed;
+  inset: 25% 15% auto;
+  padding: 24px;
+  background: #421d25;
+  border: 1px solid #ee8195;
+}

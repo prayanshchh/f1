@@ -1,6 +1,7 @@
 import type { PerspectiveCamera, Scene, WebGPURenderer } from "three/webgpu";
 import { createRenderer } from "./renderer.ts";
 import { loadScene, placeCamera } from "./world.ts";
+import { createFollow } from "./follow/index.ts";
 import type {
   Camera,
   SceneRequest,
@@ -26,6 +27,7 @@ let lastTime = 0;
 let windowStart = 0;
 let windowFrames = 0;
 let timings: SceneTimings;
+const follow = createFollow();
 
 function fail(error: unknown): void {
   if (stopped) {
@@ -74,6 +76,7 @@ function frame(time: number): void {
     return;
   }
   try {
+    follow.update(scene, camera);
     renderer.render(scene, camera);
     timings.frames += 1;
     if (lastTime > 0) {
@@ -129,7 +132,9 @@ async function start(
 }
 
 scope.onmessage = ({ data }) => {
-  if (data.type === "camera") {
+  if (data.type === "drive") {
+    follow.connect(data.track, data.port);
+  } else if (data.type === "camera") {
     view = data.camera;
     if (camera !== undefined) {
       placeCamera(camera, view);

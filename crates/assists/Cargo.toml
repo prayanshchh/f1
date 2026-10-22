@@ -1,0 +1,18 @@
+[package]
+name = "assists"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+libm = "0.2"
+
+[dev-dependencies]
+tyre = { path = "../tyre" }
+
+[[test]]
+name = "spec"
+path = "../../tests/assists/rust/assists.rs"
+
+[lints]
+workspace = true

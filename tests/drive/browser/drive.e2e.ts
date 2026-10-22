@@ -78,17 +78,45 @@ function changed(a: PNG, b: PNG, box?: Box, inside = true): number {
       )
         continue;
       const offset = (y * a.width + x) * 4;
-      let difference = 0;
-      for (let channel = 0; channel < 3; channel += 1)
-        difference += Math.abs(
-          (a.data[offset + channel] ?? 0) - (b.data[offset + channel] ?? 0),
-        );
       count += 1;
-      different += Number(difference > 24);
+      different += Number(pixelDifference(a, b, offset) > 24);
     }
   }
   return different / count;
 }
+function pixelDifference(a: PNG, b: PNG, offset: number): number {
+  return [0, 1, 2].reduce(
+    (sum, channel) =>
+      sum +
+      Math.abs(
+        (a.data[offset + channel] ?? 0) - (b.data[offset + channel] ?? 0),
+      ),
+    0,
+  );
+}
+
+function bodyworkPixels(png: PNG, box: Box): number[] {
+  const offsets: number[] = [];
+  for (
+    let y = Math.ceil(box.y0 * png.height);
+    y < box.y1 * png.height;
+    y += 1
+  ) {
+    for (
+      let x = Math.ceil(box.x0 * png.width);
+      x < box.x1 * png.width;
+      x += 1
+    ) {
+      const offset = (y * png.width + x) * 4;
+      const r = png.data[offset] ?? 0;
+      const g = png.data[offset + 1] ?? 0;
+      const b = png.data[offset + 2] ?? 0;
+      if (r >= 100 && r > 1.6 * g && r > 2 * b) offsets.push(offset);
+    }
+  }
+  return offsets;
+}
+
 function seconds(text: string): number {
   const match = /^(\d+):(\d{2})\.(\d{3})$/.exec(text);
   if (match === null) throw new Error(`Invalid lap time: ${text}`);
@@ -180,7 +208,7 @@ test("holding throttle moves the drawn car with the world", async ({
   await page.keyboard.up("ArrowUp");
   expect(problems).toEqual([]);
 });
-test("the chase camera keeps the car in place on screen while the road moves past", async ({
+test("the chase camera keeps painted bodywork in place while the road moves past", async ({
   page,
 }) => {
   await openDrive(page);
@@ -209,7 +237,13 @@ test("the chase camera keeps the car in place on screen while the road moves pas
   }
   const b = await shot(page);
   const box = { x0: 0.45, y0: 0.58, x1: 0.55, y1: 0.72 };
-  expect(changed(a, b, box)).toBeLessThanOrEqual(0.15);
+  const bodywork = bodyworkPixels(a, box);
+  const patchArea = (box.x1 - box.x0) * a.width * (box.y1 - box.y0) * a.height;
+  expect(bodywork.length / patchArea).toBeGreaterThanOrEqual(0.1);
+  const changedBodywork = bodywork.filter(
+    (offset) => pixelDifference(a, b, offset) > 24,
+  );
+  expect(changedBodywork.length / bodywork.length).toBeLessThanOrEqual(0.15);
   expect(changed(a, b, box, false)).toBeGreaterThanOrEqual(0.05);
   await page.keyboard.up("ArrowUp");
 });

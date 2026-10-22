@@ -11,6 +11,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "assists"
+version = "0.1.0"
+dependencies = [
+ "libm",
+ "serde",
+ "tyre",
+]
+
+[[package]]
 name = "base64"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

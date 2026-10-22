@@ -79,3 +79,4 @@ function energyMode(energy: HudFrame["energy"]): string {
   }
   return energy.harvesting ? "harvesting" : "idle";
 }
+export { formatLapTime, mountLapTimes } from "./lap-times.ts";

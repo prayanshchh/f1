@@ -9,120 +9,258 @@
   <body data-drive-status="loading">
     <canvas data-testid="drive-canvas"></canvas>
     <p class="status" data-testid="drive-status">Starting WebGPU…</p>
+    <svg width="0" height="0" aria-hidden="true">
+      <symbol id="f1-logo" viewBox="0 0 122 30">
+        <path d="M22 0H96L88 9H29L25 13H76L68 22H17L10 30H0Z" />
+        <path d="M100 0H122L96 30H74Z" />
+      </symbol>
+      <symbol id="stopwatch" viewBox="0 0 24 24">
+        <circle
+          cx="12"
+          cy="13.5"
+          r="8.5"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+        />
+        <path
+          d="M9 2.5h6M12 2.5v2.5M12 13.5l3.5-3.5M18.5 5.5l1.6 1.6"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+        />
+      </symbol>
+      <symbol id="flag" viewBox="0 0 24 24">
+        <path
+          d="M5 21V3h13l-3 4.5 3 4.5H7v9"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linejoin="round"
+        />
+      </symbol>
+    </svg>
+
     <div class="hud" data-testid="hud" hidden>
-      <section class="timing panel">
-        <header><span>Lap</span><b data-hud="lap">1</b></header>
-        <div class="now" data-hud="current">--:--.---</div>
-        <div class="sectors" data-hud="sectors"></div>
-        <dl>
-          <dt>Best</dt>
-          <dd data-hud="best">--:--.---</dd>
-          <dt>Last</dt>
-          <dd data-hud="last">--:--.---</dd>
-        </dl>
-      </section>
-
-      <section class="delta part-delta" data-hud="delta" data-state="idle">
-        <div class="delta-head">
-          <span data-hud="delta-label">Delta</span
-          ><small data-hud="reference"></small>
+      <section class="tower" data-hud="tower">
+        <header class="tower-brand">
+          <svg class="f1"><use href="#f1-logo" /></svg
+          ><b data-hud="session">Practice</b>
+        </header>
+        <div class="tower-lap">
+          Lap <b data-hud="lap">1</b><span data-hud="lap-total"></span>
         </div>
-        <div class="delta-value" data-hud="delta-value"></div>
-        <div class="delta-track"><i data-hud="delta-fill"></i><b></b></div>
-        <div class="delta-pred" data-hud="delta-pred"></div>
+        <ol class="tower-rows" data-hud="rows"></ol>
       </section>
 
-      <section class="banner" data-hud="banner">
-        <span data-hud="banner-lap">Lap</span>
-        <strong data-hud="banner-time">--:--.---</strong>
-        <em data-hud="banner-delta"></em>
-        <div data-hud="banner-sectors"></div>
+      <section class="timer" data-hud="timer">
+        <div class="timer-sectors part-sectors" data-hud="sectors"></div>
+        <div class="timer-main" data-hud="main" data-state="">
+          <span class="timer-pos" data-hud="position"></span>
+          <b data-hud="current">--:--.---</b>
+        </div>
+        <div class="timer-delta part-delta" data-hud="delta" data-state="idle">
+          <svg><use href="#stopwatch" /></svg><span>Delta</span
+          ><b data-hud="delta-value">--.---</b>
+        </div>
+        <div class="timer-extra" data-hud="extra">
+          <div class="timer-extra-in">
+            <div><span>Best</span><b data-hud="best">--:--.---</b></div>
+            <div data-hud="previous-row">
+              <span>Previous</span><b data-hud="last">--:--.---</b>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="toast" data-hud="toast" data-kind="">
+        <div class="toast-icon">
+          <svg data-hud="toast-icon"><use href="#stopwatch" /></svg>
+        </div>
+        <div class="toast-body">
+          <b data-hud="toast-title"></b><span data-hud="toast-detail"></span>
+        </div>
       </section>
 
       <div class="lights part-lights" data-hud="lights"></div>
-      <div class="go part-lights" data-hud="go">Go</div>
-      <div class="notice" data-hud="notice"></div>
 
-      <section class="inputs panel part-inputs">
-        <div class="pedal brake"><i data-hud="in-brake"></i></div>
-        <div class="pedal throttle"><i data-hud="in-throttle"></i></div>
-        <svg class="wheel" viewBox="0 0 40 40" aria-hidden="true">
-          <g data-hud="in-steer">
-            <circle cx="20" cy="20" r="16" />
-            <line x1="20" y1="4" x2="20" y2="11" />
-          </g>
+      <svg class="map part-map" data-hud="map" aria-hidden="true">
+        <g data-hud="map-sectors"></g>
+        <g data-hud="map-marks"></g>
+        <circle class="map-car" r="7" data-hud="map-car" />
+      </svg>
+
+      <section class="dash" data-hud="dash">
+        <div class="dash-glass"></div>
+        <svg class="ring ring-left" viewBox="0 0 140 140" aria-hidden="true">
+          <circle class="ring-bg" cx="70" cy="70" r="60" />
+          <circle class="ring-ticks" cx="70" cy="70" r="50" />
+          <circle
+            class="ring-fill"
+            cx="70"
+            cy="70"
+            r="60"
+            pathLength="100"
+            data-hud="fuel-ring"
+          />
         </svg>
-      </section>
-
-      <section class="dash panel">
-        <div class="leds" data-hud="leds"></div>
-        <div class="dash-main">
-          <div class="speed"><b data-hud="speed">0</b><span>km/h</span></div>
+        <div class="dash-left part-fuel">
+          <small>Fuel</small><b data-hud="fuel">0%</b>
+        </div>
+        <svg class="ring ring-right" viewBox="0 0 140 140" aria-hidden="true">
+          <circle class="ring-bg" cx="70" cy="70" r="60" />
+          <circle
+            class="ring-rev"
+            cx="70"
+            cy="70"
+            r="60"
+            pathLength="100"
+            data-hud="rpm-ring"
+          />
+        </svg>
+        <div class="dash-right">
+          <small data-hud="speed-unit">KPH</small><b data-hud="speed">0</b
+          ><small>RPM</small><em data-hud="rpm">0</em>
+        </div>
+        <div class="dash-center">
+          <div class="leds" data-hud="leds"></div>
           <div class="gear" data-hud="gear">N</div>
+          <div class="dash-status" data-hud="status"></div>
         </div>
-        <div class="rpm"><i data-hud="rpm-bar"></i></div>
-        <div class="rpm-value"><span data-hud="rpm">0</span> rpm</div>
-        <div class="dash-extra">
-          <div class="fuel part-fuel" data-hud="fuel-box">
-            <span>Fuel</span><b><span data-hud="fuel">0</span> L</b
-            ><small data-hud="fuel-laps"></small>
-            <div class="fuel-track"><i data-hud="fuel-bar"></i></div>
-          </div>
-          <div class="tyres part-tyres">
-            <div data-hud="tyre-fl"></div>
-            <div data-hud="tyre-fr"></div>
-            <div data-hud="tyre-rl"></div>
-            <div data-hud="tyre-rr"></div>
-          </div>
-        </div>
-        <div class="damage" data-hud="damage" hidden>
-          <span>Damage</span><i></i>
+        <div class="pedals part-inputs">
+          <div class="pedal brake"><i data-hud="in-brake"></i></div>
+          <div class="pedal throttle"><i data-hud="in-throttle"></i></div>
         </div>
       </section>
 
-      <div class="pad-badge" data-pad="badge" hidden>📱 Phone connected</div>
+      <section class="mfd part-tyres" data-hud="mfd">
+        <header>
+          <span>Tyres</span
+          ><span class="mfd-damage" data-hud="damage" hidden
+            >Damage <i></i
+          ></span>
+        </header>
+        <div class="mfd-body">
+          <div class="mfd-col left">
+            <div class="mfd-temps" data-hud="tyre-fl"></div>
+            <div class="mfd-temps" data-hud="tyre-rl"></div>
+          </div>
+          <svg class="mfd-car" viewBox="0 0 120 230" aria-hidden="true">
+            <path
+              class="car-line"
+              d="M60 6 L52 22 L50 60 L22 52 L22 66 L48 72 L44 128 L40 170 L46 196 L30 196 L30 214 L90 214 L90 196 L74 196 L80 170 L76 128 L72 72 L98 66 L98 52 L70 60 L68 22 Z"
+            />
+            <rect
+              class="tyre"
+              x="12"
+              y="62"
+              width="18"
+              height="34"
+              rx="4"
+              data-hud="tyre-shape-fl"
+            />
+            <rect
+              class="tyre"
+              x="90"
+              y="62"
+              width="18"
+              height="34"
+              rx="4"
+              data-hud="tyre-shape-fr"
+            />
+            <rect
+              class="tyre"
+              x="10"
+              y="164"
+              width="20"
+              height="38"
+              rx="4"
+              data-hud="tyre-shape-rl"
+            />
+            <rect
+              class="tyre"
+              x="90"
+              y="164"
+              width="20"
+              height="38"
+              rx="4"
+              data-hud="tyre-shape-rr"
+            />
+          </svg>
+          <div class="mfd-col right">
+            <div class="mfd-temps" data-hud="tyre-fr"></div>
+            <div class="mfd-temps" data-hud="tyre-rr"></div>
+          </div>
+        </div>
+      </section>
+
+      <div class="pad-badge" data-pad="badge" hidden>Phone connected</div>
       <div class="help part-help">
-        Esc: menu · Arrows: drive · E / Q: shift (sequential) · P: phone · C:
-        chase cam · F2–F11: cameras
+        <span><kbd>Esc</kbd> Menu</span><span><kbd>Arrows</kbd> Drive</span
+        ><span><kbd>E</kbd><kbd>Q</kbd> Shift</span
+        ><span><kbd>P</kbd> Phone</span><span><kbd>C</kbd> Chase cam</span
+        ><span><kbd>F2–F11</kbd> Cameras</span>
       </div>
     </div>
 
     <div class="menu" data-menu="root" hidden>
-      <div class="menu-card">
-        <header class="menu-head">
-          <div>
-            <h1 data-menu="title">Race setup</h1>
-            <p data-menu="subtitle"></p>
-          </div>
-          <nav class="tabs" data-menu="tabs"></nav>
+      <div class="stage">
+        <nav class="menu-tabs" data-menu="tabs"></nav>
+        <header class="menu-title">
+          <h1 data-menu="title">Race setup</h1>
+          <p data-menu="subtitle"></p>
         </header>
-        <div class="menu-body" data-menu="body"></div>
+        <div class="menu-main">
+          <div class="menu-list" data-menu="body"></div>
+          <aside class="menu-info" data-menu="info"></aside>
+        </div>
+        <div class="menu-strip">
+          <div>
+            <small data-menu="strip-mode"></small
+            ><b data-menu="strip-track"></b>
+          </div>
+          <div class="menu-strip-right" data-menu="strip-right"></div>
+        </div>
         <footer class="menu-foot">
-          <button type="button" class="ghost" data-menu="reset">
-            Reset tab
-          </button>
           <span class="menu-note" data-menu="note"></span>
-          <button type="button" class="ghost" data-menu="resume" hidden>
-            Resume
+          <button type="button" data-menu="reset">
+            <i class="btn-glyph">R</i>Reset to Defaults
           </button>
-          <button type="button" class="primary" data-menu="start">Start</button>
+          <button type="button" data-menu="resume" hidden>
+            <i class="btn-glyph">Esc</i>Resume
+          </button>
+          <button type="button" class="primary" data-menu="start">
+            <i class="btn-glyph">↵</i><span data-menu="start-label">Start</span>
+          </button>
         </footer>
       </div>
     </div>
 
     <div class="results" data-results="root" hidden>
-      <div class="menu-card results-card">
-        <h1>Race finished</h1>
-        <p data-results="summary"></p>
-        <ol data-results="laps"></ol>
-        <footer class="menu-foot">
-          <button type="button" class="ghost" data-results="menu">
-            Settings
-          </button>
-          <button type="button" class="primary" data-results="restart">
-            Race again
-          </button>
-        </footer>
+      <div class="stage">
+        <div class="results-tag">Results (Overall)</div>
+        <section class="results-card">
+          <header>
+            <h1>Formula 1</h1>
+            <p data-results="title"></p>
+          </header>
+          <div class="results-body">
+            <nav class="results-actions">
+              <button type="button" data-results="restart">
+                Restart Session
+              </button>
+              <button type="button" data-results="menu">Settings</button>
+            </nav>
+            <table class="results-table">
+              <thead>
+                <tr data-results="head"></tr>
+              </thead>
+              <tbody data-results="laps"></tbody>
+            </table>
+          </div>
+          <p class="results-summary" data-results="summary"></p>
+        </section>
       </div>
     </div>
 

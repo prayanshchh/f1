@@ -1,3 +1,4 @@
+import "@fontsource-variable/saira/wdth.css";
 import "./drive.css";
 import * as THREE from "three/webgpu";
 import {
@@ -6,7 +7,7 @@ import {
   loadSpeedDreams,
   setupSource,
 } from "./game/engine.ts";
-import { Hud, lapTime } from "./game/hud.ts";
+import { Hud, lapTime, signed, type TrackMap } from "./game/hud.ts";
 import { sdlKeycode } from "./game/keys.ts";
 import { LapTrace } from "./game/laptrace.ts";
 import { Menu } from "./game/menu.ts";
@@ -73,20 +74,55 @@ function loadReference(
   }
 }
 
-function showResults(hud: Hud): void {
+function cell(text: string, className = ""): HTMLTableCellElement {
+  const td = document.createElement("td");
+  td.textContent = text;
+  if (className) td.className = className;
+  return td;
+}
+
+function showResults(hud: Hud, title: string): void {
   const best = hud.laps.reduce<number | null>(
     (b, lap) => (b === null || lap.time < b ? lap.time : b),
     null,
   );
   const total = hud.laps.reduce((sum, lap) => sum + lap.time, 0);
+  const sectorCount = hud.laps[0]?.sectors.length ?? 3;
+  const bestSectors = Array.from({ length: sectorCount }, (_, i) =>
+    Math.min(...hud.laps.map((lap) => lap.sectors[i] ?? Infinity)),
+  );
+  element("[data-results=title]").textContent = title;
   element("[data-results=summary]").textContent =
     `Total ${lapTime(total)} · Best ${lapTime(best)}`;
+  element("[data-results=head]").replaceChildren(
+    ...[
+      "Lap",
+      ...bestSectors.map((_, i) => `S${String(i + 1)}`),
+      "Time",
+      "Gap",
+    ].map((label) => {
+      const th = document.createElement("th");
+      th.textContent = label;
+      return th;
+    }),
+  );
   element("[data-results=laps]").replaceChildren(
-    ...hud.laps.map((lap) => {
-      const item = document.createElement("li");
-      item.classList.toggle("best", lap.time === best);
-      item.innerHTML = `<span>Lap ${String(lap.lap)}</span><b>${lapTime(lap.time)}</b><small>${lap.sectors.map((t) => t.toFixed(3)).join(" · ")}</small>`;
-      return item;
+    ...hud.laps.map((lap, index) => {
+      const row = document.createElement("tr");
+      row.style.setProperty("--i", String(index));
+      row.classList.toggle("best", lap.time === best);
+      row.append(
+        cell(String(lap.lap), "pos"),
+        ...lap.sectors.map((t, i) =>
+          cell(t.toFixed(3), t === bestSectors[i] ? "purple" : ""),
+        ),
+        cell(lapTime(lap.time), lap.time === best ? "purple time" : "time"),
+        cell(
+          best === null || lap.time === best ? "" : signed(lap.time - best),
+          "gap",
+        ),
+      );
+      return row;
     }),
   );
   const root = element("[data-results=root]");
@@ -102,8 +138,25 @@ function showResults(hud: Hud): void {
   });
 }
 
+function trackMap(engine: Engine): TrackMap {
+  const length = engine.trackLength();
+  const count = Math.max(64, Math.min(600, Math.round(length / 10)));
+  const points = Array.from({ length: count + 1 }, (_, i) => {
+    const [x, y] = engine.trackPoint((i / count) * length, 0);
+    return [x, y] as [number, number];
+  });
+  return { points, length };
+}
+
+function fitStage(): void {
+  const scale = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
+  document.documentElement.style.setProperty("--s", String(scale));
+}
+
 async function main(): Promise<void> {
   if (!canvas || !hudRoot) throw new Error("drive page markup is missing");
+  fitStage();
+  window.addEventListener("resize", fitStage);
   if (!("gpu" in navigator))
     throw new Error("This page needs WebGPU (Chrome 113 or newer).");
 
@@ -158,9 +211,9 @@ async function main(): Promise<void> {
   const hud = new Hud(hudRoot, trace, {
     totalLaps,
     parts: settings.hud,
-    reference: reference
-      ? `vs best ${lapTime(reference.sectors.reduce((a, b) => a + b, 0))}`
-      : "vs session best",
+    session: settings.session === "race" ? "Race" : "Practice",
+    reference: reference ? reference.sectors.reduce((a, b) => a + b, 0) : null,
+    map: trackMap(engine),
   });
   const pad = padLink();
   hudRoot.hidden = false;
@@ -239,7 +292,10 @@ async function main(): Promise<void> {
     if (totalLaps !== null && (frame[frameIndex.laps] ?? 0) > totalLaps) {
       finished = true;
       window.setTimeout(() => {
-        showResults(hud);
+        showResults(
+          hud,
+          `${track.label} - ${settings.session === "race" ? "Race" : "Practice"}`,
+        );
       }, 1500);
     }
   };

@@ -9,7 +9,6 @@ export default tseslint.config(
     ignores: [
       ".context/**",
       "**/dist/**",
-      "target/**",
       "apps/client/wasm/**",
       "test-results/**",
       "playwright-report/**",

@@ -1,0 +1,7 @@
+Poly Haven texture assets are released under CC0 1.0 Universal.
+https://polyhaven.com/license
+https://creativecommons.org/publicdomain/zero/1.0/legalcode
+See TEXTURE-SOURCES.json for individual source pages, authors, download URLs and checksums.
+Downloaded maps are 2048x2048 and game copies are JPEG recompressions of the public source maps.
+
+Paint wear, rubber streaks, chain-link cutout, foliage cutout and garage ambient occlusion maps were created for this project.

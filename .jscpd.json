@@ -2,5 +2,11 @@
   "threshold": 0,
   "minLines": 10,
   "minTokens": 70,
-  "ignore": ["apps/client/wasm/**"]
+  "ignore": [
+    "apps/client/wasm/**",
+    "engine/speed-dreams/**",
+    "engine/third_party/**",
+    "engine/data/**",
+    "content/**"
+  ]
 }

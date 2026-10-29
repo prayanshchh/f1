@@ -1,0 +1,228 @@
+{
+  "provider": "Poly Haven",
+  "license": "CC0 1.0",
+  "license_url": "https://polyhaven.com/license",
+  "cc0_legal_code": "https://creativecommons.org/publicdomain/zero/1.0/legalcode",
+  "assets": [
+    {
+      "id": "asphalt_track",
+      "name": "Asphalt Track",
+      "authors": {
+        "Dimitrios Savva": "All"
+      },
+      "source_url": "https://polyhaven.com/a/asphalt_track",
+      "real_size_m": [2.0, 2.0],
+      "maps": {
+        "base_color": {
+          "source_file": "textures/source/asphalt_track_base_color.jpg",
+          "download_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/asphalt_track/asphalt_track_diff_2k.jpg",
+          "provider_md5": "faec159f1f29d231581c32bd256b5ede",
+          "file": "textures/asphalt_track_base_color.jpg",
+          "sha256": "fe84961f8d8871bd468a7d2273938f9d546db8fbd2f1f6cba5b454915a7b96bb",
+          "size_bytes": 1694487,
+          "pixels": [2048, 2048],
+          "colour_space": "sRGB",
+          "modification": "JPEG recompression only; 2048px maintained, normal map is OpenGL +Y"
+        },
+        "roughness": {
+          "source_file": "textures/source/asphalt_track_roughness.jpg",
+          "download_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/asphalt_track/asphalt_track_rough_2k.jpg",
+          "provider_md5": "213b9f13c03772e24a9cd55c4e43f391",
+          "file": "textures/asphalt_track_roughness.jpg",
+          "sha256": "a32d84174ac9b468c73100421a0a23d6c2d3f2ac254ddd61c3c6f3bbdf347e09",
+          "size_bytes": 739324,
+          "pixels": [2048, 2048],
+          "colour_space": "Non-Color",
+          "modification": "JPEG recompression only; 2048px maintained, normal map is OpenGL +Y"
+        },
+        "normal": {
+          "source_file": "textures/source/asphalt_track_normal.jpg",
+          "download_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/asphalt_track/asphalt_track_nor_gl_2k.jpg",
+          "provider_md5": "5381e78d5deda41e9ff5dd9c317bfa62",
+          "file": "textures/asphalt_track_normal.jpg",
+          "sha256": "46366bec5a4b03e64315d0dd4c9bf7057b9480f2e21efe1c623a821983916494",
+          "size_bytes": 2183583,
+          "pixels": [2048, 2048],
+          "colour_space": "Non-Color",
+          "modification": "JPEG recompression only; 2048px maintained, normal map is OpenGL +Y"
+        }
+      }
+    },
+    {
+      "id": "asphalt_pit_lane",
+      "name": "Asphalt Pit Lane",
+      "authors": {
+        "Dimitrios Savva": "All"
+      },
+      "source_url": "https://polyhaven.com/a/asphalt_pit_lane",
+      "real_size_m": [2.0, 2.0],
+      "maps": {
+        "base_color": {
+          "source_file": "textures/source/asphalt_pit_lane_base_color.jpg",
+          "download_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/asphalt_pit_lane/asphalt_pit_lane_diff_2k.jpg",
+          "provider_md5": "45339b41f99b4b5424882f8b4ae5d908",
+          "file": "textures/asphalt_pit_lane_base_color.jpg",
+          "sha256": "1b90383da6e61b2433ce3827fd3ca9f0285dd39c6f9f3e5b72357441dad83449",
+          "size_bytes": 1976806,
+          "pixels": [2048, 2048],
+          "colour_space": "sRGB",
+          "modification": "JPEG recompression only; 2048px maintained, normal map is OpenGL +Y"
+        },
+        "roughness": {
+          "source_file": "textures/source/asphalt_pit_lane_roughness.jpg",
+          "download_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/asphalt_pit_lane/asphalt_pit_lane_rough_2k.jpg",
+          "provider_md5": "c6a6b989c3679028d42ea89837a738c3",
+          "file": "textures/asphalt_pit_lane_roughness.jpg",
+          "sha256": "5db9a3522bbbf42d0f153b2c445ac5fffc120674271fc77bac083df552489ab9",
+          "size_bytes": 623557,
+          "pixels": [2048, 2048],
+          "colour_space": "Non-Color",
+          "modification": "JPEG recompression only; 2048px maintained, normal map is OpenGL +Y"
+        },
+        "normal": {
+          "source_file": "textures/source/asphalt_pit_lane_normal.jpg",
+          "download_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/asphalt_pit_lane/asphalt_pit_lane_nor_gl_2k.jpg",
+          "provider_md5": "26c9cde27e15ce966abf0189e1b836b8",
+          "file": "textures/asphalt_pit_lane_normal.jpg",
+          "sha256": "aa30c776e123ea400ef73ef217be07c559357c1c17099a5f080e36356a8df39d",
+          "size_bytes": 2774433,
+          "pixels": [2048, 2048],
+          "colour_space": "Non-Color",
+          "modification": "JPEG recompression only; 2048px maintained, normal map is OpenGL +Y"
+        }
+      }
+    },
+    {
+      "id": "rough_concrete",
+      "name": "Rough Concrete",
+      "authors": {
+        "Dimitrios Savva": "All"
+      },
+      "source_url": "https://polyhaven.com/a/rough_concrete",
+      "real_size_m": [1.2300000190734863, 1.2300000190734863],
+      "maps": {
+        "base_color": {
+          "source_file": "textures/source/rough_concrete_base_color.jpg",
+          "download_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/rough_concrete/rough_concrete_diff_2k.jpg",
+          "provider_md5": "14cbcd4505759c8c40fc54624cb51906",
+          "file": "textures/rough_concrete_base_color.jpg",
+          "sha256": "74fbd783211aaf129397dec90e31691f9ec9223fc910fe0a06969d8298926a97",
+          "size_bytes": 2107465,
+          "pixels": [2048, 2048],
+          "colour_space": "sRGB",
+          "modification": "JPEG recompression only; 2048px maintained, normal map is OpenGL +Y"
+        },
+        "roughness": {
+          "source_file": "textures/source/rough_concrete_roughness.jpg",
+          "download_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/rough_concrete/rough_concrete_rough_2k.jpg",
+          "provider_md5": "a486c72521e8e154edd82acf5700e718",
+          "file": "textures/rough_concrete_roughness.jpg",
+          "sha256": "3920dee06e6e10e408a3b0d615a5746033ca7086532d895dfe567d400e1d6c22",
+          "size_bytes": 883122,
+          "pixels": [2048, 2048],
+          "colour_space": "Non-Color",
+          "modification": "JPEG recompression only; 2048px maintained, normal map is OpenGL +Y"
+        },
+        "normal": {
+          "source_file": "textures/source/rough_concrete_normal.jpg",
+          "download_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/rough_concrete/rough_concrete_nor_gl_2k.jpg",
+          "provider_md5": "e3ec7b01a54025b1c0deed05c00f9a3a",
+          "file": "textures/rough_concrete_normal.jpg",
+          "sha256": "d8fb5b288d9488d483d7bc026e020396199edb22e142d45df00480d869a373f3",
+          "size_bytes": 3687325,
+          "pixels": [2048, 2048],
+          "colour_space": "Non-Color",
+          "modification": "JPEG recompression only; 2048px maintained, normal map is OpenGL +Y"
+        }
+      }
+    },
+    {
+      "id": "withered_grass",
+      "name": "Withered Grass",
+      "authors": {
+        "Charlotte Baglioni": "All"
+      },
+      "source_url": "https://polyhaven.com/a/withered_grass",
+      "real_size_m": [1.9999996423721313, 1.9999996423721313],
+      "maps": {
+        "base_color": {
+          "source_file": "textures/source/withered_grass_base_color.jpg",
+          "download_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/withered_grass/withered_grass_diff_2k.jpg",
+          "provider_md5": "503d5c7262c46351e5b0acdcc90dd30b",
+          "file": "textures/withered_grass_base_color.jpg",
+          "sha256": "3bf3839367a9fc6752d391908c3979fed597ccab68aed1206294b36a01289a03",
+          "size_bytes": 2302466,
+          "pixels": [2048, 2048],
+          "colour_space": "sRGB",
+          "modification": "JPEG recompression only; 2048px maintained, normal map is OpenGL +Y"
+        },
+        "roughness": {
+          "source_file": "textures/source/withered_grass_roughness.jpg",
+          "download_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/withered_grass/withered_grass_rough_2k.jpg",
+          "provider_md5": "5c065d1438f6d74ec9c67bf8051430fd",
+          "file": "textures/withered_grass_roughness.jpg",
+          "sha256": "2c67d66755b6ae03971fc5463b6bac8a3b5d73329473ef29440d9a9556e69532",
+          "size_bytes": 1819807,
+          "pixels": [2048, 2048],
+          "colour_space": "Non-Color",
+          "modification": "JPEG recompression only; 2048px maintained, normal map is OpenGL +Y"
+        },
+        "normal": {
+          "source_file": "textures/source/withered_grass_normal.jpg",
+          "download_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/withered_grass/withered_grass_nor_gl_2k.jpg",
+          "provider_md5": "dd239e55b44c9b9bb0e9f1e145bf3a22",
+          "file": "textures/withered_grass_normal.jpg",
+          "sha256": "03d54e6648c949cbaf2f593488da7d6274264e6f1dcf5e768e2e16682600e372",
+          "size_bytes": 4320738,
+          "pixels": [2048, 2048],
+          "colour_space": "Non-Color",
+          "modification": "JPEG recompression only; 2048px maintained, normal map is OpenGL +Y"
+        }
+      }
+    },
+    {
+      "id": "sparse_grass",
+      "name": "Sparse Grass",
+      "authors": {
+        "Amal Kumar": "All"
+      },
+      "source_url": "https://polyhaven.com/a/sparse_grass",
+      "real_size_m": [2.0, 2.0],
+      "maps": {
+        "base_color": {
+          "source_file": "textures/source/sparse_grass_base_color.jpg",
+          "download_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/sparse_grass/sparse_grass_diff_2k.jpg",
+          "provider_md5": "b181e9c61bae87c1bb9b14eecd767d65",
+          "file": "textures/sparse_grass_base_color.jpg",
+          "sha256": "c82d98079d14bb0b45b3716c8ebccc207b1c5e77d8a7a564c6ce8331e7c395a0",
+          "size_bytes": 1683494,
+          "pixels": [2048, 2048],
+          "colour_space": "sRGB",
+          "modification": "JPEG recompression only; 2048px maintained, normal map is OpenGL +Y"
+        },
+        "roughness": {
+          "source_file": "textures/source/sparse_grass_roughness.jpg",
+          "download_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/sparse_grass/sparse_grass_rough_2k.jpg",
+          "provider_md5": "446cbe6254b1b210de44ef7c53da6204",
+          "file": "textures/sparse_grass_roughness.jpg",
+          "sha256": "5417c93e26f9ed03874155946e176a9309dc622b8fb955fcd9171577de05f8bd",
+          "size_bytes": 588635,
+          "pixels": [2048, 2048],
+          "colour_space": "Non-Color",
+          "modification": "JPEG recompression only; 2048px maintained, normal map is OpenGL +Y"
+        },
+        "normal": {
+          "source_file": "textures/source/sparse_grass_normal.jpg",
+          "download_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/sparse_grass/sparse_grass_nor_gl_2k.jpg",
+          "provider_md5": "8ec54ff3b639e6e044ea83792d7c49b0",
+          "file": "textures/sparse_grass_normal.jpg",
+          "sha256": "8b4783a8ef90a9df2b237017e85245a0abbe0f88bdef0268fd99bbcde78b513a",
+          "size_bytes": 4081682,
+          "pixels": [2048, 2048],
+          "colour_space": "Non-Color",
+          "modification": "JPEG recompression only; 2048px maintained, normal map is OpenGL +Y"
+        }
+      }
+    }
+  ]
+}

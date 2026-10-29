@@ -10,81 +10,31 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  changes:
-    name: Affected code
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      crates: ${{ steps.affected.outputs.crates }}
-      code: ${{ steps.affected.outputs.code }}
-    steps:
-      - uses: actions/checkout@v7.0.1
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v7.1.0
-        with:
-          node-version-file: .nvmrc
-      - id: affected
-        run: node .github/scripts/affected.ts
-  rust:
-    name: Rust unit
-    needs: changes
-    if: needs.changes.outputs.crates != '[]'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        crate: ${{ fromJSON(needs.changes.outputs.crates) }}
-    env:
-      CRATE: ${{ matrix.crate }}
-    steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: ./.github/actions/setup
-        with:
-          cache-key: rust-${{ matrix.crate }}
-          javascript: "false"
-      - run: cargo clippy --locked --package "$CRATE" --all-targets -- -D warnings
-      - run: cargo test --locked --package "$CRATE" --all-targets
-      - run: cargo build --locked --package "$CRATE" --target wasm32-unknown-unknown
   quality:
     name: Formatting, lint, types and dependencies
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: ./.github/actions/setup
-        with:
-          cache-key: quality
-          machete: "true"
       - run: pnpm run check
   node:
     name: Node integration
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: ./.github/actions/setup
-        with:
-          cache-key: node
-          wasm-bindings: "true"
       - run: pnpm run test
   browser:
     name: Browser integration
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: ./.github/actions/setup
         with:
-          cache-key: browser
-          wasm-bindings: "true"
+          emscripten: "true"
           chrome: "true"
       - run: pnpm run test:e2e
       - uses: actions/upload-artifact@v7.0.2
@@ -94,18 +44,3 @@ jobs:
           path: test-results/
           if-no-files-found: warn
           retention-days: 7
-  result:
-    name: CI result
-    if: always()
-    needs: [changes, rust, quality, node, browser]
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Require every selected job to pass
-        env:
-          RESULTS: ${{ join(needs.*.result, ' ') }}
-        run: |
-          echo "$RESULTS"
-          for result in $RESULTS; do
-            [[ "$result" == success || "$result" == skipped ]] || exit 1
-          done

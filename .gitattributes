@@ -1,0 +1,1 @@
+content/tracks/**/*.glb filter=lfs diff=lfs merge=lfs -text

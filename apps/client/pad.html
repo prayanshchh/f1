@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="#000000" />
+    <link rel="icon" href="data:," />
+    <title>F1 Pad</title>
+  </head>
+  <body>
+    <main class="pad" data-pad="root">
+      <section class="pedal brake">
+        <div class="track"><div class="fill" data-pad="brake"></div></div>
+        <span>Brake</span>
+      </section>
+      <section class="cockpit">
+        <div class="status">
+          <i data-pad="dot"></i><span data-pad="link">Connecting</span>
+        </div>
+        <div class="dial">
+          <svg viewBox="0 0 200 200" aria-hidden="true">
+            <circle class="ring" cx="100" cy="100" r="88" />
+            <g data-pad="wheel">
+              <line class="marker" x1="100" y1="4" x2="100" y2="30" />
+            </g>
+          </svg>
+          <div class="speed"><b data-pad="speed">0</b><small>km/h</small></div>
+        </div>
+        <div class="gear" data-pad="gear">N</div>
+        <div class="sens">
+          <button type="button" data-pad="less" aria-label="Less sensitive">
+            −
+          </button>
+          <div class="sens-read">
+            <small>Sensitivity</small><b data-pad="sens">1.00×</b
+            ><span><i data-pad="sensbar"></i></span>
+          </div>
+          <button type="button" data-pad="more" aria-label="More sensitive">
+            +
+          </button>
+        </div>
+        <button type="button" data-pad="center">Set center</button>
+      </section>
+      <section class="pedal gas">
+        <div class="track"><div class="fill" data-pad="gas"></div></div>
+        <span>Gas</span>
+      </section>
+      <div class="calibrate" data-pad="calibrate" hidden>
+        <b data-pad="count">3</b>
+        <p>Hold your phone straight and be ready</p>
+        <small
+          >This position becomes center. Tilt left or right from here.</small
+        >
+      </div>
+    </main>
+    <div class="start" data-pad="start">
+      <h1>F1 Pad</h1>
+      <button type="button" data-pad="go">Start</button>
+      <p>
+        Hold the phone sideways like a wheel and tilt to steer.<br />Hold Gas or
+        Brake longer to press harder.
+      </p>
+      <p class="error" data-pad="error"></p>
+    </div>
+    <div class="rotate">Turn your phone sideways</div>
+    <script type="module" src="/src/pad.ts"></script>
+  </body>
+</html>

@@ -19,15 +19,6 @@ message: JavaScript comment is forbidden
 rule:
   kind: comment
 ---
-id: no-rust-comments
-language: Rust
-severity: error
-message: Rust comment is forbidden
-rule:
-  any:
-    - kind: line_comment
-    - kind: block_comment
----
 id: no-css-comments
 language: Css
 severity: error
@@ -48,13 +39,3 @@ severity: error
 message: YAML comment is forbidden
 rule:
   kind: comment
----
-id: no-rust-suppressions
-language: Rust
-severity: error
-message: Rust ignore, allow and expect attributes are forbidden like comments
-rule:
-  any:
-    - kind: attribute_item
-    - kind: inner_attribute_item
-  regex: '#\s*!?\s*\[\s*(ignore|allow|expect)\b'

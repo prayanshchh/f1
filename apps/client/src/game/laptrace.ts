@@ -23,7 +23,7 @@ export class LapTrace {
 
   constructor(
     length: number,
-    private readonly boundaries: number[],
+    readonly boundaries: number[],
     stored: { trace: number[]; sectors: number[] } | null = null,
   ) {
     this.current = new Float64Array(Math.ceil(length) + 1).fill(Number.NaN);

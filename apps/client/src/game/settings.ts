@@ -119,13 +119,14 @@ export interface Settings {
 }
 
 export const hudParts = {
-  delta: "Live delta to best lap",
-  sectors: "Sector times",
-  lights: "Start lights",
-  fuel: "Fuel",
-  tyres: "Tyre temperatures",
-  inputs: "Pedal and steering inputs",
-  help: "Key help",
+  delta: "Delta Time",
+  sectors: "Sector Times",
+  map: "Track Map",
+  lights: "Start Lights",
+  fuel: "Fuel Gauge",
+  tyres: "Tyre Temperatures (MFD)",
+  inputs: "Pedal Inputs",
+  help: "Button Prompts",
 } as const;
 
 export type HudPart = keyof typeof hudParts;
@@ -155,6 +156,7 @@ export const defaults: Settings = {
   hud: {
     delta: true,
     sectors: true,
+    map: true,
     lights: true,
     fuel: true,
     tyres: true,
@@ -231,154 +233,157 @@ const corners = (axle: "Front" | "Rear", part: string) => [
   `${axle} Left ${part}`,
 ];
 
-const axleSpecs = (axle: "Front" | "Rear"): SetupSpec[] => {
-  const key = axle.toLowerCase();
-  const wheels = corners(axle, "Wheel");
-  const susp = corners(axle, "Suspension");
-  return [
-    {
-      id: `${key}-pressure`,
-      group: `${axle} tyres`,
-      label: "Pressure",
-      sections: wheels,
-      name: "pressure",
-      step: 0.5,
-    },
-    {
-      id: `${key}-camber`,
-      group: `${axle} tyres`,
-      label: "Camber",
-      sections: wheels,
-      name: "camber",
-      step: 0.1,
-      unit: "deg",
-    },
-    {
-      id: `${key}-toe`,
-      group: `${axle} tyres`,
-      label: "Toe",
-      sections: wheels,
-      name: "toe",
-      signs: axle === "Front" ? [1, -1] : [1, 1],
-      step: 0.05,
-    },
-    {
-      id: `${key}-height`,
-      group: `${axle} tyres`,
-      label: "Ride height",
-      sections: wheels,
-      name: "ride height",
-      step: 1,
-    },
-    {
-      id: `${key}-spring`,
-      group: `${axle} suspension`,
-      label: "Spring",
-      sections: susp,
-      name: "spring",
-      step: 1,
-    },
-    {
-      id: `${key}-packers`,
-      group: `${axle} suspension`,
-      label: "Packers",
-      sections: susp,
-      name: "packers",
-      step: 0.5,
-    },
-    {
-      id: `${key}-slow-bump`,
-      group: `${axle} suspension`,
-      label: "Slow bump",
-      sections: susp,
-      name: "slow bump",
-      step: 0.25,
-    },
-    {
-      id: `${key}-slow-rebound`,
-      group: `${axle} suspension`,
-      label: "Slow rebound",
-      sections: susp,
-      name: "slow rebound",
-      step: 0.25,
-    },
-    {
-      id: `${key}-fast-bump`,
-      group: `${axle} suspension`,
-      label: "Fast bump",
-      sections: susp,
-      name: "fast bump",
-      step: 0.25,
-    },
-    {
-      id: `${key}-fast-rebound`,
-      group: `${axle} suspension`,
-      label: "Fast rebound",
-      sections: susp,
-      name: "fast rebound",
-      step: 0.25,
-    },
-    {
-      id: `${key}-arb`,
-      group: `${axle} suspension`,
-      label: "Anti-roll bar",
-      sections: [`${axle} Anti-Roll Bar`],
-      name: "spring",
-      step: 0.5,
-    },
-    {
-      id: `${key}-heave`,
-      group: `${axle} suspension`,
-      label: "Heave spring",
-      sections: [`${axle} Heave Spring`],
-      name: "spring",
-      step: 5,
-    },
-  ];
-};
+interface AxlePart {
+  key: string;
+  group: string;
+  label: string;
+  part: "Wheel" | "Suspension" | "Anti-Roll Bar" | "Heave Spring";
+  name: string;
+  step: number;
+  unit?: string;
+  toe?: boolean;
+}
+
+const axleParts: AxlePart[] = [
+  {
+    key: "camber",
+    group: "Suspension Geometry",
+    label: "Camber",
+    part: "Wheel",
+    name: "camber",
+    step: 0.1,
+    unit: "deg",
+  },
+  {
+    key: "toe",
+    group: "Suspension Geometry",
+    label: "Toe",
+    part: "Wheel",
+    name: "toe",
+    step: 0.05,
+    toe: true,
+  },
+  {
+    key: "spring",
+    group: "Suspension",
+    label: "Suspension",
+    part: "Suspension",
+    name: "spring",
+    step: 1,
+  },
+  {
+    key: "arb",
+    group: "Suspension",
+    label: "Anti-Roll Bar",
+    part: "Anti-Roll Bar",
+    name: "spring",
+    step: 0.5,
+  },
+  {
+    key: "heave",
+    group: "Suspension",
+    label: "Heave Spring",
+    part: "Heave Spring",
+    name: "spring",
+    step: 5,
+  },
+  {
+    key: "height",
+    group: "Suspension",
+    label: "Ride Height",
+    part: "Wheel",
+    name: "ride height",
+    step: 1,
+  },
+  {
+    key: "packers",
+    group: "Suspension",
+    label: "Packers",
+    part: "Suspension",
+    name: "packers",
+    step: 0.5,
+  },
+  {
+    key: "slow-bump",
+    group: "Suspension",
+    label: "Slow Bump",
+    part: "Suspension",
+    name: "slow bump",
+    step: 0.25,
+  },
+  {
+    key: "slow-rebound",
+    group: "Suspension",
+    label: "Slow Rebound",
+    part: "Suspension",
+    name: "slow rebound",
+    step: 0.25,
+  },
+  {
+    key: "fast-bump",
+    group: "Suspension",
+    label: "Fast Bump",
+    part: "Suspension",
+    name: "fast bump",
+    step: 0.25,
+  },
+  {
+    key: "fast-rebound",
+    group: "Suspension",
+    label: "Fast Rebound",
+    part: "Suspension",
+    name: "fast rebound",
+    step: 0.25,
+  },
+  {
+    key: "pressure",
+    group: "Tyres",
+    label: "Tyre Pressure",
+    part: "Wheel",
+    name: "pressure",
+    step: 0.5,
+  },
+];
+
+const axleSpecs: SetupSpec[] = axleParts.flatMap((part) =>
+  (["Front", "Rear"] as const).map((axle) => {
+    const key = axle.toLowerCase();
+    const single =
+      part.part === "Anti-Roll Bar" || part.part === "Heave Spring";
+    return {
+      id: `${key}-${part.key}`,
+      group: part.group,
+      label: `${axle} ${part.label}`,
+      sections: single ? [`${axle} ${part.part}`] : corners(axle, part.part),
+      name: part.name,
+      step: part.step,
+      ...(part.unit ? { unit: part.unit } : {}),
+      ...(part.toe ? { signs: axle === "Front" ? [1, -1] : [1, 1] } : {}),
+    };
+  }),
+);
 
 const setupSpecs: SetupSpec[] = [
   {
     id: "front-wing",
-    group: "Aero",
-    label: "Front wing",
+    group: "Aerodynamics",
+    label: "Front Wing Aero",
     sections: ["Front Wing"],
     name: "angle",
     step: 0.5,
   },
   {
     id: "rear-wing",
-    group: "Aero",
-    label: "Rear wing",
+    group: "Aerodynamics",
+    label: "Rear Wing Aero",
     sections: ["Rear Wing"],
     name: "angle",
     step: 0.5,
   },
   {
-    id: "brake-bias",
-    group: "Brakes",
-    label: "Front bias",
-    sections: ["Brake System"],
-    name: "front-rear brake repartition",
-    step: 0.005,
-    scale: 100,
-    unit: "%",
-  },
-  {
-    id: "brake-pressure",
-    group: "Brakes",
-    label: "Max pressure",
-    sections: ["Brake System"],
-    name: "max pressure",
-    step: 500,
-    range: [10000, 60000],
-  },
-  ...axleSpecs("Front"),
-  ...axleSpecs("Rear"),
-  {
     id: "final-drive",
     group: "Transmission",
-    label: "Final drive",
+    label: "Final Drive",
     sections: ["Rear Differential"],
     name: "ratio",
     step: 0.01,
@@ -393,18 +398,38 @@ const setupSpecs: SetupSpec[] = [
     step: 0.01,
     range: [0.5, 4.5] as [number, number],
   })),
+  ...axleSpecs,
+  {
+    id: "brake-pressure",
+    group: "Brakes",
+    label: "Brake Pressure",
+    sections: ["Brake System"],
+    name: "max pressure",
+    step: 500,
+    range: [10000, 60000],
+  },
+  {
+    id: "brake-bias",
+    group: "Brakes",
+    label: "Front Brake Bias",
+    sections: ["Brake System"],
+    name: "front-rear brake repartition",
+    step: 0.005,
+    scale: 100,
+    unit: "%",
+  },
   {
     id: "steer-lock",
-    group: "Steering",
-    label: "Steering lock",
+    group: "Suspension Geometry",
+    label: "Steering Lock",
     sections: ["Steer"],
     name: "steer lock",
     step: 0.5,
   },
   {
     id: "steer-speed",
-    group: "Steering",
-    label: "Max steering speed",
+    group: "Suspension Geometry",
+    label: "Max Steering Speed",
     sections: ["Steer"],
     name: "max steer speed",
     step: 5,

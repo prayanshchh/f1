@@ -2,6 +2,7 @@ import * as THREE from "three/webgpu";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { frameIndex } from "./engine.ts";
 import type { SdLighting } from "./materials.ts";
+import { crowdMaterial } from "./road.ts";
 
 const gltfToSdWorld = new THREE.Matrix4().set(
   1,
@@ -43,6 +44,7 @@ const wheelNames = ["wheel-fr", "wheel-fl", "wheel-rr", "wheel-rl"] as const;
 const steeringWheelRotation = 2.0;
 const replacedTrackSurfaces =
   /^(R02 PBR \| (pit )?asphalt|R02 PBR \| paint (white|red|blue)|R02 \| Rubber racing line pigment|R02 \| Drain recess and expansion joints|R02 \| Roadside grass \d)( \| game PBR)?$/;
+const seats = /Architectural red coating/;
 const retiredSurfaces = /dry grass macro/;
 const oldTrackside: [RegExp, number][] = [
   [/COTA \| (Galvanized|Charcoal) steel|Fine galvanized chain link/, 35],
@@ -56,6 +58,70 @@ export interface TrackFrame {
   heading: number;
 }
 
+function fillGrandstands(root: THREE.Object3D): void {
+  const crowd = crowdMaterial();
+  const stands: THREE.Mesh<THREE.BufferGeometry, THREE.Material>[] = [];
+  root.updateMatrixWorld(true);
+  root.traverse((object) => {
+    if (
+      object instanceof THREE.Mesh &&
+      seats.test((object.material as THREE.Material).name)
+    )
+      stands.push(object as THREE.Mesh<THREE.BufferGeometry, THREE.Material>);
+  });
+  for (const mesh of stands) {
+    const geometry = mesh.geometry;
+    const gantry = trianglesWhere(
+      geometry,
+      mesh.matrixWorld,
+      (x, z) => Math.hypot(x, z) < startGantryRadius,
+    );
+    if (gantry.length > 0) {
+      const keep = new THREE.Mesh(geometry.clone(), mesh.material);
+      keep.geometry.setIndex(gantry);
+      mesh.add(keep);
+      geometry.setIndex(
+        trianglesWhere(
+          geometry,
+          mesh.matrixWorld,
+          (x, z) => Math.hypot(x, z) >= startGantryRadius,
+        ),
+      );
+    }
+    mesh.material = crowd;
+  }
+}
+
+function trianglesWhere(
+  geometry: THREE.BufferGeometry,
+  matrix: THREE.Matrix4,
+  keep: (x: number, z: number) => boolean,
+): number[] {
+  const triangles = geometry.index;
+  const position = geometry.getAttribute("position");
+  const corner = new THREE.Vector3();
+  const kept: number[] = [];
+  if (!triangles) return kept;
+  for (let i = 0; i < triangles.count; i += 3) {
+    let x = 0;
+    let z = 0;
+    for (let k = 0; k < 3; k++) {
+      corner
+        .fromBufferAttribute(position, triangles.getX(i + k))
+        .applyMatrix4(matrix);
+      x += corner.x / 3;
+      z += corner.z / 3;
+    }
+    if (keep(x, z))
+      kept.push(
+        triangles.getX(i),
+        triangles.getX(i + 1),
+        triangles.getX(i + 2),
+      );
+  }
+  return kept;
+}
+
 function useSdLighting(
   root: THREE.Object3D,
   lighting: SdLighting,
@@ -63,6 +129,7 @@ function useSdLighting(
 ): void {
   root.traverse((object) => {
     if (!(object instanceof THREE.Mesh)) return;
+    if (object.material instanceof THREE.MeshStandardNodeMaterial) return;
     const source = object.material as THREE.MeshStandardMaterial;
     const map = source.map;
     if (map) map.colorSpace = THREE.NoColorSpace;
@@ -121,7 +188,6 @@ function retireOldBarriers(
   centreline: [number, number][],
 ): void {
   const index = new CentrelineIndex(centreline);
-  const corner = new THREE.Vector3();
   root.updateMatrixWorld(true);
   root.traverse((object) => {
     if (!(object instanceof THREE.Mesh)) return;
@@ -129,28 +195,14 @@ function retireOldBarriers(
     const reach = oldTrackside.find(([pattern]) => pattern.test(name))?.[1];
     if (reach === undefined) return;
     const geometry = object.geometry as THREE.BufferGeometry;
-    const triangles = geometry.index;
-    const position = geometry.getAttribute("position");
-    if (!triangles) return;
-    const kept: number[] = [];
-    for (let i = 0; i < triangles.count; i += 3) {
-      let x = 0;
-      let z = 0;
-      for (let k = 0; k < 3; k++) {
-        corner
-          .fromBufferAttribute(position, triangles.getX(i + k))
-          .applyMatrix4(object.matrixWorld);
-        x += corner.x / 3;
-        z += corner.z / 3;
-      }
-      if (Math.hypot(x, z) < startGantryRadius || !index.within(x, z, reach))
-        kept.push(
-          triangles.getX(i),
-          triangles.getX(i + 1),
-          triangles.getX(i + 2),
-        );
-    }
-    geometry.setIndex(kept);
+    geometry.setIndex(
+      trianglesWhere(
+        geometry,
+        object.matrixWorld,
+        (x, z) =>
+          Math.hypot(x, z) < startGantryRadius || !index.within(x, z, reach),
+      ),
+    );
   });
 }
 
@@ -164,6 +216,7 @@ export async function loadGltfTrack(
   const gltf = await new GLTFLoader().loadAsync(url);
   hideReplacedSurfaces(gltf.scene);
   retireOldBarriers(gltf.scene, centreline);
+  fillGrandstands(gltf.scene);
   useSdLighting(gltf.scene, lighting);
   return placeOnTrack(gltf.scene, frame, sdStart);
 }

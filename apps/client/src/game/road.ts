@@ -3,12 +3,16 @@ import {
   abs,
   exp,
   float,
+  floor,
   fract,
+  mix,
+  mx_cell_noise_float,
   mx_fractal_noise_float,
   output,
   positionWorld,
   renderOutput,
   smoothstep,
+  step,
   texture,
   uv,
   vec3,
@@ -23,6 +27,14 @@ const asphaltTint = vec3(0.96, 0.98, 1.03);
 const grassTint = 0.85;
 const mowStripe = 0.08;
 const grassMacro = 0.18;
+const leafScale = 0.9;
+const crowdSpacing = 1 / 0.55;
+const crowdRow = 1 / 0.85;
+const crowdEmpty = 0.12;
+const crowdHead = 0.68;
+const crowdSkin = vec3(0.32, 0.22, 0.16);
+const crowdSeat = vec3(0.3, 0.04, 0.04);
+const leafContrast = 0.6;
 const macroScale = 0.045;
 const macroStrength = 0.14;
 const rubberWidth = 1.3;
@@ -110,6 +122,16 @@ function shadeGrass(
     .mul(stripe);
 }
 
+function shadeCanopy(
+  material: THREE.MeshStandardNodeMaterial,
+  source: THREE.MeshStandardMaterial,
+): void {
+  const clumps = mx_fractal_noise_float(positionWorld.mul(leafScale), 3);
+  material.colorNode = vec3(source.color.r, source.color.g, source.color.b).mul(
+    float(1).add(clumps.mul(leafContrast)),
+  );
+}
+
 function surface(
   source: THREE.MeshStandardMaterial,
   anisotropy: number,
@@ -133,6 +155,7 @@ function surface(
   for (const map of [source.map, source.normalMap, source.roughnessMap])
     sharpen(map, anisotropy);
   if (source.name.endsWith("asphalt")) shadeAsphalt(material, source);
+  if (source.name.endsWith("canopy")) shadeCanopy(material, source);
   if (source.name.endsWith("grass") || source.name.endsWith("terrain"))
     shadeGrass(material, source);
   finish(material);
@@ -154,6 +177,23 @@ export async function loadRoad(
     object.castShadow = shadowCasters.test(object.name);
   });
   return gltf.scene;
+}
+
+export function crowdMaterial(): THREE.MeshStandardNodeMaterial {
+  const material = new THREE.MeshStandardNodeMaterial({ roughness: 0.9 });
+  const seat = positionWorld.mul(vec3(crowdSpacing, crowdSpacing, crowdRow));
+  const cell = floor(seat);
+  const shirt = vec3(
+    mx_cell_noise_float(cell),
+    mx_cell_noise_float(cell.add(17.3)),
+    mx_cell_noise_float(cell.add(41.7)),
+  );
+  const occupied = step(crowdEmpty, mx_cell_noise_float(cell.add(91.1)));
+  const head = step(crowdHead, fract(seat.z));
+  const person = mix(shirt.mul(0.5).add(0.03), crowdSkin, head);
+  material.colorNode = mix(crowdSeat, person, occupied);
+  finish(material);
+  return material;
 }
 
 export class Sunlight {

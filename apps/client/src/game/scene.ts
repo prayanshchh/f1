@@ -77,11 +77,13 @@ export class Scene {
     const local = engine.trackLocal();
     const [track, background, car] = await Promise.all([
       Scene.loadTrack(engine, assets, lighting, trackDir, name, anisotropy),
-      assets.model("data/objects/background-sky.ac", {
-        car: false,
-        searchPath: [trackDir, "data/textures/", "data/objects/"],
-        material: (options) => lighting.fixedFunction(options),
-      }),
+      name === "cota"
+        ? Promise.resolve(new THREE.Group())
+        : assets.model("data/objects/background-sky.ac", {
+            car: false,
+            searchPath: [trackDir, "data/textures/", "data/objects/"],
+            material: (options) => lighting.fixedFunction(options),
+          }),
       body === "vanta"
         ? GltfCar.load(vantaUrl, lighting, new THREE.Color("#d8471c"))
         : SdCar.load(assets, lighting, engine.carInfo()),

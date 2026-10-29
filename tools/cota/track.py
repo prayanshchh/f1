@@ -6,6 +6,7 @@ import numpy as np
 from scipy.interpolate import splev, splprep
 from scipy.ndimage import gaussian_filter1d, median_filter, minimum_filter1d
 from scipy.spatial import cKDTree
+from shapely import contains_xy
 from shapely.geometry import LinearRing, LineString, Point, Polygon
 from shapely.ops import unary_union
 
@@ -35,6 +36,17 @@ TERRAIN_FEATHER = 6.0
 TERRAIN_COVER = 0.3
 PIT_CLEARANCE = 9.0
 RAIL_FILTER = 9
+TREE_SPACING = 15.0
+TREE_JITTER = 5.0
+TREE_SEED = 11
+TREE_GROVE_SCALE = 1 / 260.0
+TREE_EDGE_BAND = 140.0
+TREE_TRACK_CLEARANCE = 8.0
+TREE_ROAD_BUFFER = {"service": 6.0, "footway": 3.0, "residential": 8.0, "secondary": 12.0, "tertiary": 10.0, "unclassified": 8.0, "raceway": 12.0}
+TREE_AREA_BUFFER = 6.0
+TREE_VARIANTS = 3
+TREE_BASE_DENSITY = 0.12
+TREE_PARKING_DENSITY = 0.06
 GRID_BEHIND_LINE = 16.0
 GRID_SPACING = 8.0
 GRID_OFFSET = 3.5
@@ -306,6 +318,86 @@ def ground(terrain, points, n, offsets, verge_heights, origin_height, pit, centr
     return xs, ys, heights.reshape(gy.shape)
 
 
+def tree_exclusions(osm):
+    shapes = []
+    for way in osm.ways.values():
+        tags = way.get("tags", {})
+        coords = osm.way(way["id"])
+        if len(coords) < 2:
+            continue
+        closed = way["nodes"][0] == way["nodes"][-1] and len(coords) >= 4
+        highway = tags.get("highway")
+        if highway in TREE_ROAD_BUFFER and not closed:
+            shapes.append(LineString(coords).buffer(TREE_ROAD_BUFFER[highway]))
+        elif closed and (
+            "building" in tags
+            or "area:highway" in tags
+            or tags.get("natural") == "water"
+            or tags.get("leisure") in ("bleachers", "swimming_pool", "sports_centre", "pitch")
+            or tags.get("landuse") == "construction"
+        ):
+            shapes.append(Polygon(coords).buffer(TREE_AREA_BUFFER))
+    return unary_union(shapes)
+
+
+def parking(osm):
+    return unary_union(
+        [Polygon(osm.way(w["id"])).buffer(0) for w in osm.ways.values() if w.get("tags", {}).get("amenity") == "parking" and len(w["nodes"]) >= 4]
+    )
+
+
+def groves(osm):
+    return unary_union(
+        [Polygon(osm.way(w["id"])) for w in osm.ways.values() if w.get("tags", {}).get("natural") in ("wood", "scrub") and len(w["nodes"]) >= 4]
+    )
+
+
+def value_noise(points, scale, seed):
+    rng = np.random.default_rng(seed)
+    lattice = rng.random((64, 64))
+    p = points * scale
+    i = np.floor(p).astype(int)
+    f = p - i
+    f = f * f * (3 - 2 * f)
+    at = lambda dx, dy: lattice[(i[:, 0] + dx) % 64, (i[:, 1] + dy) % 64]
+    top = at(0, 0) * (1 - f[:, 0]) + at(1, 0) * f[:, 0]
+    bottom = at(0, 1) * (1 - f[:, 0]) + at(1, 1) * f[:, 0]
+    return top * (1 - f[:, 1]) + bottom * f[:, 1]
+
+
+def trees(osm, terrain, points, offsets, xs, ys, origin_height):
+    rng = np.random.default_rng(TREE_SEED)
+    gx, gy = np.meshgrid(np.arange(xs[0], xs[-1], TREE_SPACING), np.arange(ys[0], ys[-1], TREE_SPACING))
+    candidates = np.stack([gx.ravel(), gy.ravel()], 1) + rng.uniform(-TREE_JITTER, TREE_JITTER, (gx.size, 2))
+    margin = np.minimum.reduce(
+        [candidates[:, 0] - xs[0], xs[-1] - candidates[:, 0], candidates[:, 1] - ys[0], ys[-1] - candidates[:, 1]]
+    )
+    candidates, margin = candidates[margin > 10], margin[margin > 10]
+    distance, index = cKDTree(points).query(candidates)
+    reach = np.max(offsets[index, :, -1], axis=1) + TREE_TRACK_CLEARANCE
+    keep = distance > reach
+    candidates, margin = candidates[keep], margin[keep]
+    blocked = tree_exclusions(osm)
+    grove = groves(osm)
+    free = ~contains_xy(blocked, candidates[:, 0], candidates[:, 1])
+    candidates, margin = candidates[free], margin[free]
+    density = TREE_BASE_DENSITY + 0.8 * np.clip((value_noise(candidates, TREE_GROVE_SCALE, TREE_SEED) - 0.35) * 2.5, 0, 1)
+    density = np.where(contains_xy(parking(osm), candidates[:, 0], candidates[:, 1]), TREE_PARKING_DENSITY, density)
+    density = np.where(contains_xy(grove, candidates[:, 0], candidates[:, 1]), 0.85, density)
+    density = np.where(margin < TREE_EDGE_BAND, np.maximum(density, 0.8), density)
+    chosen = candidates[rng.random(len(candidates)) < density]
+    heights = terrain(chosen) - origin_height
+    return np.column_stack(
+        [
+            chosen,
+            heights,
+            rng.uniform(0.7, 1.3, len(chosen)),
+            rng.uniform(0, 2 * np.pi, len(chosen)),
+            rng.integers(0, TREE_VARIANTS, len(chosen)),
+        ]
+    )
+
+
 def main():
     root = Path(sys.argv[1] if len(sys.argv) > 1 else "content/tracks/cota")
     osm = Osm(root / "source" / "osm.json")
@@ -367,6 +459,9 @@ def main():
     np.savez(build / "verge.npz", offsets=offsets, heights=heights - origin_height, rails=np.stack(rails, 1))
     xs, ys, field = ground(terrain, points, n, offsets, heights, origin_height, track["pitLane"], centre)
     np.savez(build / "terrain.npz", x=xs, y=ys, heights=field)
+    forest = trees(osm, terrain, points, offsets, xs, ys, origin_height)
+    np.save(build / "trees.npy", forest)
+    print(f"trees {len(forest)}")
     heading = np.degrees(np.arctan2(tangents[:, 1], tangents[:, 0]))
     jump = np.abs(np.diff(gaussian_filter1d(curvature(points, tangents), 0.5, mode="wrap"))) / step
     print(

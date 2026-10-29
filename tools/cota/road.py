@@ -7,6 +7,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import trackside
+import vegetation
 
 STEP = 1.0
 MAIN_COLUMNS = 9
@@ -542,6 +543,13 @@ def main():
     verges(track, grass)
     trackside_meshes(track, source, derived)
     painted_ads(track, material("cota painted ads", derived / "decals_base_color.png", alpha=True))
+    vegetation.forest(
+        np.load(build / "trees.npy"),
+        3,
+        flat_material("cota tree bark", (0.16, 0.13, 0.1), 0.0, 0.9),
+        flat_material("cota tree canopy", (0.1, 0.17, 0.06), 0.0, 0.85),
+        11,
+    )
     terrain(
         build,
         material(
@@ -561,8 +569,9 @@ def main():
         export_materials="EXPORT",
         export_image_format="AUTO",
         export_extras=False,
+        export_gpu_instances=True,
     )
-    print(f"road: {track.count} rows, {sum(len(o.data.polygons) for o in bpy.data.objects)} faces -> {out}")
+    print(f"road: {track.count} rows, {sum(len(o.data.polygons) for o in bpy.data.objects if o.type == "MESH")} faces -> {out}")
 
 
 main()

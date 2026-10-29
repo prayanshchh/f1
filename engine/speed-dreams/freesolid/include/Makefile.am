@@ -1,0 +1,1 @@
+SUBDIRS = SOLID 3D

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE params SYSTEM "../../../../../src/libs/tgf/params.dtd">
+<params name="22mp1-sector-mcl36" type="template" mode="mw">
+  <section name="Front Right Wheel">
+    <attnum name="toe" unit="deg" min="-5" max="5" val="0.5"/>
+  </section>
+  <section name="Front Left Wheel">
+    <attnum name="toe" unit="deg" min="-5" max="5" val="-0.5"/>
+  </section>
+</params>

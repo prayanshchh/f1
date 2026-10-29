@@ -15,20 +15,17 @@
   "packageManager": "pnpm@12.14.0",
   "scripts": {
     "prepare": "lefthook install",
-    "format:check": "prettier --check . --ignore-path .gitignore --ignore-path .prettierignore && cargo fmt --all --check",
-    "lint": "ast-grep scan --no-ignore hidden && eslint --max-warnings 0 . && cargo clippy --workspace --all-targets --locked -- -D warnings",
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p apps/client/tsconfig.json && tsc --noEmit -p apps/telemetry/tsconfig.json",
-    "unused": "knip && cargo machete",
+    "format:check": "prettier --check . --ignore-path .gitignore --ignore-path .prettierignore",
+    "lint": "ast-grep scan --no-ignore hidden && eslint --max-warnings 0 .",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p apps/client/tsconfig.json",
+    "unused": "knip",
     "duplicates": "jscpd .",
-    "check": "pnpm run contracts:check && pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run unused && pnpm run duplicates",
-    "build": "pnpm run build:wasm && pnpm --filter ./apps/client run build && pnpm --filter ./apps/telemetry run build",
-    "test:rust": "cargo test --workspace --locked",
+    "check": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run unused && pnpm run duplicates",
+    "build": "pnpm run build:engine && pnpm --filter ./apps/client run build",
+    "build:engine": "node tools/build-engine.mjs",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "verify": "pnpm run check && pnpm run test:rust && pnpm run build && pnpm run test && pnpm run test:e2e",
-    "contracts:generate": "node tools/contracts.mjs",
-    "contracts:check": "node tools/contracts.mjs --check",
-    "build:wasm": "node tools/build-wasm.mjs",
+    "verify": "pnpm run check && pnpm run build && pnpm run test && pnpm run test:e2e",
     "content:cars": "node tools/cars.mjs",
     "assets:build": "node tools/assets.mjs"
   },
@@ -41,7 +38,6 @@
     "@playwright/test": "1.64.1",
     "@types/node": "26.6.5",
     "@types/pngjs": "6.0.5",
-    "@types/three": "0.186.0",
     "@vitest/eslint-plugin": "1.6.27",
     "@webgpu/types": "0.1.74",
     "eslint": "10.13.0",
@@ -59,8 +55,5 @@
     "vite": "8.3.4",
     "vitest": "5.0.5",
     "yaml": "2.9.1"
-  },
-  "dependencies": {
-    "three": "0.186.1"
   }
 }

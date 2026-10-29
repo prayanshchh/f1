@@ -6,28 +6,14 @@
         "tests/**/*.e2e.ts",
         "tests/support/*.ts",
         "*.config.ts",
-        "tools/*.mjs",
-        ".github/scripts/*.ts"
+        "tools/*.mjs"
       ],
-      "project": [
-        "tests/**/*.ts",
-        "*.config.ts",
-        "*.mjs",
-        "tools/*.mjs",
-        ".github/scripts/*.ts"
-      ]
+      "project": ["tests/**/*.ts", "*.config.ts", "*.mjs", "tools/*.mjs"]
     },
     "apps/client": {
-      "entry": [
-        "src/hud/index.ts",
-        "src/contracts/index.ts",
-        "src/audio/index.ts"
-      ],
-      "project": ["src/**/*.ts"]
-    },
-    "apps/telemetry": {
+      "entry": ["pad-server.ts"],
       "project": ["src/**/*.ts"]
     }
   },
-  "ignoreBinaries": ["wasm-bindgen"]
+  "ignoreBinaries": ["em\\+\\+", "openssl", "scutil"]
 }

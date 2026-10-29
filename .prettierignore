@@ -1,1 +1,6 @@
 pnpm-lock.yaml
+.claude/
+.conductor/
+engine/speed-dreams/
+engine/third_party/
+engine/data/

@@ -6,6 +6,7 @@
   "liveries": [
     "liveries/ember.json",
     "liveries/glacier.json",
-    "liveries/nightjar.json"
+    "liveries/nightjar.json",
+    "liveries/verdant.json"
   ]
 }

@@ -1,0 +1,29 @@
+install(FILES
+    aalborg.xml
+allondaz.xml
+alpine-1.xml
+brondehach.xml
+charmey.xml
+corkscrew.xml
+default.xml
+e-track-2.xml
+e-track-3.xml
+e-track-4.xml
+forza.xml
+g-track-3.xml
+inuksuk.xml
+lombaro.xml
+longday.xml
+manton.xml
+michigan.xml
+migrants.xml
+ole-road-1.xml
+prenzlau.xml
+ruudskogen.xml
+salty.xml
+spring.xml
+street-1.xml
+wheel-1.xml
+wheel-2.xml
+    DESTINATION ${datadir}/drivers/human/cars/trb1-taipan-rb1
+)

@@ -1,16 +1,5 @@
-import { spawn, spawnSync } from "node:child_process";
-import {
-  appendFileSync,
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { spawnSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -56,32 +45,6 @@ export function runScript(script: string): RunResult {
   return run("pnpm", ["--silent", "run", script]);
 }
 
-function runAsync(
-  command: string,
-  args: readonly string[],
-  options: Required<RunOptions>,
-): Promise<RunResult> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      cwd: options.cwd,
-      env: environment(options.env),
-    });
-    let stdout = "";
-    let output = "";
-    child.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString();
-      output += chunk.toString();
-    });
-    child.stderr.on("data", (chunk: Buffer) => {
-      output += chunk.toString();
-    });
-    child.on("error", reject);
-    child.on("close", (code) => {
-      resolve({ code, stdout, output });
-    });
-  });
-}
-
 function gitFiles(root: string, args: readonly string[]): string[] {
   const result = run("git", ["ls-files", "-z", ...args], { cwd: root });
   if (result.code !== 0) {
@@ -124,92 +87,9 @@ export function readManifest(file: string): PackageManifest {
   return readJson(file) as PackageManifest;
 }
 
-export interface CargoPackage {
-  name: string;
-  edition: string;
-  manifest_path: string;
-  targets: { kind: string[]; name: string; src_path: string }[];
-  dependencies: { name: string; kind: string | null }[];
-}
-
-export function cargoPackages(): CargoPackage[] {
-  const metadata = run("cargo", [
-    "metadata",
-    "--format-version",
-    "1",
-    "--no-deps",
-    "--locked",
-  ]);
-  if (metadata.code !== 0) {
-    throw new Error(`cargo metadata failed: ${metadata.output}`);
-  }
-  return (JSON.parse(metadata.stdout) as { packages: CargoPackage[] }).packages;
-}
-
 export function hasExtension(
   file: string,
   extensions: readonly string[],
 ): boolean {
   return extensions.includes(path.extname(file));
-}
-
-function nodeModulesDirectories(): string[] {
-  return listRepoFiles()
-    .filter((file) => path.basename(file) === "package.json")
-    .map((file) => path.join(path.dirname(file), "node_modules"))
-    .filter((directory) => existsSync(path.join(repoRoot, directory)));
-}
-
-const probeCargoTargetDirectory = path.join(repoRoot, "target", "probe");
-
-export interface ProbeCopy {
-  root: string;
-  write: (file: string, content: string) => void;
-  append: (file: string, content: string) => void;
-  read: (file: string) => string;
-  run: (command: string, args: readonly string[]) => Promise<RunResult>;
-  runScript: (script: string) => Promise<RunResult>;
-  remove: () => void;
-}
-
-export function createProbeCopy(): ProbeCopy {
-  const root = mkdtempSync(path.join(tmpdir(), "repo-probe-"));
-  for (const file of listRepoFiles()) {
-    const destination = path.join(root, file);
-    mkdirSync(path.dirname(destination), { recursive: true });
-    copyFileSync(path.join(repoRoot, file), destination);
-  }
-  for (const directory of nodeModulesDirectories()) {
-    symlinkSync(
-      path.join(repoRoot, directory),
-      path.join(root, directory),
-      "dir",
-    );
-  }
-  const runInCopy = (command: string, args: readonly string[]) =>
-    runAsync(command, args, {
-      cwd: root,
-      env: { CARGO_TARGET_DIR: probeCargoTargetDirectory },
-    });
-  return {
-    root,
-    write(file, content) {
-      const destination = path.join(root, file);
-      mkdirSync(path.dirname(destination), { recursive: true });
-      writeFileSync(destination, content);
-    },
-    append(file, content) {
-      appendFileSync(path.join(root, file), content);
-    },
-    read(file) {
-      return readFileSync(path.join(root, file), "utf8");
-    },
-    run: runInCopy,
-    runScript(script) {
-      return runInCopy("pnpm", ["--silent", "run", script]);
-    },
-    remove() {
-      rmSync(root, { recursive: true, force: true });
-    },
-  };
 }

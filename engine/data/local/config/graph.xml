@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE params SYSTEM "params.dtd">
+
+
+<params name="Graph" version="1.22">
+  <section name="Graphic">
+    <attnum name="smoke value" val="0"/>
+    <attnum name="smoke interval" val="0.01"/>
+    <attnum name="smoke duration" val="2"/>
+    <attnum name="skid value" val="0"/>
+    <attnum name="skid length" val="300"/>
+    <attnum name="skid interval" val="0.05"/>
+    <attnum name="fov factor" unit="%" val="50"/>
+    <attnum name="LOD Factor" val="1"/>
+    <attnum name="sky dome distance" val="12000"/>
+    <attstr name="dynamic sky dome" val="enabled"/>
+    <attnum name="precipitation density" unit="%" val="20"/>
+    <attnum name="cloudlayer" val="1"/>
+    <attstr name="background skydome" val="enabled"/>
+    <attnum name="visibility" val="10000"/>
+    <attstr name="scene lod" val="full"/>
+    <attstr name="cockpit 3d" val="no"/>
+    <attstr name="span splits" val="no"/>
+    <attnum name="bezel compensation" unit="%" val="110"/>
+    <attnum name="screen distance" val="1"/>
+    <attnum name="arc ratio" val="1"/>
+    <attstr name="monitor type" val="none"/>
+    <attstr name="shadow type" val="light shadowmap"/>
+    <attnum name="texture shadow size" val="1024"/>
+    <attstr name="shadow quality" val="little"/>
+    <attstr name="shaders" val="little"/>
+    <attstr name="texture environment" val="full"/>
+    <attnum name="environment size" val="256"/>
+  </section>
+
+  <section name="Playable Cameras Distance of Views">
+    <attnum name="Front Level Group Global" val="600"/>
+    <attnum name="Front Level Group 1" val="400"/>
+    <attnum name="Front Level Group 2" val="300"/>
+    <attnum name="Front Level Group 3" val="200"/>
+    <attnum name="Rear Level Group Global" val="700"/>
+    <attnum name="Rear Level Group 1" val="500"/>
+    <attnum name="Rear Level Group 2" val="300"/>
+    <attnum name="Rear Level Group 3" val="150"/>
+    <attnum name="Front Level Map 1" val="300"/>
+    <attnum name="Front Level Map 2" val="200"/>
+    <attnum name="Front Level Map 3" val="100"/>
+    <attnum name="Rear Level Map 1" val="300"/>
+    <attnum name="Rear Level Map 2" val="200"/>
+    <attnum name="Rear Level Map 3" val="100"/>
+    <attnum name="Level Factor" val="1"/>
+    <attnum name="Map Factor" val="1"/>
+  </section>
+
+  <section name="UnPlayable Cameras Distance of Views">
+    <attnum name="Front Level Group Global" val="400"/>
+    <attnum name="Front Level Group 1" val="350"/>
+    <attnum name="Front Level Group 2" val="300"/>
+    <attnum name="Front Level Group 3" val="200"/>
+    <attnum name="Rear Level Group Global" val="400"/>
+    <attnum name="Rear Level Group 1" val="350"/>
+    <attnum name="Rear Level Group 2" val="300"/>
+    <attnum name="Rear Level Group 3" val="200"/>
+    <attnum name="Front Level Map 1" val="300"/>
+    <attnum name="Front Level Map 2" val="250"/>
+    <attnum name="Front Level Map 3" val="200"/>
+    <attnum name="Rear Level Map 1" val="300"/>
+    <attnum name="Rear Level Map 2" val="250"/>
+    <attnum name="Rear Level Map 3" val="200"/>
+    <attnum name="Level Factor" val="1"/>
+    <attnum name="Map Factor" val="1"/>
+  </section>
+
+  <section name="TV Director View">
+    <attnum name="change camera interval" val="30"/>
+    <attnum name="event interval" val="5"/>
+    <attnum name="proximity threshold" val="25"/>
+  </section>
+
+  <section name="Display Mode">
+    <section name="Player">
+      <attnum name="camera" val="0"/>
+      <attnum name="camera head list" val="0"/>
+    </section>
+
+    <section name="0">
+      <attnum name="camera" val="0"/>
+      <attnum name="camera head list" val="0"/>
+      <attnum name="board width" val="100"/>
+      <attnum name="speedometer vertical position" val="0"/>
+      <attstr name="current driver" val="Player"/>
+    </section>
+
+  </section>
+
+  <section name="Dash settings">
+    <section name="colors">
+      <section name="normal color">
+        <attnum name="red" val="1"/>
+        <attnum name="green" val="1"/>
+        <attnum name="blue" val="1"/>
+        <attnum name="alpha" val="1"/>
+      </section>
+
+      <section name="danger color">
+        <attnum name="red" val="1"/>
+        <attnum name="green" val="0"/>
+        <attnum name="blue" val="0"/>
+        <attnum name="alpha" val="1"/>
+      </section>
+
+      <section name="OK color">
+        <attnum name="red" val="0"/>
+        <attnum name="green" val="1"/>
+        <attnum name="blue" val="0"/>
+        <attnum name="alpha" val="1"/>
+      </section>
+
+      <section name="error color">
+        <attnum name="red" val="1"/>
+        <attnum name="green" val="0"/>
+        <attnum name="blue" val="1"/>
+        <attnum name="alpha" val="1"/>
+      </section>
+
+      <section name="inactive text color">
+        <attnum name="red" val="0.3"/>
+        <attnum name="green" val="0.3"/>
+        <attnum name="blue" val="0.3"/>
+        <attnum name="alpha" val="1"/>
+      </section>
+
+      <section name="emphasized color">
+        <attnum name="red" val="1"/>
+        <attnum name="green" val="0.878"/>
+        <attnum name="blue" val="0"/>
+        <attnum name="alpha" val="1"/>
+      </section>
+
+      <section name="car ahead color">
+        <attnum name="red" val="0.31"/>
+        <attnum name="green" val="0.968"/>
+        <attnum name="blue" val="0.933"/>
+        <attnum name="alpha" val="1"/>
+      </section>
+
+      <section name="car behind color">
+        <attnum name="red" val="0.054"/>
+        <attnum name="green" val="0.227"/>
+        <attnum name="blue" val="0.439"/>
+        <attnum name="alpha" val="1"/>
+      </section>
+
+      <section name="arcade color">
+        <attnum name="red" val="0.9"/>
+        <attnum name="green" val="0.9"/>
+        <attnum name="blue" val="0.15"/>
+        <attnum name="alpha" val="1"/>
+      </section>
+
+      <section name="dash panel background color">
+        <attnum name="red" val="0.039"/>
+        <attnum name="green" val="0.086"/>
+        <attnum name="blue" val="0.184"/>
+        <attnum name="alpha" val="0.8"/>
+      </section>
+
+    </section>
+
+  </section>
+
+</params>

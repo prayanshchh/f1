@@ -4,14 +4,150 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" href="data:," />
-    <title>F1 · Drive</title>
+    <title>Speed Dreams</title>
   </head>
-  <body data-render-status="loading">
-    <canvas
-      data-testid="drive-canvas"
-      aria-label="Your car on the Ridgewater circuit"
-    ></canvas>
-    <div data-testid="hud"></div>
+  <body data-drive-status="loading">
+    <canvas data-testid="drive-canvas"></canvas>
+    <p class="status" data-testid="drive-status">Starting WebGPU…</p>
+    <div class="hud" data-testid="hud" hidden>
+      <section class="timing panel">
+        <header><span>Lap</span><b data-hud="lap">1</b></header>
+        <div class="now" data-hud="current">--:--.---</div>
+        <div class="sectors" data-hud="sectors"></div>
+        <dl>
+          <dt>Best</dt>
+          <dd data-hud="best">--:--.---</dd>
+          <dt>Last</dt>
+          <dd data-hud="last">--:--.---</dd>
+        </dl>
+      </section>
+
+      <section class="delta part-delta" data-hud="delta" data-state="idle">
+        <div class="delta-head">
+          <span data-hud="delta-label">Delta</span
+          ><small data-hud="reference"></small>
+        </div>
+        <div class="delta-value" data-hud="delta-value"></div>
+        <div class="delta-track"><i data-hud="delta-fill"></i><b></b></div>
+        <div class="delta-pred" data-hud="delta-pred"></div>
+      </section>
+
+      <section class="banner" data-hud="banner">
+        <span data-hud="banner-lap">Lap</span>
+        <strong data-hud="banner-time">--:--.---</strong>
+        <em data-hud="banner-delta"></em>
+        <div data-hud="banner-sectors"></div>
+      </section>
+
+      <div class="lights part-lights" data-hud="lights"></div>
+      <div class="go part-lights" data-hud="go">Go</div>
+      <div class="notice" data-hud="notice"></div>
+
+      <section class="inputs panel part-inputs">
+        <div class="pedal brake"><i data-hud="in-brake"></i></div>
+        <div class="pedal throttle"><i data-hud="in-throttle"></i></div>
+        <svg class="wheel" viewBox="0 0 40 40" aria-hidden="true">
+          <g data-hud="in-steer">
+            <circle cx="20" cy="20" r="16" />
+            <line x1="20" y1="4" x2="20" y2="11" />
+          </g>
+        </svg>
+      </section>
+
+      <section class="dash panel">
+        <div class="leds" data-hud="leds"></div>
+        <div class="dash-main">
+          <div class="speed"><b data-hud="speed">0</b><span>km/h</span></div>
+          <div class="gear" data-hud="gear">N</div>
+        </div>
+        <div class="rpm"><i data-hud="rpm-bar"></i></div>
+        <div class="rpm-value"><span data-hud="rpm">0</span> rpm</div>
+        <div class="dash-extra">
+          <div class="fuel part-fuel" data-hud="fuel-box">
+            <span>Fuel</span><b><span data-hud="fuel">0</span> L</b
+            ><small data-hud="fuel-laps"></small>
+            <div class="fuel-track"><i data-hud="fuel-bar"></i></div>
+          </div>
+          <div class="tyres part-tyres">
+            <div data-hud="tyre-fl"></div>
+            <div data-hud="tyre-fr"></div>
+            <div data-hud="tyre-rl"></div>
+            <div data-hud="tyre-rr"></div>
+          </div>
+        </div>
+        <div class="damage" data-hud="damage" hidden>
+          <span>Damage</span><i></i>
+        </div>
+      </section>
+
+      <div class="pad-badge" data-pad="badge" hidden>📱 Phone connected</div>
+      <div class="help part-help">
+        Esc: menu · Arrows: drive · E / Q: shift (sequential) · P: phone · C:
+        chase cam · F2–F11: cameras
+      </div>
+    </div>
+
+    <div class="menu" data-menu="root" hidden>
+      <div class="menu-card">
+        <header class="menu-head">
+          <div>
+            <h1 data-menu="title">Race setup</h1>
+            <p data-menu="subtitle"></p>
+          </div>
+          <nav class="tabs" data-menu="tabs"></nav>
+        </header>
+        <div class="menu-body" data-menu="body"></div>
+        <footer class="menu-foot">
+          <button type="button" class="ghost" data-menu="reset">
+            Reset tab
+          </button>
+          <span class="menu-note" data-menu="note"></span>
+          <button type="button" class="ghost" data-menu="resume" hidden>
+            Resume
+          </button>
+          <button type="button" class="primary" data-menu="start">Start</button>
+        </footer>
+      </div>
+    </div>
+
+    <div class="results" data-results="root" hidden>
+      <div class="menu-card results-card">
+        <h1>Race finished</h1>
+        <p data-results="summary"></p>
+        <ol data-results="laps"></ol>
+        <footer class="menu-foot">
+          <button type="button" class="ghost" data-results="menu">
+            Settings
+          </button>
+          <button type="button" class="primary" data-results="restart">
+            Race again
+          </button>
+        </footer>
+      </div>
+    </div>
+
+    <div class="pad-panel" data-pad="panel" hidden>
+      <h2>Drive with your iPhone</h2>
+      <p>iPhone and Mac on the same Wi-Fi. Press P to close.</p>
+      <div class="pad-codes">
+        <figure>
+          <div class="pad-qr" data-pad="setup-qr"></div>
+          <figcaption>
+            <b>1. First time only</b><br />Install the certificate<br /><span
+              data-pad="setup-url"
+            ></span>
+          </figcaption>
+        </figure>
+        <figure>
+          <div class="pad-qr" data-pad="pad-qr"></div>
+          <figcaption>
+            <b>2. Controller</b><br />Hold sideways like a wheel<br /><span
+              data-pad="pad-url"
+            ></span>
+          </figcaption>
+        </figure>
+      </div>
+    </div>
     <script type="module" src="/src/drive.ts"></script>
   </body>
 </html>

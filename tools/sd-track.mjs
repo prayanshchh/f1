@@ -1,20 +1,16 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { loadRoad } from "./cota-road.mjs";
 
 const directory = process.argv[2] ?? "content/tracks/cota";
 const track = JSON.parse(
   readFileSync(path.join(directory, "track.json"), "utf8"),
 );
-const road = await loadRoad(path.join(directory, `${track.id}.glb`));
 
 const width = track.width;
 const half = width / 2;
-const kerbOuter = 8.3;
-const runoffOuter = 10;
-const wallOffset = track.walls[0].offset;
-const kerbProbe = 7.75;
-const edgeProbe = half - 0.1;
+const minSideWidth = 0.5;
+const kerbHeight = 0.05;
+const kerbMaxWidening = 0.6;
 
 const points = track.centerline.map((p) => ({
   x: p.x,
@@ -22,9 +18,25 @@ const points = track.centerline.map((p) => ({
   z: p.y,
   gx: p.x,
   gz: p.z,
+  width: p.width,
+  camber: p.camber,
+  wallLeft: p.wallLeft,
+  wallRight: p.wallRight,
 }));
 const n = points.length;
 const at = (i) => points[((i % n) + n) % n];
+const spacing = track.length / n;
+
+function kerbAt(side, distance) {
+  return track.surfaces.some(
+    (s) =>
+      s.kind === "kerb" &&
+      s.side === side &&
+      (s.from <= s.to
+        ? distance >= s.from && distance <= s.to
+        : distance >= s.from || distance <= s.to),
+  );
+}
 
 const minCircleRadius = 8;
 function circleRadius(i) {
@@ -75,38 +87,12 @@ for (let i = 0; i < n; i++) {
   points[i].ty = ty / length;
 }
 
-function surfaceAt(p, offset, kinds) {
-  const lx = -p.ty;
-  const ly = p.tx;
-  const x = p.x + lx * offset;
-  const y = p.y + ly * offset;
-  const hits = road
-    .heights(x, -y)
-    .filter((h) => Math.abs(h.y - p.z) < 1.5 && kinds.test(h.kind));
-  if (hits.length === 0) return null;
-  if (kinds === kerbKinds)
-    return hits.reduce((top, h) => (h.y > top.y ? h : top));
-  return hits.reduce((best, h) =>
-    Math.abs(h.y - p.z) < Math.abs(best.y - p.z) ? h : best,
-  );
-}
-
-const roadKinds = /^(asphalt|rubber|paint-white)$/;
-const kerbKinds = /^paint-(red|white)$/;
-
-for (const p of points) {
-  const left = surfaceAt(p, edgeProbe, roadKinds);
-  const right = surfaceAt(p, -edgeProbe, roadKinds);
-  const scale = half / edgeProbe;
-  p.zl = left ? p.z + (left.y - p.z) * scale : p.z;
-  p.zr = right ? p.z + (right.y - p.z) * scale : p.z;
-  const kerbLeft = surfaceAt(p, kerbProbe, kerbKinds);
-  const kerbRight = surfaceAt(p, -kerbProbe, kerbKinds);
-  p.kerbLeft = kerbLeft !== null;
-  p.kerbRight = kerbRight !== null;
-  p.kerbLeftHeight = p.kerbLeft ? Math.max(0, kerbLeft.y - p.zl) : 0;
-  p.kerbRightHeight = p.kerbRight ? Math.max(0, kerbRight.y - p.zr) : 0;
-}
+points.forEach((p, i) => {
+  p.zl = p.z + p.camber * half;
+  p.zr = p.z - p.camber * half;
+  p.kerbLeft = kerbAt("left", i * spacing);
+  p.kerbRight = kerbAt("right", i * spacing);
+});
 
 const cross = (ax, ay, bx, by) => ax * by - ay * bx;
 const dot = (ax, ay, bx, by) => ax * bx + ay * by;
@@ -172,10 +158,13 @@ for (let i = 0; i < n; i++) {
       zsr: lerp(p0.zr, p1.zr, s),
       zel: lerp(p0.zl, p1.zl, e),
       zer: lerp(p0.zr, p1.zr, e),
+      width: lerp(p0.width, p1.width, (s + e) / 2),
+      wallLeftStart: lerp(p0.wallLeft, p1.wallLeft, s),
+      wallLeftEnd: lerp(p0.wallLeft, p1.wallLeft, e),
+      wallRightStart: lerp(p0.wallRight, p1.wallRight, s),
+      wallRightEnd: lerp(p0.wallRight, p1.wallRight, e),
       kerbLeft: p0.kerbLeft || p1.kerbLeft,
       kerbRight: p0.kerbRight || p1.kerbRight,
-      kerbLeftHeight: Math.max(p0.kerbLeftHeight, p1.kerbLeftHeight),
-      kerbRightHeight: Math.max(p0.kerbRightHeight, p1.kerbRightHeight),
     });
   }
 }
@@ -195,26 +184,31 @@ const num = (name, value, unit) =>
 const str = (name, value) => `<attstr name="${name}" val="${value}"/>`;
 
 function side(name, s, isLeft) {
-  const kerb = isLeft ? s.kerbLeft : s.kerbRight;
-  const kerbHeight = isLeft ? s.kerbLeftHeight : s.kerbRightHeight;
+  const widening = s.width / 2 - half;
+  const kerb =
+    (isLeft ? s.kerbLeft : s.kerbRight) && widening < kerbMaxWidening;
   const letter = isLeft ? "l" : "r";
-  const borderWidth = kerb ? kerbOuter - half : runoffOuter - half;
+  const borderWidth =
+    Math.max(widening, 0) + (kerb ? track.surfaces[0].width : track.runoff);
   const border = kerb
     ? [
         num("width", borderWidth, "m"),
-        num("height", Math.min(kerbHeight, 0.1), "m"),
+        num("height", kerbHeight, "m"),
         str("surface", `curb-5cm-${letter}`),
         str("style", "curb"),
       ]
     : [
         num("width", borderWidth, "m"),
         num("height", 0, "m"),
-        str("surface", "asphalt2"),
+        str("surface", "asphalt-lines"),
         str("style", "plan"),
       ];
+  const wallStart = isLeft ? s.wallLeftStart : s.wallRightStart;
+  const wallEnd = isLeft ? s.wallLeftEnd : s.wallRightEnd;
+  const sideWidth = (wall) => Math.max(wall - half - borderWidth, minSideWidth);
   return [
     `<section name="${name} Border">${border.join("")}</section>`,
-    `<section name="${name} Side">${num("width", wallOffset - half - borderWidth, "m")}${str("surface", "grass")}</section>`,
+    `<section name="${name} Side">${num("start width", sideWidth(wallStart), "m")}${num("end width", sideWidth(wallEnd), "m")}${str("surface", "grass")}</section>`,
     `<section name="${name} Barrier">${num("width", 0.5, "m")}${num("height", 1, "m")}${str("surface", "barrier")}${str("style", "wall")}</section>`,
   ].join("");
 }
@@ -295,5 +289,5 @@ writeFileSync(
   `${JSON.stringify(frame, null, 2)}\n`,
 );
 process.stdout.write(
-  `relaxed ${relaxed.toFixed(3)} m, ${segments.length} segments, ${segments.reduce((sum, s) => sum + s.length, 0).toFixed(3)} m, min radius ${minRadius.toFixed(2)} m, kerb segments ${segments.filter((s) => s.kerbLeft || s.kerbRight).length}\n`,
+  `relaxed ${relaxed.toFixed(3)} m, ${segments.length} segments, ${segments.reduce((sum, s) => sum + s.length, 0).toFixed(3)} m, min radius ${minRadius.toFixed(2)} m, kerb segments ${segments.filter((s) => s.kerbLeft || s.kerbRight).length}, widest ${Math.max(...segments.map((s) => s.width)).toFixed(1)} m\n`,
 );

@@ -7,3 +7,5 @@ playwright-report/
 apps/client/wasm/
 build/
 plans/
+.venv/
+__pycache__/

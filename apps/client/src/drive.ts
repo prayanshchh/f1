@@ -163,6 +163,8 @@ async function main(): Promise<void> {
   const renderer = new THREE.WebGPURenderer({ canvas, antialias: true });
   renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
   renderer.toneMapping = THREE.NoToneMapping;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
   await renderer.init();
 
   const params = new URLSearchParams(location.search);
@@ -199,6 +201,7 @@ async function main(): Promise<void> {
     track.category,
     track.id,
     car.body,
+    renderer.getMaxAnisotropy(),
   );
 
   const reference = loadReference(settings);

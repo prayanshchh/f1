@@ -54,6 +54,7 @@ export const choices = {
     { id: "dusk", label: "Dusk" },
     { id: "night", label: "Night" },
     { id: "now", label: "Now" },
+    { id: "from track", label: "Circuit" },
     { id: "random", label: "Random" },
   ],
   clouds: [
@@ -73,6 +74,7 @@ export const choices = {
   ],
   season: [
     { id: "now", label: "Now" },
+    { id: "from track", label: "Circuit" },
     { id: "spring", label: "Spring" },
     { id: "summer", label: "Summer" },
     { id: "autumn", label: "Autumn" },
@@ -139,7 +141,7 @@ export const defaults: Settings = {
   session: "practice",
   laps: 5,
   fuel: 0,
-  timeOfDay: "afternoon",
+  timeOfDay: "from track",
   clouds: "scarce clouds",
   rain: "none",
   season: "now",

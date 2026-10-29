@@ -13,6 +13,7 @@ import { LapTrace } from "./game/laptrace.ts";
 import { Menu } from "./game/menu.ts";
 import { SdAssets } from "./game/models.ts";
 import { PadLink } from "./game/pad.ts";
+import { Atmosphere } from "./game/atmosphere.ts";
 import { Scene } from "./game/scene.ts";
 import {
   applySettings,
@@ -153,6 +154,22 @@ function fitStage(): void {
   document.documentElement.style.setProperty("--s", String(scale));
 }
 
+function drawer(
+  renderer: THREE.WebGPURenderer,
+  scene: Scene,
+  trackId: string,
+): () => void {
+  if (trackId !== "cota")
+    return () => {
+      renderer.render(scene.scene, scene.camera);
+    };
+  const atmosphere = new Atmosphere(renderer, scene.scene, scene.camera);
+  return () => {
+    atmosphere.update(scene.atmosphere);
+    atmosphere.render();
+  };
+}
+
 async function main(): Promise<void> {
   if (!canvas || !hudRoot) throw new Error("drive page markup is missing");
   fitStage();
@@ -203,6 +220,7 @@ async function main(): Promise<void> {
     car.body,
     renderer.getMaxAnisotropy(),
   );
+  const draw = drawer(renderer, scene, track.id);
 
   const reference = loadReference(settings);
   const trace = new LapTrace(
@@ -305,7 +323,7 @@ async function main(): Promise<void> {
   void renderer.setAnimationLoop(() => {
     if (!paused && !finished) step(performance.now() / 1000);
     canvas.style.transform = scene.mirrored ? "scaleX(-1)" : "";
-    renderer.render(scene.scene, scene.camera);
+    draw();
   });
 }
 

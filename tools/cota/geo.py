@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 from pyproj import Transformer
-from scipy.ndimage import map_coordinates
+from scipy.ndimage import gaussian_filter, map_coordinates
 
 BOUNDS = (-97.650, 30.120, -97.620, 30.145)
 DEM_ORIGIN = (630053, 3335851)
@@ -48,8 +48,9 @@ class Osm:
 
 
 class Terrain:
-    def __init__(self, path, osm):
-        self.heights = np.asarray(Image.open(path), np.float64) / 100.0 + 100.0
+    def __init__(self, path, osm, smoothing=0.0):
+        heights = np.asarray(Image.open(path), np.float64) / 100.0 + 100.0
+        self.heights = gaussian_filter(heights, smoothing) if smoothing > 0 else heights
         self.osm = osm
 
     def __call__(self, points):

@@ -1,19 +1,13 @@
 import * as THREE from "three/webgpu";
 import vantaUrl from "../../../../content/cars/vanta-26/lod0.glb?url";
-import cotaUrl from "../../../../content/tracks/cota/cota.glb?url";
 import roadUrl from "../../../../content/tracks/cota/road.glb?url";
-import trackUrl from "../../../../content/tracks/cota/track.json?url";
 import { SdCar } from "./car.ts";
 import { frameIndex, type Engine } from "./engine.ts";
-import {
-  GltfCar,
-  loadGltfTrack,
-  placeOnTrack,
-  type TrackFrame,
-} from "./gltf.ts";
+import { GltfCar, placeOnTrack, type TrackFrame } from "./gltf.ts";
 import { SdLighting } from "./materials.ts";
 import type { SdAssets } from "./models.ts";
-import { castShadows, loadRoad, Sunlight } from "./road.ts";
+import { castShadows, loadRoad, setStartLights, Sunlight } from "./road.ts";
+import type { AtmosphereState } from "./atmosphere.ts";
 import { SdSky, type TrackLocal } from "./sky.ts";
 
 const flipX = new THREE.Matrix4().makeScale(-1, 1, 1);
@@ -27,6 +21,11 @@ export class Scene {
   private readonly dome: THREE.Mesh;
   private readonly background = new THREE.Group();
   private readonly sunlight: Sunlight;
+  readonly atmosphere: AtmosphereState = {
+    sunDirection: new THREE.Vector3(),
+    haze: new THREE.Color(),
+    sun: new THREE.Color(),
+  };
 
   private constructor(
     private readonly lighting: SdLighting,
@@ -111,19 +110,9 @@ export class Scene {
       await fetch("/wasm/sd-frame.json")
     ).json()) as TrackFrame;
     const start = engine.trackPoint(0, 0);
-    const layout = (await (await fetch(trackUrl)).json()) as {
-      centerline: { x: number; z: number }[];
-    };
-    const centreline = layout.centerline.map((p): [number, number] => [
-      p.x,
-      p.z,
-    ]);
-    const [venue, road] = await Promise.all([
-      loadGltfTrack(cotaUrl, lighting, frame, start, centreline),
-      loadRoad(roadUrl, anisotropy),
-    ]);
+    const road = await loadRoad(roadUrl, anisotropy);
     const group = new THREE.Group();
-    group.add(venue, placeOnTrack(road, frame, start));
+    group.add(placeOnTrack(road, frame, start));
     return group;
   }
 
@@ -159,9 +148,17 @@ export class Scene {
     const [, , , , , , , , , , , , eyeX, eyeY, eyeZ] =
       this.camera.matrixWorld.elements;
     const time = frame[frameIndex.time] ?? 0;
+    setStartLights(time);
     const sky = this.sky.update(time, time, eyeX, eyeY);
     this.lighting.update(sky, this.camera);
     this.sunlight.update(sky, eyeX, eyeY, eyeZ);
+    this.atmosphere.sunDirection.copy(this.sunlight.direction);
+    this.atmosphere.haze.setRGB(...sky.fogColor);
+    this.atmosphere.sun.setRGB(
+      sky.sunColor[0],
+      sky.sunColor[1],
+      sky.sunColor[2],
+    );
     (this.domeColors.array as Float32Array).set(sky.domeColors);
     this.domeColors.needsUpdate = true;
     this.dome.position.set(eyeX, eyeY, 0);

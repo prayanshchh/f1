@@ -8,6 +8,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import trackside
 import vegetation
+import venue
 
 STEP = 1.0
 MAIN_COLUMNS = 9
@@ -28,7 +29,11 @@ RACING_LINE_LOOKAHEAD = 50.0
 ASPHALT_TILE = 2.0
 GRASS_TILE = 3.0
 TERRAIN_TILE = 4.0
-PIT_HALF_WIDTH = 5.5
+PIT_TRACK_SIDE = 3.5
+PIT_GARAGE_SIDE = 7.5
+PIT_COLUMNS = 12
+PIT_FILL_GAP = 3.0
+PIT_FILL_OVERLAP = 0.3
 AD_LENGTH = 14.0
 AD_SPACING = 150.0
 AD_MARGIN = 0.25
@@ -93,10 +98,11 @@ class Track:
         self.width = linear(np.array([p["width"] for p in points]), factor)
         self.camber = linear(np.array([p["camber"] for p in points]), factor)
         self.walls = linear(np.array([[p["wallLeft"], p["wallRight"]] for p in points]), factor)
+        rails = np.array([[p["railLeft"], p["railRight"]] for p in points], bool)
+        self.rails = np.repeat(rails & np.roll(rails, -1, axis=0), factor, axis=0)
         verge = np.load(build / "verge.npz")
         self.verge_offsets = linear(verge["offsets"], factor)
         self.verge_heights = linear(verge["heights"], factor)
-        self.rails = np.repeat(verge["rails"], factor, axis=0)
         self.length = data["length"]
         self.count = len(self.position)
         self.s = np.arange(self.count) * self.length / self.count
@@ -115,8 +121,7 @@ class Track:
 
     def road_height(self, rows, lateral):
         lateral = np.asarray(lateral, float)
-        clamped = np.clip(lateral, -self.main_half, self.main_half)
-        return self.position[rows, 2] + self.camber[rows] * clamped
+        return self.position[rows, 2] + self.camber[rows] * lateral
 
     def verge_height(self, rows, distance, side):
         offsets = self.verge_offsets[rows, side]
@@ -335,6 +340,16 @@ def kerb_mask(track):
     return mask
 
 
+def pit_overlap(track, lateral, side_sign):
+    lane = np.array([[p["x"], -p["z"]] for p in track.data["pitLane"]["centerline"]])
+    points = track.position[:, :2] + track.normal * (side_sign * lateral)[:, None]
+    near = np.full(track.count, np.inf)
+    for start in range(0, len(lane), 64):
+        chunk = lane[start : start + 64]
+        near = np.minimum(near, np.linalg.norm(points[:, None, :] - chunk[None, :, :], axis=2).min(axis=1))
+    return near < PIT_GARAGE_SIDE + 0.5
+
+
 def runoff(track, mat):
     mask = kerb_mask(track)
     width = track.data["surfaces"][0]["width"]
@@ -344,7 +359,10 @@ def runoff(track, mat):
         inner = track.half + np.where(mask[:, side], width, 0.0)
         outer = np.minimum(inner + track.data["runoff"], track.verge_offsets[:, side, -1])
         outer = np.maximum(outer, inner + 0.05)
-        parts.append(strip(track, rows, sign * inner, sign * outer, RUNOFF_LIFT, True))
+        clear = ~pit_overlap(track, (inner + outer) / 2, sign)
+        vertices, faces, uv = strip(track, rows, sign * inner, sign * outer, RUNOFF_LIFT, True)
+        faces = [f for i, f in enumerate(faces) if clear[i] and clear[(i + 1) % track.count]]
+        parts.append((vertices, faces, uv))
     return combine("runoff", parts, mat)
 
 
@@ -368,55 +386,74 @@ def verges(track, mat):
     return obj
 
 
+def lift_over_track(track, vertices, lift):
+    flat = vertices.reshape(-1, 3).copy()
+    rows = np.empty(len(flat), int)
+    for start in range(0, len(flat), 256):
+        chunk = flat[start : start + 256, :2]
+        rows[start : start + 256] = np.argmin(np.linalg.norm(chunk[:, None, :] - track.position[None, :, :2], axis=2), axis=1)
+    lateral = np.einsum("ij,ij->i", flat[:, :2] - track.position[rows, :2], track.normal[rows])
+    side = np.where(lateral >= 0, 0, 1)
+    covered = np.abs(lateral) <= track.verge_offsets[rows, side, -1]
+    surface = track.surface_height(rows, lateral)
+    flat[:, 2] = np.where(covered, np.maximum(flat[:, 2], surface + lift), flat[:, 2])
+    return flat.reshape(vertices.shape)
+
+
 def pit_lane(track, asphalt, paint):
     raw = np.array([[p["x"], -p["z"], p["y"]] for p in track.data["pitLane"]["centerline"]])
     distance = np.linalg.norm(raw[:, None, :2] - track.position[None, :, :2], axis=2)
     rows = np.argmin(distance, axis=1)
     lateral = np.einsum("ij,ij->i", raw[:, :2] - track.position[rows, :2], track.normal[rows])
-    side = np.where(lateral >= 0, 0, 1)
-    reach = track.verge_offsets[rows, side, -1]
-    covered = np.abs(lateral) <= reach
-    surface = np.max(
-        [track.surface_height(rows, lateral + offset) for offset in (-PIT_HALF_WIDTH, 0.0, PIT_HALF_WIDTH)],
-        axis=0,
-    )
-    target = np.where(covered, surface + PIT_LIFT, raw[:, 2])
+    overlaps = np.abs(lateral) < track.half[rows] + PIT_TRACK_SIDE
+    road = track.road_height(rows, lateral) - PIT_LIFT
+    target = np.where(overlaps, road, raw[:, 2] + PIT_LIFT)
     radius = PIT_SMOOTHING * 3
     kernel = np.exp(-0.5 * (np.arange(-radius, radius + 1) / PIT_SMOOTHING) ** 2)
     kernel /= kernel.sum()
     height = target.copy()
-    for _ in range(6):
+    for _ in range(3):
         padded = np.concatenate([np.full(radius, height[0]), height, np.full(radius, height[-1])])
-        height = np.convolve(padded, kernel, mode="valid")
-        height = np.where(covered, np.maximum(height, target), height)
+        height = np.where(overlaps, target, np.convolve(padded, kernel, mode="valid"))
     raw[:, 2] = height
     delta = np.gradient(raw[:, :2], axis=0)
     tangent = delta / np.linalg.norm(delta, axis=1)[:, None]
     normal = np.stack([-tangent[:, 1], tangent[:, 0]], 1)
     along = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(raw[:, :2], axis=0), axis=1))])
-    lateral = np.linspace(-PIT_HALF_WIDTH, PIT_HALF_WIDTH, 5)
+    side = np.sign(np.median(np.einsum("ij,ij->i", track.position[rows, :2] - raw[:, :2], normal)))
+    toward = np.full(len(raw), side if side != 0 else 1.0)
+    to_edge = np.abs(lateral) - track.half[rows]
+    reach = np.where(to_edge - PIT_TRACK_SIDE < PIT_FILL_GAP, np.maximum(to_edge + PIT_FILL_OVERLAP, PIT_TRACK_SIDE), PIT_TRACK_SIDE)
+    near, far = toward * reach, -toward * PIT_GARAGE_SIDE
+    lateral = near[:, None] + (far - near)[:, None] * np.linspace(0, 1, PIT_COLUMNS)[None, :]
 
     def ribbon(columns, lift):
-        xy = raw[:, None, :2] + normal[:, None, :] * columns[None, :, None]
+        xy = raw[:, None, :2] + normal[:, None, :] * columns[..., None]
         z = np.broadcast_to(raw[:, None, 2:3] + lift, xy.shape[:2] + (1,))
         return np.concatenate([xy, z], -1)
 
-    vertices = ribbon(lateral, 0.0)
-    grid = np.broadcast_to(lateral[None, :], vertices.shape[:2])
+    vertices = lift_over_track(track, ribbon(lateral, 0.0), PIT_LIFT)
+    grid = lateral
     uv0 = np.stack([grid / ASPHALT_TILE, np.broadcast_to(along[:, None], grid.shape) / ASPHALT_TILE], -1)
     uv1 = np.stack([np.full(grid.shape, 100.0), np.zeros(grid.shape)], -1)
-    mesh("pit lane", vertices, grid_faces(len(raw), len(lateral), False), {"UVMap": uv0, "line": uv1}, asphalt)
+    mesh("pit lane", vertices, grid_faces(len(raw), lateral.shape[1], False), {"UVMap": uv0, "line": uv1}, asphalt)
     parts = []
-    for edge in (-PIT_HALF_WIDTH, PIT_HALF_WIDTH - LINE_WIDTH):
-        columns = np.array([edge, edge + LINE_WIDTH])
-        v = ribbon(columns, PAINT_LIFT)
-        uv = np.stack([np.broadcast_to(columns[None, :], v.shape[:2]), np.broadcast_to(along[:, None], v.shape[:2])], -1)
-        parts.append((v, grid_faces(len(raw), 2, False), uv))
+    for edge in (near - toward * LINE_WIDTH, far + toward * LINE_WIDTH):
+        columns = np.stack([edge, edge + toward * LINE_WIDTH], 1)
+        v = lift_over_track(track, ribbon(columns, PAINT_LIFT), PIT_LIFT + PAINT_LIFT)
+        uv = np.stack([columns, np.broadcast_to(along[:, None], v.shape[:2])], -1)
+        line = raw[:, :2] + normal * (edge + toward * LINE_WIDTH / 2)[:, None]
+        reach = np.abs(np.einsum("ij,ij->i", line - track.position[rows, :2], track.normal[rows]))
+        clear = reach > track.half[rows] + track.data["runoff"]
+        faces = [f for i, f in enumerate(grid_faces(len(raw), 2, False)) if clear[i] and clear[i + 1]]
+        parts.append((v, faces, uv))
     return combine("pit lines", parts, paint)
 
 
 def painted_ads(track, mat):
     mask = kerb_mask(track)
+    middle = track.half + track.data["runoff"] / 2
+    near_pit = pit_overlap(track, middle, 1) | pit_overlap(track, middle, -1)
     step = track.length / track.count
     k = np.abs(gaussian(track.curvature, 10.0 / step))
     span = int(round(AD_LENGTH / step))
@@ -426,7 +463,7 @@ def painted_ads(track, mat):
         if track.s[start] < next_ad:
             continue
         rows = np.arange(start, start + span + 1)
-        if k[rows].max() > AD_STRAIGHT or mask[rows].any():
+        if k[rows].max() > AD_STRAIGHT or mask[rows].any() or near_pit[rows].any():
             continue
         brand = placed % AD_BRANDS
         v_low, v_high = 1 - (brand + 1) / AD_BRANDS, 1 - brand / AD_BRANDS
@@ -472,6 +509,39 @@ def trackside_meshes(track, source, derived):
         vertices, faces, uv = batch.arrays()
         if faces:
             mesh(name, vertices, faces, {"UVMap": uv}, mat, smooth=False)
+
+
+def venue_meshes(track, build, source, derived):
+    layout = json.loads((build / "venue.json").read_text())
+    concrete = material("cota venue concrete", source / "rough_concrete_base_color.jpg", normal=source / "rough_concrete_normal.jpg")
+    white = flat_material("cota venue white", (0.85, 0.85, 0.83), 0.0, 0.6)
+    batches = {name: trackside.Batch() for name in ("seats", "stand concrete", "roofs", "columns", "facade", "walls", "rooftops", "veil", "gantry boards", "gantry steel", "light panel", "start lamps")}
+    for data in layout["stands"]:
+        venue.stand(batches["seats"], batches["stand concrete"], batches["roofs"], batches["columns"], data)
+    if layout["pit"]:
+        venue.pit_building(batches["facade"], batches["stand concrete"], batches["rooftops"], layout["pit"])
+    for data in layout["buildings"]:
+        venue.extrude(batches["walls"], batches["rooftops"], data)
+    batches["veil"] = venue.tower(white, flat_material("cota venue glass", (0.08, 0.1, 0.13), 0.3, 0.15), layout["tower"])
+    venue.gantry(track, batches["gantry boards"], batches["gantry steel"], batches["light panel"], batches["start lamps"])
+    materials = {
+        "seats": flat_material("cota crowd", (0.3, 0.3, 0.3), 0.0, 0.9),
+        "stand concrete": concrete,
+        "roofs": white,
+        "columns": flat_material("cota venue steel", (0.2, 0.2, 0.22), 0.6, 0.5),
+        "facade": material("cota venue facade", derived / "facade_base_color.png"),
+        "walls": concrete,
+        "rooftops": flat_material("cota venue roof", (0.42, 0.42, 0.4), 0.0, 0.8),
+        "veil": flat_material("cota venue veil", (0.72, 0.05, 0.08), 0.2, 0.5),
+        "gantry boards": material("cota gantry boards", derived / "boards_base_color.png"),
+        "light panel": flat_material("cota light panel", (0.004, 0.004, 0.005), 0.1, 0.85),
+        "start lamps": flat_material("cota start lamps", (0.05, 0.01, 0.01), 0.0, 0.3),
+        "gantry steel": flat_material("cota gantry steel", (0.12, 0.12, 0.13), 0.6, 0.5),
+    }
+    for name, batch in batches.items():
+        vertices, faces, uv = batch.arrays()
+        if faces:
+            mesh(name, vertices, faces, {"UVMap": uv}, materials[name], smooth=False)
 
 
 def terrain(build, mat):
@@ -542,6 +612,7 @@ def main():
     )
     verges(track, grass)
     trackside_meshes(track, source, derived)
+    venue_meshes(track, build, source, derived)
     painted_ads(track, material("cota painted ads", derived / "decals_base_color.png", alpha=True))
     vegetation.forest(
         np.load(build / "trees.npy"),
@@ -574,4 +645,5 @@ def main():
     print(f"road: {track.count} rows, {sum(len(o.data.polygons) for o in bpy.data.objects if o.type == "MESH")} faces -> {out}")
 
 
-main()
+if __name__ == "__main__":
+    main()

@@ -2,6 +2,7 @@ import numpy as np
 
 WALL_HEIGHT = 1.0
 WALL_THICKNESS = 0.3
+WALL_BURY = 2.5
 BOARD_LENGTH = 4.0
 BRAND_RUN = 24.0
 BRAND_COUNT = 4
@@ -91,6 +92,7 @@ def walls(track, smooth):
                 continue
             s0, s1 = along[i], along[i] + np.linalg.norm(xy[j] - xy[i])
             ground = (base[i], base[j])
+            buried = (base[i] - WALL_BURY, base[j] - WALL_BURY)
             top = (base[i] + WALL_HEIGHT, base[j] + WALL_HEIGHT)
             face = quad(xy[i], xy[j], ground, top)
             if mask[i]:
@@ -105,7 +107,14 @@ def walls(track, smooth):
                 [(*xy[i], top[0]), (*xy[j], top[1]), (*back[j], top[1]), (*back[i], top[0])],
                 [(s0, 0), (s1, 0), (s1, WALL_THICKNESS), (s0, WALL_THICKNESS)],
             )
-            concrete.add(quad(back[i], back[j], ground, top), [(s0, 0), (s1, 0), (s1, 1), (s0, 1)])
+            concrete.add(quad(back[i], back[j], buried, top), [(s0, 0), (s1, 0), (s1, 1), (s0, 1)])
+            concrete.add(quad(xy[i], xy[j], buried, ground), [(s0, 0), (s1, 0), (s1, 1), (s0, 1)])
+            for row, open_end in ((i, not track.rails[i - 1, side]), (j, not track.rails[j, side])):
+                if open_end:
+                    concrete.add(
+                        quad(xy[row], back[row], (base[row] - WALL_BURY,) * 2, (base[row] + WALL_HEIGHT,) * 2),
+                        UNIT,
+                    )
             knee = (base[i] + FENCE_KNEE, base[j] + FENCE_KNEE)
             high = (base[i] + FENCE_TOP, base[j] + FENCE_TOP)
             a0, a1 = s0 / FENCE_TILE, s1 / FENCE_TILE
@@ -166,8 +175,8 @@ def metalwork(track):
 DISTANCE_MARKS = (300.0, 200.0, 100.0)
 DISTANCE_SIZE = 1.4
 DISTANCE_LIFT = 0.6
-DISTANCE_GAP = 1.5
-DISTANCE_WALL_CLEARANCE = 0.8
+DISTANCE_WALL_CLEARANCE = 0.3
+DISTANCE_ASPHALT_CLEARANCE = 1.5
 DISTANCE_CORNER = 1 / 220
 DISTANCE_BRAKING = 1 / 120
 DISTANCE_BACK = 0.04
@@ -196,11 +205,16 @@ def distance_boards(track, smooth):
         side = 0 if sign > 0 else 1
         for index, mark in enumerate(DISTANCE_MARKS):
             row = int(entry - round(mark / step)) % track.count
+            if not track.rails[row, side]:
+                continue
             between = np.arange(row, row + int(round(mark / step))) % track.count
             if corner[between].any():
                 continue
-            lateral = min(track.half[row] + track.data["runoff"] + DISTANCE_GAP, track.walls[row, side] - DISTANCE_WALL_CLEARANCE)
+            lateral = track.walls[row, side] - DISTANCE_WALL_CLEARANCE
             centre = track.position[row, :2] + track.normal[row] * sign * lateral
+            clearance = np.linalg.norm(track.position[:, :2] - centre, axis=1) - track.half
+            if clearance.min() < DISTANCE_ASPHALT_CLEARANCE:
+                continue
             ground = float(track.surface_height(np.array([row]), np.array([sign * lateral]))[0])
             across = track.normal[row] * DISTANCE_SIZE / 2
             bottom, top = ground + DISTANCE_LIFT, ground + DISTANCE_LIFT + DISTANCE_SIZE

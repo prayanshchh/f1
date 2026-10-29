@@ -24,6 +24,8 @@ DECAL = (2048, 512)
 DECAL_WEAR = 0.22
 DISTANCES = ("300", "200", "100")
 DISTANCE_BOARD = 512
+FACADE = (2048, 896)
+FACADE_METRES = (32.0, 14.0)
 TECPRO = (1024, 256)
 TECPRO_COLOURS = ["#c8202a", "#1f4fa8"]
 
@@ -154,6 +156,26 @@ def distance_boards():
     return np.asarray(atlas, np.float32) / 255.0
 
 
+def facade():
+    width, height = FACADE
+    px = width / FACADE_METRES[0]
+    image = Image.new("RGB", FACADE, "#e6e6e2")
+    draw = ImageDraw.Draw(image)
+    y = lambda metres: height - int(metres * px)
+    for bay in range(4):
+        left = int((bay * 8 + 1) * px)
+        draw.rectangle([left, y(4.2), left + int(6 * px), y(0)], fill="#1c1f24")
+        draw.rectangle([left, y(4.2), left + int(6 * px), y(4.2) + 10], fill="#3a3f47")
+    draw.rectangle([0, y(12), width, y(6)], fill="#2a3a4a")
+    for pane in range(17):
+        x = int(pane * 2 * px)
+        draw.rectangle([x, y(12), x + 6, y(6)], fill="#9aa3ad")
+    draw.rectangle([0, y(9.05), width, y(8.95)], fill="#9aa3ad")
+    out = np.asarray(image, np.float32) / 255.0
+    sheen = np.linspace(1.08, 0.92, height)[:, None, None]
+    return np.clip(out * sheen, 0, 1)
+
+
 def main():
     root = Path(sys.argv[1] if len(sys.argv) > 1 else "content/tracks/cota")
     out = Path(sys.argv[2] if len(sys.argv) > 2 else "build/cota/textures")
@@ -166,6 +188,7 @@ def main():
     save(tecpro(), out / "tecpro_base_color.png")
     chainlink().save(out / "chainlink_base_color.png")
     save(distance_boards(), out / "distance_base_color.png")
+    save(facade(), out / "facade_base_color.png")
     decals().save(out / "decals_base_color.png")
 
 

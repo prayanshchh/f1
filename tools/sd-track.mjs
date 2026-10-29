@@ -9,8 +9,11 @@ const track = JSON.parse(
 const width = track.width;
 const half = width / 2;
 const minSideWidth = 0.5;
-const kerbHeight = 0.05;
+const kerbHeight = 0.03;
+const kerbRoughness = 0.006;
+const kerbWavelength = 1.5;
 const kerbMaxWidening = 0.6;
+const timeOfDay = 16.5;
 
 const points = track.centerline.map((p) => ({
   x: p.x,
@@ -22,6 +25,8 @@ const points = track.centerline.map((p) => ({
   camber: p.camber,
   wallLeft: p.wallLeft,
   wallRight: p.wallRight,
+  railLeft: p.railLeft === 1,
+  railRight: p.railRight === 1,
 }));
 const n = points.length;
 const at = (i) => points[((i % n) + n) % n];
@@ -165,6 +170,8 @@ for (let i = 0; i < n; i++) {
       wallRightEnd: lerp(p0.wallRight, p1.wallRight, e),
       kerbLeft: p0.kerbLeft || p1.kerbLeft,
       kerbRight: p0.kerbRight || p1.kerbRight,
+      railLeft: p0.railLeft && p1.railLeft,
+      railRight: p0.railRight && p1.railRight,
     });
   }
 }
@@ -183,33 +190,66 @@ const num = (name, value, unit) =>
   `<attnum name="${name}"${unit ? ` unit="${unit}"` : ""} val="${f(value)}"/>`;
 const str = (name, value) => `<attstr name="${name}" val="${value}"/>`;
 
-function side(name, s, isLeft) {
+function kerbSurface(letter) {
+  return `<section name="cota-kerb-${letter}">${[
+    str("texture name", `tr-curb-${letter}.png`),
+    str("texture type", "continuous"),
+    num("texture size", 2, "m"),
+    num("friction", 1.1),
+    num("rolling resistance", 0.02),
+    num("roughness", kerbRoughness),
+    num("roughness wavelength", kerbWavelength),
+  ].join("")}</section>`;
+}
+
+function sideOf(s, isLeft) {
+  return isLeft
+    ? {
+        kerb: s.kerbLeft,
+        rail: s.railLeft,
+        wallStart: s.wallLeftStart,
+        wallEnd: s.wallLeftEnd,
+        letter: "l",
+      }
+    : {
+        kerb: s.kerbRight,
+        rail: s.railRight,
+        wallStart: s.wallRightStart,
+        wallEnd: s.wallRightEnd,
+        letter: "r",
+      };
+}
+
+function borderOf(s, edge) {
   const widening = s.width / 2 - half;
-  const kerb =
-    (isLeft ? s.kerbLeft : s.kerbRight) && widening < kerbMaxWidening;
-  const letter = isLeft ? "l" : "r";
-  const borderWidth =
-    Math.max(widening, 0) + (kerb ? track.surfaces[0].width : track.runoff);
-  const border = kerb
+  const kerb = edge.kerb && widening < kerbMaxWidening;
+  const width = Math.min(
+    Math.max(widening, 0) + (kerb ? track.surfaces[0].width : track.runoff),
+    Math.min(edge.wallStart, edge.wallEnd) - half - minSideWidth,
+  );
+  const style = kerb
     ? [
-        num("width", borderWidth, "m"),
         num("height", kerbHeight, "m"),
-        str("surface", `curb-5cm-${letter}`),
+        str("surface", `cota-kerb-${edge.letter}`),
         str("style", "curb"),
       ]
     : [
-        num("width", borderWidth, "m"),
         num("height", 0, "m"),
         str("surface", "asphalt-lines"),
         str("style", "plan"),
       ];
-  const wallStart = isLeft ? s.wallLeftStart : s.wallRightStart;
-  const wallEnd = isLeft ? s.wallLeftEnd : s.wallRightEnd;
-  const sideWidth = (wall) => Math.max(wall - half - borderWidth, minSideWidth);
+  return { width, xml: [num("width", width, "m"), ...style].join("") };
+}
+
+function side(name, s, isLeft) {
+  const edge = sideOf(s, isLeft);
+  const border = borderOf(s, edge);
+  const sideWidth = (wall) =>
+    Math.max(wall - half - border.width, minSideWidth);
   return [
-    `<section name="${name} Border">${border.join("")}</section>`,
-    `<section name="${name} Side">${num("start width", sideWidth(wallStart), "m")}${num("end width", sideWidth(wallEnd), "m")}${str("surface", "grass")}</section>`,
-    `<section name="${name} Barrier">${num("width", 0.5, "m")}${num("height", 1, "m")}${str("surface", "barrier")}${str("style", "wall")}</section>`,
+    `<section name="${name} Border">${border.xml}</section>`,
+    `<section name="${name} Side">${num("start width", sideWidth(edge.wallStart), "m")}${num("end width", sideWidth(edge.wallEnd), "m")}${str("surface", "grass")}</section>`,
+    `<section name="${name} Barrier">${num("width", 0.5, "m")}${num("height", 1, "m")}${str("surface", "barrier")}${str("style", edge.rail ? "wall" : "no barrier")}</section>`,
   ].join("");
 }
 
@@ -245,6 +285,7 @@ const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <params name="${track.id}" type="param" mode="mw">
 <section name="Surfaces">
 &default-surfaces;
+${["l", "r"].map(kerbSurface).join("\n")}
 </section>
 <section name="Header">
 ${str("name", track.name)}
@@ -254,7 +295,7 @@ ${str("author", "generated from content/tracks/cota/track.json")}
 </section>
 <section name="Local Info">
 ${str("station", "KAUS")}
-${num("time of day", 14, "hour")}
+${num("time of day", timeOfDay, "hour")}
 ${num("latitude", 30.1328)}
 ${num("longitude", -97.6411)}
 ${num("altitude", 170, "m")}
@@ -262,11 +303,13 @@ ${num("climat", 10)}
 ${num("precipitation", 860)}
 </section>
 <section name="Graphic">
-${str("3d description", `${track.id}.glb`)}
+${str("3d description", "road.glb")}
 </section>
 <section name="Main Track">
 ${num("width", width, "m")}
 ${str("surface", "asphalt-lines")}
+<section name="Left Side">${str("banking type", "tangent")}</section>
+<section name="Right Side">${str("banking type", "tangent")}</section>
 ${str("profil", "linear")}
 <section name="Track Segments">
 ${body}

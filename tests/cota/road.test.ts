@@ -21,8 +21,7 @@ const lfsPointer = readFileSync(roadFile)
   .startsWith("version https://git-lfs");
 const track = JSON.parse(
   readFileSync(path.join(directory, "track.json"), "utf8"),
-) as { width: number; centerline: Point[] };
-const mainHalf = track.width / 2;
+) as { centerline: Point[] };
 
 async function roadPositions(): Promise<{ rows: number; at: Accessor }> {
   const document = await readModel(roadFile);
@@ -53,7 +52,7 @@ describe.skipIf(lfsPointer)("COTA road.glb", () => {
       const half = p.width / 2;
       expect(Math.hypot(left.x - p.x, left.z - p.z)).toBeCloseTo(half, 1);
       expect(Math.hypot(right.x - p.x, right.z - p.z)).toBeCloseTo(half, 1);
-      const edge = Math.min(half, mainHalf) * p.camber;
+      const edge = half * p.camber;
       expect(left.h).toBeCloseTo(p.y + edge, 2);
       expect(right.h).toBeCloseTo(p.y - edge, 2);
     }

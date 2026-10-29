@@ -1,5 +1,6 @@
 import * as THREE from "three/webgpu";
 import {
+  Fn,
   abs,
   exp,
   float,
@@ -14,6 +15,7 @@ import {
   smoothstep,
   step,
   texture,
+  uniform,
   uv,
   vec3,
 } from "three/tsl";
@@ -27,12 +29,35 @@ const asphaltTint = vec3(0.96, 0.98, 1.03);
 const grassTint = 0.85;
 const mowStripe = 0.08;
 const grassMacro = 0.18;
+const clumpScale = 0.35;
+const clumpStrength = 0.16;
+const patchScale = 1 / 45;
+const vergeDryness = 0.35;
+const hillDryness = 0.65;
+const strawTint = vec3(1.25, 1.08, 0.62);
 const leafScale = 0.9;
-const crowdSpacing = 1 / 0.55;
+const crowdSpacing = 1 / 0.5;
+const startLightCount = 5;
+const startLightLead = 2;
+const startLightInterval = 0.4;
+const startLampRows = 2;
+const startLampRed = vec3(6, 0.15, 0.05);
 const crowdRow = 1 / 0.85;
 const crowdEmpty = 0.12;
 const crowdHead = 0.68;
 const crowdSkin = vec3(0.32, 0.22, 0.16);
+const crowdPalette: [number, THREE.Color][] = [
+  [0, new THREE.Color(0.04, 0.04, 0.05)],
+  [0.24, new THREE.Color(0.62, 0.62, 0.6)],
+  [0.38, new THREE.Color(0.05, 0.07, 0.18)],
+  [0.48, new THREE.Color(0.22, 0.22, 0.23)],
+  [0.58, new THREE.Color(0.45, 0.05, 0.04)],
+  [0.66, new THREE.Color(0.75, 0.32, 0.04)],
+  [0.72, new THREE.Color(0.08, 0.17, 0.48)],
+  [0.8, new THREE.Color(0.04, 0.26, 0.1)],
+  [0.87, new THREE.Color(0.62, 0.52, 0.08)],
+  [0.93, new THREE.Color(0.42, 0.36, 0.28)],
+];
 const crowdSeat = vec3(0.3, 0.04, 0.04);
 const leafContrast = 0.6;
 const macroScale = 0.045;
@@ -49,13 +74,15 @@ const alphaCutoffs: Record<string, number> = {
   "cota debris fence": 0.5,
   "cota painted ads": 0.35,
 };
-const shadowCasters = /^(wall |fence steel)/;
+const shadowCasters =
+  /^(wall|fence_steel|seats|stand_concrete|roofs|columns|facade|tower|veil|gantry|light_panel)/;
 const depthOffsets: Record<string, number> = {
   "cota road paint": -1,
   "cota road kerb": -1,
   "cota road runoff": -1,
   "cota painted ads": -2,
-  "cota pit asphalt": 1,
+  "cota road grass": 1,
+  "cota pit asphalt": 0.5,
   "cota terrain": 2,
 };
 
@@ -106,19 +133,31 @@ function shadeGrass(
   source: THREE.MeshStandardMaterial,
 ): void {
   if (!source.map) return;
+  const verge = source.name.endsWith("grass");
+  const ground = positionWorld.xy;
   const macro = float(1).add(
-    mx_fractal_noise_float(positionWorld.xy.mul(macroScale), 3).mul(grassMacro),
+    mx_fractal_noise_float(ground.mul(macroScale), 3).mul(grassMacro),
   );
-  const stripe = source.name.endsWith("grass")
+  const clumps = float(1).add(
+    mx_fractal_noise_float(ground.mul(clumpScale), 2).mul(clumpStrength),
+  );
+  const stripe = verge
     ? float(1).add(
         smoothstep(0.2, 0.3, abs(fract(uv().x.mul(0.5)).sub(0.5)))
           .sub(0.5)
           .mul(mowStripe * 2),
       )
     : float(1);
-  material.colorNode = texture(source.map, uv())
-    .rgb.mul(grassTint)
+  const patches = smoothstep(
+    0.0,
+    0.55,
+    mx_fractal_noise_float(ground.mul(patchScale), 3),
+  ).mul(verge ? vergeDryness : hillDryness);
+  const green = texture(source.map, uv()).rgb.mul(grassTint);
+  const straw = vec3(green.dot(vec3(0.3, 0.59, 0.11))).mul(strawTint);
+  material.colorNode = mix(green, straw, patches)
     .mul(macro)
+    .mul(clumps)
     .mul(stripe);
 }
 
@@ -136,6 +175,8 @@ function surface(
   source: THREE.MeshStandardMaterial,
   anisotropy: number,
 ): THREE.MeshStandardNodeMaterial {
+  if (source.name === "cota crowd") return crowdMaterial();
+  if (source.name === "cota start lamps") return startLampMaterial();
   const offset = depthOffsets[source.name] ?? 0;
   const material = new THREE.MeshStandardNodeMaterial({
     name: source.name,
@@ -179,19 +220,50 @@ export async function loadRoad(
   return gltf.scene;
 }
 
-export function crowdMaterial(): THREE.MeshStandardNodeMaterial {
+const startLightsLit = uniform(0);
+
+export function setStartLights(raceTime: number): void {
+  startLightsLit.value =
+    raceTime < 0
+      ? Math.min(
+          startLightCount,
+          Math.floor((raceTime + startLightLead) / startLightInterval) + 1,
+        )
+      : 0;
+}
+
+function startLampMaterial(): THREE.MeshStandardNodeMaterial {
+  const material = new THREE.MeshStandardNodeMaterial({
+    roughness: 0.3,
+    color: new THREE.Color(0.04, 0.01, 0.01),
+    side: THREE.DoubleSide,
+  });
+  const lamp = uv();
+  const on = step(lamp.x, startLightsLit).mul(step(startLampRows, lamp.y));
+  material.emissiveNode = startLampRed.mul(on);
+  finish(material);
+  return material;
+}
+
+function crowdMaterial(): THREE.MeshStandardNodeMaterial {
   const material = new THREE.MeshStandardNodeMaterial({ roughness: 0.9 });
-  const seat = positionWorld.mul(vec3(crowdSpacing, crowdSpacing, crowdRow));
-  const cell = floor(seat);
-  const shirt = vec3(
-    mx_cell_noise_float(cell),
-    mx_cell_noise_float(cell.add(17.3)),
-    mx_cell_noise_float(cell.add(41.7)),
-  );
-  const occupied = step(crowdEmpty, mx_cell_noise_float(cell.add(91.1)));
-  const head = step(crowdHead, fract(seat.z));
-  const person = mix(shirt.mul(0.5).add(0.03), crowdSkin, head);
-  material.colorNode = mix(crowdSeat, person, occupied);
+  material.colorNode = Fn(() => {
+    const seat = positionWorld.mul(vec3(crowdSpacing, crowdSpacing, crowdRow));
+    const cell = floor(seat);
+    const pick = mx_cell_noise_float(cell);
+    const shirt = vec3(0).toVar();
+    for (const [threshold, colour] of crowdPalette)
+      shirt.assign(
+        mix(shirt, vec3(colour.r, colour.g, colour.b), step(threshold, pick)),
+      );
+    const shade = mx_cell_noise_float(cell.add(17.3)).mul(0.5).add(0.75);
+    const occupied = step(crowdEmpty, mx_cell_noise_float(cell.add(91.1)));
+    const head = step(crowdHead, fract(seat.z));
+    const across = fract(seat.x).sub(0.5).abs();
+    const outline = float(1).sub(smoothstep(0.3, 0.5, across).mul(0.55));
+    const person = mix(shirt.mul(shade), crowdSkin, head).mul(outline);
+    return mix(crowdSeat, person, occupied);
+  })();
   finish(material);
   return material;
 }
@@ -199,7 +271,7 @@ export function crowdMaterial(): THREE.MeshStandardNodeMaterial {
 export class Sunlight {
   readonly sun = new THREE.DirectionalLight(0xffffff, sunIntensity);
   readonly sky = new THREE.HemisphereLight(0xffffff, groundColor, skyIntensity);
-  private readonly direction = new THREE.Vector3();
+  readonly direction = new THREE.Vector3();
 
   constructor(scene: THREE.Scene) {
     this.sky.position.set(0, 0, 1);

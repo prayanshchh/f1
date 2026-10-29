@@ -1,85 +1,47 @@
-# COTA Grand Prix scene
+# COTA circuit
 
-Full-scale visual reconstruction of Circuit of the Americas in Austin, Texas.
-The full mapped Grand Prix loop is modelled, with extra detail around the pits,
-starting grid and Turn 1. The NOCTIL 27 car is a separate placed copy.
+Circuit of the Americas, Austin, Texas, generated from open data by the tools
+in `tools/cota`. Every visible object and the Speed Dreams physics track come
+from the same sources, so they stay aligned.
 
 ## Sources
 
-- Circuit centreline, track width, guard rails, pit lane and timing line:
-  OpenStreetMap track-surface polygons and circuit relation 6537729,
-  © OpenStreetMap contributors, ODbL. See source/LICENSE.md.
-  `tools/cota/fetch.py` saves the extract to source/osm.json and
-  `tools/cota/track.py` derives track.json from it.
-- Road height and camber: USGS 3DEP 1 m elevation, saved as source/dem.png.
-- Venue terrain: USGS National Map 3D Elevation Program, bare-earth DEM.
-  https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer
-  The saved Float32 GeoTIFF covers the site. Its georeferencing tags are used
-  when sampling heights; the requested export box was adjusted by the server.
-- Corner identification and timing-line GPS: SRO / GT America circuit sector map.
-  https://www.gtamerica.us/documents/notice/1357/1458891346ab3b1c866bbefd3bd1fe.pdf
-- Venue arrangement: COTA official 2024 USGP map, saved in references/.
-  https://circuitoftheamericas.com/wp-content/uploads/2024-USGP-Map.pdf
-- Observation tower location/height and general form:
-  https://circuitoftheamericas.com/blog/2024/2/20/all-about-the-cota-tower/
-- Published GP length and corner count:
-  https://www.formula1.com/en/latest/article/circuit-guide-everything-you-need-to-know-about-the-circuit-of-the-americas.3OjhBbugiQRmN4FnlpBtBc
+- Track surface, centreline, widths, guard rails, pit lane, timing line,
+  grandstands, bleachers, buildings and land use: OpenStreetMap,
+  © OpenStreetMap contributors, ODbL. Saved in `source/osm.json`; see
+  `source/LICENSE.md`.
+- Ground height: USGS 3D Elevation Program 1 m lidar DEM (public domain),
+  saved as `source/dem.png`.
+- Corner identification and sector lines: SRO / GT America circuit sector map.
+- Published GP length: formula1.com circuit guide.
+- Surface textures: Poly Haven, CC0 (`textures/source`, `TEXTURE-SOURCES.json`).
+- Advertising boards and painted run-off ads use fictional brands (Northwind,
+  Voltara, Aurelia, Kestrel) set in Saira (SIL Open Font License); no real
+  sponsor artwork is used.
 
-## Accuracy and scope
+## Pipeline
 
-This is a reference-based Blender environment, not a surveyed simulator track.
-The mapped centreline is about 5.529 km in plan and 5.532 km including height;
-the published GP length is 5.513 km. No artificial scaling was applied to force
-agreement. Coordinates are converted to local metres, with the timing line near
-the origin. The lap is closed and contains all 20 identified corners.
+1. `uv run --project tools/cota python tools/cota/fetch.py` downloads the OSM
+   extract and DEM.
+2. `uv run --project tools/cota python tools/cota/track.py` writes `track.json`
+   (centreline, width, camber, walls, rails, kerbs, pit lane, grid) and the
+   build files for the ground surface, trees and venue layout.
+3. `node tools/sd-track.mjs` writes the Speed Dreams track `cota.xml`.
+4. `uv run --project tools/cota python tools/cota/textures.py` builds derived
+   textures.
+5. `blender -b --factory-startup -P tools/cota/road.py -- content/tracks/cota build/cota`
+   builds `road.glb`: road, paint, kerbs, run-off, grass, terrain, pit lane,
+   walls, fences, boards, trees, grandstands, pit building, buildings,
+   observation tower and start gantry.
+6. `blender -b --factory-startup -P tools/cota/scan.py -- content/tracks/cota build/cota`
+   checks the whole lap for trackside and ground problems.
 
-The approximately 31 m road elevation range comes from smoothed USGS terrain.
-Bare-earth elevation does not establish exact asphalt banking, kerb heights,
-bumps or resurfacing. The landscape is locally graded below the road, runoff
-and paddock to prevent terrain protruding through those surfaces.
+## Accuracy
 
-Widths, pit entry/exit, runoff limits, kerb placement, fences, garages,
-grandstands, tower detailing and vegetation are modelling approximations.
-Buildings represent the venue's general arrangement rather than an exact
-current-year architectural survey. Reference maps are retained as references,
-not used as imagery in the rendered venue. No existing team/sponsor artwork is
-added to the car or environment.
-
-## Scene organisation
-
-Collections separate road, runoff, terrain, pit complex, grandstands, barriers,
-tower, vegetation, the placed car, cameras and reference helpers. Five cameras
-provide an aerial, two grid/car views, uphill Turn 1, and a true-plan view. The hidden closed
-centreline can be used for later camera animation or driving work.
-
-## Blender realism pass
-
-Source: `projects/cota-realism/COTA-02-Realism-Refined.blend` in the Mixar workspace.
-The original circuit and car are retained as separate scenes/checkpoints.
-
-This pass adds metre-scaled 2K CC0 Poly Haven asphalt, concrete and dry-grass
-base-colour, roughness and normal textures; original worn paint and rubber marks;
-edge repairs; foliage and chain-link alpha cutouts; 24 open fictional-team garages
-with workshop props; a narrower continuous pit fast lane and barrier openings.
-Garage static ambient occlusion uses its own second UV set. Actual textures,
-UVs and split normals are preserved in glTF rather than flattened to colours.
-See TEXTURE-SOURCES.json and TEXTURE-LICENSE.txt for texture provenance.
-
-The runtime mesh has 834862 triangles, 22 texture images, and 180 m spatial
-batches. Only bitwise-identical vertices and unused data were removed. There is
-no geometry simplification or texture resizing in this export.
-
-The GP road was re-derived on 2026-10-29 from OpenStreetMap edges and USGS
-lidar: 5508.5 m centreline with per-point width (12.1 m to 29.7 m), camber and
-wall offsets. The venue model still follows the earlier centreline, which
-differs from the new one by about 1.5 m median. Pit centreline metadata follows the revised visual
-lane. Architecture, pit layout and vegetation remain artistic approximations;
-this is not a surveyed, licensed F1-game environment.
-
-## Trackside (2026-10-29)
-
-Walls, Tecpro blocks and debris fences are generated by `tools/cota/road.py`
-and `tools/cota/trackside.py` only where OpenStreetMap maps a guard rail.
-Advertising boards show fictional brands (Northwind, Voltara, Aurelia,
-Kestrel) set in Saira (SIL Open Font License, from `@fontsource-variable/saira`);
-no real sponsor artwork is used.
+The centreline is 5508.5 m against the published 5.513 km. Walls and physics
+barriers exist only where OpenStreetMap maps a guard rail. Ground within the
+drivable area follows the road's camber plane, which is what Speed Dreams
+simulates; beyond it the lidar terrain is blended in smoothly. Building
+heights come from OSM tags where present. The observation tower position
+follows the COTA site plan; its form is an approximation. Grandstand seating,
+roofs and the pit building facade are generated, not surveyed.

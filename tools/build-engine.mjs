@@ -314,6 +314,7 @@ const exported = [
   "_sdCarInfo",
   "_sdTelemetry",
   "_sdHudInfo",
+  "_sdAudio",
   "_sdCarLimits",
   "_sdTrackSectors",
   "_sdInputAssist",

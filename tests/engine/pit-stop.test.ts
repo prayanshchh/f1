@@ -57,7 +57,7 @@ function approach(armed: boolean, distance: number, look: number): PitDrive {
   return {
     lateral: entering ? Math.min(layout.fastLane, fromEntry * 0.14) : 0,
     lookahead: look,
-    speed: entering ? 22 : 30,
+    speed: 22,
   };
 }
 
@@ -123,7 +123,7 @@ async function driveStop(): Promise<Lap> {
     fastestInLane: 0,
   };
   let armed = false;
-  for (let tick = 0; tick < 150000 && !lap.finished; tick++) {
+  for (let tick = 0; tick < 200000 && !lap.finished; tick++) {
     const car = sample(m);
     armed ||= car.distance > 1000 && car.distance < 5000;
     const toTurn = ahead(car.distance, layout.boxDistance - 34);

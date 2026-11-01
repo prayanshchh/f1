@@ -37,8 +37,6 @@ void SdPhysicsEngine::configureCar(tCarElt *car)
     SimConfig(car);
 }
 
-static const char *aPszSkillLevelNames[] = ROB_VALS_LEVEL;
-static const int NSkillLevels = (int)(sizeof(aPszSkillLevelNames) / sizeof(char *));
 
 static tSituation situation;
 static tReCarInfo carInfo[1];
@@ -75,16 +73,7 @@ static tCarElt *loadHumanCar(const char *carName)
     elt->_driveSkill = -1.0f;
     strncpy(elt->_carName, carName, MAX_NAME_LEN - 1);
     elt->_raceNumber = (int)GfParmGetNum(robhdle, path, ROB_ATTR_RACENUM, (char *)NULL, 0);
-    elt->_skillLevel = ARCADE;
-    const char *str = GfParmGetStr(robhdle, path, ROB_ATTR_LEVEL, ROB_VAL_SEMI_PRO);
-    for (int k = 0; k < NSkillLevels; k++)
-    {
-        if (strcmp(aPszSkillLevelNames[k], str) == 0)
-        {
-            elt->_skillLevel = static_cast<tSkillLevel>(k);
-            break;
-        }
-    }
+    elt->_skillLevel = ROOKIE;
     elt->_startRank = 0;
     elt->_pos = 1;
     elt->_remainingLaps = ReInfo->s->_totLaps;
@@ -225,7 +214,10 @@ static void runOneStep(double deltaTimeIncrement)
         pCurrReInfo->_reLastRobTime = s->currentTime;
     }
 
+    sdTyresStep(s->cars[0], deltaTimeIncrement);
+    sdEnergyStep(s->cars[0], deltaTimeIncrement);
     SimUpdate(s, deltaTimeIncrement);
+    sdCarStatusStep(s->cars[0], deltaTimeIncrement);
     for (int i = 0; i < s->_ncars; i++)
         manageCar(s->cars[i]);
 }
@@ -390,6 +382,9 @@ EMSCRIPTEN_KEEPALIVE int sdInit(const char *trackCategory, const char *trackName
     SimInit(s->_ncars, ReInfo->track);
     sdInitStartingGrid();
     startRace();
+    sdTyresReset(s->cars[0]);
+    sdEnergyReset(s->cars[0]);
+    sdCarStatusReset(s->cars[0]);
     sdCameraReset();
     fillFrame();
     return 0;
@@ -461,6 +456,8 @@ EMSCRIPTEN_KEEPALIVE void sdPitService(double fuel)
     car->pitcmd.tireChange = tCarPitCmd::ALL;
     car->pitcmd.tiresetChange = tCarPitCmd::NON_CHANGE;
     SimReConfig(car);
+    sdTyresService();
+    sdCarStatusRepair();
     car->pitcmd.fuel = 0;
     car->pitcmd.repair = 0;
     car->pitcmd.tireChange = tCarPitCmd::NONE;

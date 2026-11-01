@@ -9,6 +9,12 @@ export interface PadInput {
   brake: number;
 }
 
+export interface PadCommands {
+  boost: number;
+  ers: number;
+  page: number;
+}
+
 interface PadInfo {
   padUrl: string;
   setupUrl: string;
@@ -26,6 +32,7 @@ function isPadInfo(value: unknown): value is PadInfo {
 export class PadLink {
   private socket: WebSocket | null = null;
   private input: PadInput = { steer: 0, throttle: 0, brake: 0 };
+  private commands: PadCommands = { boost: 0, ers: 0, page: 0 };
   private receivedAt = -Infinity;
   private sentAt = -Infinity;
 
@@ -45,14 +52,25 @@ export class PadLink {
     return now - this.receivedAt < staleAfter ? this.input : null;
   }
 
-  feedback(now: number, speed: number, gear: number, rumble: number): void {
+  pressed(): PadCommands {
+    return this.commands;
+  }
+
+  feedback(
+    now: number,
+    speed: number,
+    gear: number,
+    rumble: number,
+    battery: number,
+    mode: string,
+  ): void {
     if (
       now - this.sentAt < feedbackInterval ||
       this.socket?.readyState !== WebSocket.OPEN
     )
       return;
     this.sentAt = now;
-    this.socket.send(JSON.stringify({ speed, gear, rumble }));
+    this.socket.send(JSON.stringify({ speed, gear, rumble, battery, mode }));
   }
 
   private connect(): void {
@@ -80,6 +98,10 @@ export class PadLink {
     if (data.byteLength < 12) return;
     const [steer = 0, throttle = 0, brake = 0] = new Float32Array(data, 0, 3);
     this.input = { steer, throttle, brake };
+    if (data.byteLength >= 24) {
+      const [boost = 0, ers = 0, page = 0] = new Float32Array(data, 12, 3);
+      this.commands = { boost, ers, page };
+    }
     this.receivedAt = performance.now() / 1000;
   }
 

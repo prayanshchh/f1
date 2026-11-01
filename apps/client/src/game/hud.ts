@@ -1,7 +1,18 @@
+import {
+  boostMode,
+  detectionPoint,
+  type EnergyInfo,
+  ersModes,
+  fuelBurnPerLap,
+  fuelLapsDelta,
+  fuelMixes,
+} from "./energy.ts";
 import type { PitControl } from "./pitstop.ts";
 import { frameIndex, type HudInfo, outOfRaceState } from "./engine.ts";
 import type { LapResult, LapTrace } from "./laptrace.ts";
+import { type CarStatus, Mfd } from "./mfd.ts";
 import type { HudPart } from "./settings.ts";
+import { compounds, type TyreInfo, wearState } from "./tyres.ts";
 
 export function lapTime(seconds: number | null): string {
   if (seconds === null || !(seconds > 0)) return "--:--.---";
@@ -25,15 +36,6 @@ function gearLabel(gear: number): string {
   return String(gear);
 }
 
-function tyreState(temp: number, optimal: number): string {
-  const d = temp - optimal;
-  if (d < -25) return "cold";
-  if (d < -10) return "cool";
-  if (d > 25) return "hot";
-  if (d > 10) return "warm";
-  return "ok";
-}
-
 function replay(element: HTMLElement | SVGElement, name: string): void {
   element.classList.remove(name);
   void element.getBoundingClientRect();
@@ -48,6 +50,22 @@ function svg<K extends keyof SVGElementTagNameMap>(
   for (const [key, value] of Object.entries(attrs))
     node.setAttribute(key, String(value));
   return node;
+}
+
+const tyreMessages: Record<string, { title: string; detail: string }> = {
+  punctured: { title: "Puncture", detail: "A tyre has worn through" },
+  critical: { title: "Tyres critical", detail: "Grip is falling off a cliff" },
+  worn: { title: "Tyres worn", detail: "Expect less grip from here" },
+};
+
+function ersState(energy: EnergyInfo, share: number): string {
+  if (energy.overtakeActive) return "overtake";
+  return share <= 0.01 ? "empty" : "normal";
+}
+
+function ersLabel(energy: EnergyInfo, boosting: boolean): string {
+  if (!boosting) return ersModes[energy.mode]?.label ?? "";
+  return energy.overtakeActive ? "Overtake Boost" : "Boost Active";
 }
 
 const revLeds = 15;
@@ -80,7 +98,7 @@ export class Hud {
   private readonly leds: HTMLElement[] = [];
   private readonly lights: HTMLElement[] = [];
   private readonly sectorCells: HTMLElement[] = [];
-  private readonly tyres: { text: HTMLElement; shape: Element }[] = [];
+  private readonly mfd: Mfd;
   private readonly rows: {
     root: HTMLElement;
     pos: HTMLElement;
@@ -96,12 +114,12 @@ export class Hud {
   private freezeUntil = 0;
   private extraUntil = 0;
   private lastActiveSector = -1;
-  private lapFuel: number | null = null;
-  private fuelAtLapStart: number | null = null;
-  private lastLap = -1;
+  private tyreShown = -1;
+  private overtakeArmed = false;
+  private lastNow = 0;
   private deltaShown = 0;
   private finalLapShown = false;
-  private tyreMood = "ok";
+  private tyreStage = "ok";
   private countdown = false;
 
   constructor(
@@ -135,11 +153,7 @@ export class Hud {
       sectors.append(cell);
       this.sectorCells.push(cell);
     }
-    for (const id of ["fl", "fr", "rl", "rr"]) {
-      const text = this.find(`tyre-${id}`);
-      const shape = this.find(`tyre-shape-${id}`);
-      this.tyres.push({ text, shape });
-    }
+    this.mfd = new Mfd(this.find("mfd"), this.find);
     this.find("session").textContent = options.session;
     this.find("lap-total").textContent = options.totalLaps
       ? ` / ${String(options.totalLaps)}`
@@ -154,7 +168,15 @@ export class Hud {
       this.root.classList.toggle(`no-${part}`, !on);
   }
 
-  update(frame: Float64Array, info: HudInfo, now: number): void {
+  update(
+    frame: Float64Array,
+    info: HudInfo,
+    tyres: TyreInfo,
+    energy: EnergyInfo,
+    status: CarStatus,
+    now: number,
+  ): void {
+    this.lastNow = now;
     const value = (index: number) => frame[index] ?? 0;
     const time = value(frameIndex.time);
     const laps = value(frameIndex.laps);
@@ -170,14 +192,15 @@ export class Hud {
       this.laps.push(result);
       this.showLap(result, now);
     }
-    this.updateDash(value, info);
+    this.updateDash(value);
     this.updateTiming(value, laps, distance, current, now);
-    this.updateFuel(info, laps);
-    this.updateTyres(info);
+    this.updateEnergy(energy, info, value);
+    this.updateTyres(tyres);
+    this.mfd.update(tyres, status);
     this.updateInputs(value);
     this.updateLights(time);
     this.updateMap(distance);
-    this.updateWarnings(info, laps, now);
+    this.updateWarnings(info, tyres, laps, now);
     this.updateToast(now);
   }
 
@@ -354,6 +377,8 @@ export class Hud {
     const label = svg("text", { x: lx, y: ly, class: "map-num" });
     label.textContent = String(boundaries.length + 1);
     marks.append(label);
+    const [dx, dy] = at(detectionPoint(map.length));
+    marks.append(svg("circle", { cx: dx, cy: dy, r: 7, class: "map-detect" }));
     this.mapPath = svg("path", { d, class: "map-hidden" });
     groups.append(this.mapPath);
     this.mapLength = map.length;
@@ -370,7 +395,7 @@ export class Hud {
     this.mapCar.setAttribute("cy", point.y.toFixed(1));
   }
 
-  private updateDash(value: (index: number) => number, info: HudInfo): void {
+  private updateDash(value: (index: number) => number): void {
     const rpm = value(frameIndex.rpm) * (30 / Math.PI);
     const redLine = Math.max(1, value(frameIndex.rpmRedLine) * (30 / Math.PI));
     this.find("speed").textContent = String(
@@ -388,10 +413,6 @@ export class Hud {
     ring.style.strokeDashoffset = String(100 - Math.min(1, fraction) * 75);
     ring.dataset["zone"] =
       fraction > 0.97 ? "limit" : fraction > 0.85 ? "high" : "";
-    const damage = info.maxDamage > 0 ? info.damage / info.maxDamage : 0;
-    const box = this.find("damage");
-    box.style.setProperty("--damage", String(Math.min(1, damage)));
-    box.hidden = damage < 0.02;
   }
 
   private updateTiming(
@@ -461,56 +482,79 @@ export class Hud {
     this.find("delta-value").textContent = signed(shown);
   }
 
-  private updateFuel(info: HudInfo, laps: number): void {
-    if (laps !== this.lastLap) {
-      if (
-        this.fuelAtLapStart !== null &&
-        laps === this.lastLap + 1 &&
-        this.lastLap >= 1
-      ) {
-        const used = this.fuelAtLapStart - info.fuel;
-        if (used > 0.05) this.lapFuel = used;
-      }
-      this.fuelAtLapStart = info.fuel;
-      this.lastLap = laps;
-    }
-    const share = Math.min(1, info.fuel / Math.max(1, info.tank));
-    this.find("fuel").textContent = `${String(Math.round(share * 100))}%`;
-    this.find("fuel-ring").style.strokeDashoffset = String(100 - share * 75);
-    const lapsLeft = this.lapFuel ? info.fuel / this.lapFuel : null;
-    const low = lapsLeft !== null && lapsLeft < 1.2;
-    this.find("dash").classList.toggle("low-fuel", low);
-    this.find("status").textContent =
-      lapsLeft === null
-        ? `${info.fuel.toFixed(1)} L`
-        : `Fuel ${lapsLeft.toFixed(1)} laps`;
+  private updateEnergy(
+    energy: EnergyInfo,
+    info: HudInfo,
+    value: (index: number) => number,
+  ): void {
+    const share = Math.min(1, energy.battery / Math.max(1, energy.capacity));
+    const harvest = Math.min(
+      1,
+      energy.harvested / Math.max(1, energy.harvestLimit),
+    );
+    this.find("dash").dataset["ers"] = ersState(energy, share);
+    this.find("batt").textContent = `${String(Math.round(share * 100))}%`;
+    this.find("batt-ring").style.strokeDashoffset = String(100 - share * 75);
+    this.find("harvest-ring").style.strokeDashoffset = String(
+      100 - harvest * 100,
+    );
+    this.find("s-mode").hidden = energy.straightMode < 0.5;
+    this.find("bias").textContent =
+      `${String(Math.round(energy.brakeBias * 100))}%`;
+    this.updateErs(energy);
+    this.updateFuel(energy, info, value);
   }
 
-  private updateTyres(info: HudInfo): void {
-    const order = [1, 0, 3, 2];
-    const moods: string[] = [];
-    this.tyres.forEach((tyre, i) => {
-      const wheel = order[i] ?? 0;
-      const temp = info.tyreTemp[wheel] ?? 0;
-      const optimal = info.tyreOptimal[wheel] ?? temp;
-      const mood = tyreState(temp, optimal);
-      moods.push(mood);
-      tyre.shape.setAttribute("data-state", mood);
-      const wear = Math.max(0, Math.min(1, info.tyreTread[wheel] ?? 1));
-      tyre.text.dataset["state"] = mood;
-      tyre.text.innerHTML = `<span><b>${String(Math.round(temp - 273.15))}°C</b><i class="dot"></i></span><span><b>${String(Math.round((1 - wear) * 100))}%</b><i class="wear"></i></span>`;
-    });
-    const mood = moods.includes("hot")
-      ? "hot"
-      : moods.includes("cold")
-        ? "cold"
-        : moods.every((m) => m === "ok")
-          ? "ok"
-          : "warm";
-    if (mood !== this.tyreMood) {
-      this.tyreMood = mood;
-      for (const row of this.rows) row.tyre.dataset["state"] = mood;
+  private updateErs(energy: EnergyInfo): void {
+    const boosting = energy.mode === boostMode;
+    this.find("status").textContent = ersLabel(energy, boosting);
+    this.find("ers-mode").textContent = ersModes[energy.mode]?.label ?? "";
+    this.find("boost-state").textContent = boosting ? "Disable" : "Boost";
+    this.find("diff").textContent =
+      `${String(Math.round(energy.differential))}%`;
+    if (energy.overtakeArmed && !this.overtakeArmed)
+      this.toast = {
+        kind: "pb",
+        title: "Overtake",
+        detail: "Available next lap",
+        until: this.lastNow + 3,
+      };
+    this.overtakeArmed = energy.overtakeArmed;
+  }
+
+  private updateFuel(
+    energy: EnergyInfo,
+    info: HudInfo,
+    value: (index: number) => number,
+  ): void {
+    const perLap = fuelBurnPerLap(energy.lastLapFuel);
+    const total = this.options.totalLaps;
+    const distance = value(frameIndex.distFromStart) / this.mapLength;
+    const lapsDone = Math.max(0, value(frameIndex.laps) - 1) + distance;
+    const remaining = total ? Math.max(0, total - lapsDone) : 0;
+    const delta = fuelLapsDelta(info.fuel, perLap, remaining);
+    const label = this.find("fuel-delta");
+    label.textContent = `${total ? (delta >= 0 ? "+" : "") : ""}${delta.toFixed(2)} Laps`;
+    label.dataset["state"] = !total || delta >= 0 ? "ok" : "short";
+    this.find("fuel-mix").textContent = fuelMixes[energy.fuelMix]?.label ?? "";
+    const low = total ? delta < 0 : delta < 1.2;
+    this.find("fuel-can").hidden = !low;
+    this.find("dash").classList.toggle("low-fuel", info.fuel < perLap);
+  }
+
+  private updateTyres(tyres: TyreInfo): void {
+    const compound = compounds[tyres.compound] ?? compounds[1];
+    if (tyres.compound !== this.tyreShown) {
+      this.tyreShown = tyres.compound;
+      for (const row of this.rows) {
+        row.tyre.textContent = compound.letter;
+        row.tyre.style.setProperty("--tyre", compound.colour);
+      }
     }
+  }
+
+  nextMfdPage(): void {
+    this.mfd.next();
   }
 
   private updateInputs(value: (index: number) => number): void {
@@ -533,7 +577,12 @@ export class Hud {
     gantry.classList.toggle("out", time >= 0);
   }
 
-  private updateWarnings(info: HudInfo, laps: number, now: number): void {
+  private updateWarnings(
+    info: HudInfo,
+    tyres: TyreInfo,
+    laps: number,
+    now: number,
+  ): void {
     let text = "";
     if (info.state & 0x0400) text = "Out of fuel";
     else if (info.state & 0x0200) text = "Car broken";
@@ -547,6 +596,7 @@ export class Hud {
       };
       return;
     }
+    this.updateTyreWarning(tyres, now);
     const total = this.options.totalLaps;
     if (total && total > 1 && laps === total && !this.finalLapShown) {
       this.finalLapShown = true;
@@ -557,6 +607,15 @@ export class Hud {
         until: now + 4,
       };
     }
+  }
+
+  private updateTyreWarning(tyres: TyreInfo, now: number): void {
+    const worst = Math.max(...tyres.wheels.map((wheel) => wheel.wear));
+    const stage = wearState(worst);
+    if (stage === this.tyreStage) return;
+    this.tyreStage = stage;
+    const message = tyreMessages[stage];
+    if (message) this.toast = { kind: "warn", ...message, until: now + 5 };
   }
 
   private updateToast(now: number): void {

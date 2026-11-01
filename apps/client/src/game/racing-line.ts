@@ -9,7 +9,7 @@ export interface RacingLineData {
   x: number[];
   y: number[];
   z: number[];
-  profiles: Record<string, SpeedProfile>;
+  profile: SpeedProfile;
 }
 
 export type RacingLineMode = "full" | "corners" | "off";

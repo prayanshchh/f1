@@ -1,12 +1,14 @@
+import { ersModes, fuelMixes, nominalFuelPerLap } from "./energy.ts";
 import { ParamDoc } from "./params.ts";
+import { compounds } from "./tyres.ts";
 import {
+  autoFuelLaps,
   carOf,
   cars,
   choices,
   defaults,
   type HudPart,
   hudParts,
-  practiceFuelLaps,
   readSetup,
   saveSettings,
   type Settings,
@@ -106,6 +108,8 @@ const setupInfo: Record<string, string> = {
 const tabIntro: Record<string, string> = {
   session:
     "Choose the circuit, the car and the type of session, and set the weather conditions.",
+  strategy:
+    "Choose the tyre you start on, how fast tyres wear, how much fuel you carry and how the battery deploys. These follow the 2026 regulations and the F1 25 2026 Season Pack.",
   assists:
     "Contains driver assist settings that allow you to make controlling the car easier or more authentic.",
   osd: "Contains settings that allow you to customise the way the on-screen display is shown.",
@@ -301,11 +305,29 @@ export class Menu {
           Object.assign(this.settings, {
             session: defaults.session,
             laps: defaults.laps,
-            fuel: defaults.fuel,
             timeOfDay: defaults.timeOfDay,
             clouds: defaults.clouds,
             rain: defaults.rain,
             season: defaults.season,
+          });
+        },
+      },
+      {
+        id: "strategy",
+        label: "Tyres & Energy",
+        title: "Tyres & Energy",
+        info: tabIntro["strategy"] ?? "",
+        setup: false,
+        rows: () => this.strategyRows(),
+        reset: () => {
+          Object.assign(this.settings, {
+            compound: defaults.compound,
+            tyreWear: defaults.tyreWear,
+            fuel: defaults.fuel,
+            fuelMix: defaults.fuelMix,
+            ersMode: defaults.ersMode,
+            ersAssist: defaults.ersAssist,
+            straightAssist: defaults.straightAssist,
           });
         },
       },
@@ -318,7 +340,6 @@ export class Menu {
         rows: () => this.assistRows(),
         reset: () => {
           Object.assign(this.settings, {
-            skill: defaults.skill,
             transmission: defaults.transmission,
             racingLine: defaults.racingLine,
             autoReverse: defaults.autoReverse,
@@ -655,7 +676,6 @@ export class Menu {
 
   private sessionRows(): Row[] {
     const s = this.settings;
-    const fuel = this.fuelInfo();
     const rows: Row[] = [
       this.choice(
         "Circuit",
@@ -706,31 +726,6 @@ export class Menu {
         rerender: true,
       });
     rows.push(
-      {
-        kind: "number",
-        label: "Fuel Load",
-        info: "Auto fills enough fuel for the session plus one lap. Running out of fuel stops the car.",
-        min: 0,
-        max: fuel.tank,
-        step: 1,
-        base: 0,
-        get: () => s.fuel,
-        set: (v) => {
-          s.fuel = v;
-        },
-        format: (v) => {
-          const laps =
-            v > 0
-              ? v / fuel.perLap
-              : s.session === "race"
-                ? s.laps + 1
-                : practiceFuelLaps + 1;
-          return v > 0
-            ? `${String(v)} L (${laps.toFixed(1)} Laps)`
-            : `Auto (${laps.toFixed(1)} Laps)`;
-        },
-        range: `Min 0 - ${String(fuel.tank)} Max`,
-      },
       this.choice(
         "Time of Day",
         "Sets the position of the sun for the session.",
@@ -771,18 +766,88 @@ export class Menu {
     return rows;
   }
 
+  private strategyRows(): Row[] {
+    const s = this.settings;
+    const tank = this.tank();
+    const asOptions = (items: readonly { label: string }[]) =>
+      items.map((item, i) => ({ id: String(i), label: item.label }));
+    return [
+      this.choice(
+        "Starting Tyre",
+        "Soft has the most grip and the shortest life. Medium balances the two. Hard lasts longest with the least dry grip. Intermediates and Wets clear water: they are the fastest tyres in the rain and overheat quickly on a dry track. Austin uses C4, C3 and C1.",
+        compounds.map((c) => ({ id: c.id, label: c.label })),
+        () => s.compound,
+        (id) => {
+          s.compound = id;
+        },
+      ),
+      this.choice(
+        "Tyre Wear",
+        "Real Life matches measured F1 25 wear at Austin (Soft about 25 laps, Medium 28, Hard 37 to full wear). Race Length speeds wear up for shorter races, up to five times, so tyres matter in every session.",
+        choices.tyreWear,
+        () => s.tyreWear,
+        (id) => {
+          s.tyreWear = id as Settings["tyreWear"];
+        },
+      ),
+      {
+        kind: "number",
+        label: "Fuel Load",
+        info: "Auto carries enough for the session plus one lap, at about 1.35 kg a lap. Carry less to run lighter and manage it with lift and coast. Running out of fuel stops the car.",
+        min: 0,
+        max: tank,
+        step: 1,
+        base: 0,
+        get: () => s.fuel,
+        set: (v) => {
+          s.fuel = v;
+        },
+        format: (v) =>
+          v > 0
+            ? `${String(v)} kg (${(v / nominalFuelPerLap).toFixed(1)} Laps)`
+            : `Auto (${String(autoFuelLaps(s))} Laps)`,
+        range: `Min 0 - ${String(tank)} Max`,
+      },
+      this.choice(
+        "Fuel Mix",
+        "Lean burns about 10% less fuel for about 4% less engine power. Rich and Max add up to 4% power and burn up to 14% more. Change it while driving with F.",
+        fuelMixes.map((m, i) => ({ id: String(i), label: m.label })),
+        () => String(s.fuelMix),
+        (id) => {
+          s.fuelMix = Number(id);
+        },
+      ),
+      this.choice(
+        "Starting ERS Mode",
+        "None saves the battery. Medium deploys 150 kW and is about energy neutral. Hotlap deploys 250 kW and drains it. Boost gives the full 350 kW up to the regulation speed limit and empties the 4 MJ battery in about 11 seconds. Change the mode with M and toggle Boost with B.",
+        asOptions(ersModes),
+        () => String(s.ersMode),
+        (id) => {
+          s.ersMode = Number(id);
+        },
+      ),
+      this.toggle(
+        "Active Aero Assist",
+        "On, Straight Mode opens by itself at full throttle on straights. Off, press X to arm it, as in F1 25. It closes when you brake or lift.",
+        () => s.straightAssist,
+        (v) => {
+          s.straightAssist = v;
+        },
+      ),
+      this.toggle(
+        "ERS Assist",
+        "Chooses the deployment mode for you from the battery level. Boost stays manual.",
+        () => s.ersAssist,
+        (v) => {
+          s.ersAssist = v;
+        },
+      ),
+    ];
+  }
+
   private assistRows(): Row[] {
     const s = this.settings;
     const rows: Row[] = [
-      this.choice(
-        "Driving Proficiency",
-        "Speed Dreams scales downforce with skill: Arcade x4, Rookie x3, Amateur x2, Semi-pro and Pro x1. Semi-pro and Pro also turn on tyre temperature, tyre wear and full damage.",
-        choices.skill,
-        () => s.skill,
-        (id) => {
-          s.skill = id as Settings["skill"];
-        },
-      ),
       this.choice(
         "Gearbox",
         "Automatic shifts for you. Manual uses E to shift up and Q to shift down.",
@@ -835,7 +900,7 @@ export class Menu {
       rows.push(
         this.toggle(
           "Anti-Lock Brakes",
-          "Off: braking hard in a straight line can lock the wheels, as on a real F1 car, but the brakes ease off for you as soon as you steer so the car still turns. On: the wheels never lock.",
+          "Off, as in F1, a heavy stop can lock the wheels: tyre smoke, flat spots and extra wear, sized by how hard the lock is. The brakes still ease off while you are steering. On prevents lock-ups altogether.",
           () => s.antiLock,
           (v) => {
             s.antiLock = v;
@@ -932,8 +997,9 @@ export class Menu {
         "Shows the sector strip above the lap timer. Purple marks a best sector, yellow a slower one.",
       map: "Shows the track map with sectors and your position.",
       lights: "Shows the start lights on the on-screen display.",
-      fuel: "Shows the fuel gauge on the left of the dashboard.",
-      tyres: "Shows tyre temperatures and wear in the multi-function display.",
+      fuel: "Shows the battery gauge and fuel status on the dashboard.",
+      tyres:
+        "Shows tyre compound, temperatures, wear and pressures in the multi-function display.",
       inputs: "Shows throttle and brake inputs under the gear indicator.",
       help: "Shows the button prompts in the corner of the screen.",
     };
@@ -980,14 +1046,12 @@ export class Menu {
     return box;
   }
 
-  private fuelInfo(): { tank: number; perLap: number } {
+  private tank(): number {
     const car = carOf(this.settings).car;
     const model = ParamDoc.read(
       this.source.fs,
       `/sd/data/cars/models/${car}/${car}.xml`,
     );
-    const tank = model?.num("Car", "fuel tank")?.value ?? 100;
-    const factor = model?.num("Engine", "fuel cons factor")?.value ?? 1;
-    return { tank, perLap: trackOf(this.settings).length * 0.0005 * factor };
+    return model?.num("Car", "fuel tank")?.value ?? 100;
   }
 }

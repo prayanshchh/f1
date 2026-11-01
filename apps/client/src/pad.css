@@ -326,3 +326,25 @@ body.need-landscape .rotate {
   font-size: 13px;
   color: var(--dim);
 }
+
+.ers {
+  display: flex;
+  gap: 10px;
+}
+
+.ers button {
+  display: grid;
+  gap: 2px;
+  min-width: 96px;
+  padding: 6px 10px;
+  letter-spacing: 0;
+}
+
+.ers small {
+  font-size: 11px;
+  opacity: 0.75;
+}
+
+.ers b {
+  font-size: 16px;
+}

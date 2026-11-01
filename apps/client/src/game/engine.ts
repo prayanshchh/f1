@@ -2,6 +2,9 @@ import createSpeedDreams, {
   type SpeedDreamsModule,
 } from "../../wasm/speed-dreams.js";
 import type { CarInfo } from "./car.ts";
+import type { EnergyInfo } from "./energy.ts";
+import type { CarStatus } from "./mfd.ts";
+import type { TyreInfo } from "./tyres.ts";
 import type { SetupSource } from "./settings.ts";
 import type { CarAudio } from "./sound/sound-state.ts";
 import type { TrackLocal } from "./sky.ts";
@@ -51,6 +54,16 @@ export interface HudInfo {
   tyreTread: number[];
 }
 
+export interface RaceSystems {
+  compound: number;
+  wearScale: number;
+  isRace: boolean;
+  ersMode: number;
+  fuelMix: number;
+  ersAssist: boolean;
+  straightAssist: boolean;
+}
+
 export const outOfRaceState = 0x0400 | 0x0200 | 0x0004 | 0x0008 | 0x0010;
 
 export async function loadSpeedDreams(): Promise<SpeedDreamsModule> {
@@ -93,9 +106,17 @@ export class Engine {
     assist: boolean,
     antiLock: boolean,
     now: number,
+    race: RaceSystems,
   ): Engine {
     module._sdInputAssist(assist ? 1 : 0);
     module._sdInputAntiLock(antiLock ? 1 : 0);
+    module._sdTyresConfigure(race.compound, race.wearScale);
+    module._sdEnergyConfigure(
+      race.isRace ? 1 : 0,
+      race.ersMode,
+      race.fuelMix,
+      race.ersAssist ? 1 : 0,
+    );
     const init = module.cwrap("sdInit", "number", [
       "string",
       "string",
@@ -115,6 +136,7 @@ export class Engine {
         `Speed Dreams failed to start the race (${String(status)})`,
       );
     }
+    module._sdEnergyStraight(race.straightAssist ? 1 : 0, 0);
     return new Engine(module);
   }
 
@@ -313,6 +335,100 @@ export class Engine {
       tyreCondition: wheels(14),
       tyreTread: wheels(18),
     };
+  }
+
+  tyreInfo(): TyreInfo {
+    const v = this.doubles(32, (p) => {
+      this.module._sdTyresInfo(p);
+    });
+    const at = (i: number) => v[i] ?? 0;
+    return {
+      compound: at(0),
+      age: at(1),
+      low: at(2),
+      high: at(3),
+      wheels: [0, 1, 2, 3].map((i) => {
+        const o = 4 + i * 7;
+        return {
+          surface: at(o),
+          carcass: at(o + 1),
+          pressure: at(o + 2),
+          wear: at(o + 3),
+          lock: at(o + 4),
+          spin: at(o + 5),
+          grip: at(o + 6),
+        };
+      }),
+    };
+  }
+
+  carStatus(): CarStatus {
+    const v = this.doubles(12, (p) => {
+      this.module._sdCarStatus(p);
+    });
+    const at = (i: number) => v[i] ?? 0;
+    return {
+      engineTemp: at(0),
+      damage: {
+        wingLeft: at(1),
+        wingRight: at(2),
+        sidepodLeft: at(3),
+        sidepodRight: at(4),
+        floor: at(5),
+        diffuser: at(6),
+        rearWing: at(7),
+      },
+      brakes: [0, 1, 2, 3].map((i) => at(8 + i)),
+    };
+  }
+
+  energyInfo(): EnergyInfo {
+    const v = this.doubles(19, (p) => {
+      this.module._sdEnergyInfo(p);
+    });
+    const at = (i: number) => v[i] ?? 0;
+    return {
+      battery: at(0),
+      capacity: at(1),
+      harvested: at(2),
+      harvestLimit: at(3),
+      deployed: at(4),
+      motorPower: at(5),
+      icePower: at(6),
+      mode: at(7),
+      fuelMix: at(8),
+      overtakeActive: at(9) !== 0,
+      overtakeArmed: at(10) !== 0,
+      lastLapFuel: at(11),
+      brakeBias: at(14),
+      straightMode: at(16),
+      differential: at(17),
+      straightArmed: at(18) !== 0,
+    };
+  }
+
+  setErsMode(mode: number): void {
+    this.module._sdEnergyMode(mode);
+  }
+
+  setFuelMix(mix: number): void {
+    this.module._sdEnergyFuelMix(mix);
+  }
+
+  armOvertake(): void {
+    this.module._sdEnergyOvertake(1);
+  }
+
+  setDifferential(percent: number): void {
+    this.module._sdEnergyDifferential(percent);
+  }
+
+  armStraight(): void {
+    this.module._sdEnergyStraight(0, 1);
+  }
+
+  setBrakeBias(share: number): void {
+    this.module._sdEnergyBrakeBias(share);
   }
 
   trackLength(): number {

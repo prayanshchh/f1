@@ -2,13 +2,6 @@ import { ParamDoc, type ParamFs } from "./params.ts";
 
 export const tracks = [
   {
-    id: "jarama",
-    label: "Jarama",
-    detail: "Madrid · 3.82 km",
-    category: "circuit",
-    length: 3821,
-  },
-  {
     id: "cota",
     label: "Circuit of the Americas",
     detail: "Austin · 5.53 km",
@@ -88,6 +81,11 @@ export const choices = {
     { id: "semi-pro", label: "Semi-pro" },
     { id: "pro", label: "Pro" },
   ],
+  racingLine: [
+    { id: "full", label: "Full" },
+    { id: "corners", label: "Corners Only" },
+    { id: "off", label: "Off" },
+  ],
   transmission: [
     { id: "auto", label: "Automatic" },
     { id: "sequential", label: "Sequential (E up · Q down)" },
@@ -109,6 +107,7 @@ export interface Settings {
   season: ChoiceId<"season">;
   skill: ChoiceId<"skill">;
   transmission: ChoiceId<"transmission">;
+  racingLine: ChoiceId<"racingLine">;
   autoReverse: boolean;
   assist: boolean;
   antiLock: boolean;
@@ -137,7 +136,7 @@ export type HudPart = keyof typeof hudParts;
 export const practiceFuelLaps = 10;
 
 export const defaults: Settings = {
-  track: "jarama",
+  track: "cota",
   car: "f1",
   session: "practice",
   laps: 5,
@@ -148,6 +147,7 @@ export const defaults: Settings = {
   season: "now",
   skill: "rookie",
   transmission: "auto",
+  racingLine: "full",
   autoReverse: true,
   assist: true,
   antiLock: false,

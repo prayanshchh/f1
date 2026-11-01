@@ -154,15 +154,7 @@ function fitStage(): void {
   document.documentElement.style.setProperty("--s", String(scale));
 }
 
-function drawer(
-  renderer: THREE.WebGPURenderer,
-  scene: Scene,
-  trackId: string,
-): () => void {
-  if (trackId !== "cota")
-    return () => {
-      renderer.render(scene.scene, scene.camera);
-    };
+function drawer(renderer: THREE.WebGPURenderer, scene: Scene): () => void {
   const atmosphere = new Atmosphere(renderer, scene.scene, scene.camera);
   return () => {
     atmosphere.update(scene.atmosphere);
@@ -216,12 +208,11 @@ async function main(): Promise<void> {
   const scene = await Scene.load(
     engine,
     assets,
-    track.category,
-    track.id,
     car.body,
     renderer.getMaxAnisotropy(),
+    { mode: settings.racingLine, skill: settings.skill },
   );
-  const draw = drawer(renderer, scene, track.id);
+  const draw = drawer(renderer, scene);
 
   const reference = loadReference(settings);
   const trace = new LapTrace(

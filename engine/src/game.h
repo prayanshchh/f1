@@ -22,6 +22,13 @@ void sdInputConfigure();
 void sdInputKey(int key, int state);
 void sdInputUpdate(tCarElt *car, double dt);
 void sdInputState(double *out);
+void sdCarStatusReset(tCarElt *car);
+void sdCarStatusStep(tCarElt *car, double dt);
+double sdDamageDrag();
+void sdTyresReset(tCarElt *car);
+void sdTyresStep(tCarElt *car, double dt);
+void sdEnergyReset(tCarElt *car);
+void sdEnergyStep(tCarElt *car, double dt);
 
 enum SdFrameIndex
 {

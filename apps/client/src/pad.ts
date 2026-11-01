@@ -77,6 +77,9 @@ class Pad {
   private steer = 0;
   private baseAngle = screen.orientation.angle;
   private frameAt = 0;
+  private boostPresses = 0;
+  private ersPresses = 0;
+  private pagePresses = 0;
 
   async start(): Promise<void> {
     if (isPortrait())
@@ -112,6 +115,15 @@ class Pad {
     });
     screen.orientation.addEventListener("change", () => {
       this.layout();
+    });
+    element("boost").addEventListener("click", () => {
+      this.boostPresses++;
+    });
+    element("ers").addEventListener("click", () => {
+      this.ersPresses++;
+    });
+    element("page").addEventListener("click", () => {
+      this.pagePresses++;
     });
     element("center").addEventListener("click", () => {
       this.calibrate();
@@ -213,6 +225,11 @@ class Pad {
       !("gear" in message)
     )
       return;
+    if ("battery" in message && "mode" in message) {
+      element("batt").textContent =
+        `Batt ${String(Math.round(Number(message.battery) * 100))}%`;
+      element("ers-mode").textContent = String(message.mode);
+    }
     const gear = Number(message.gear);
     element("speed").textContent = String(Math.round(Number(message.speed)));
     element("gear").textContent =
@@ -322,7 +339,14 @@ class Pad {
   private send(): void {
     if (this.socket?.readyState !== WebSocket.OPEN) return;
     this.socket.send(
-      new Float32Array([this.steer, this.pedals.gas, this.pedals.brake]),
+      new Float32Array([
+        this.steer,
+        this.pedals.gas,
+        this.pedals.brake,
+        this.boostPresses,
+        this.ersPresses,
+        this.pagePresses,
+      ]),
     );
   }
 }

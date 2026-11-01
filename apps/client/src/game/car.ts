@@ -1,4 +1,5 @@
 import * as THREE from "three/webgpu";
+import { compounds } from "./tyres.ts";
 import { frameIndex } from "./engine.ts";
 import type { SdLighting } from "./materials.ts";
 import type { SdAssets } from "./models.ts";
@@ -156,6 +157,8 @@ export class SdCar {
   private readonly speedometerRot = matrix();
   private readonly tachometerRot = matrix();
   private readonly scratch = new THREE.Matrix4();
+  private readonly compoundColour = new THREE.Color();
+  private compoundShown = -1;
 
   private constructor(private readonly info: CarInfo) {}
 
@@ -209,6 +212,33 @@ export class SdCar {
       car.addPlaced(car.tachometerRot, info.tachometer, tachometer);
     for (let i = 0; i < 4; i++) car.addWheel(lighting, i, i < 2 ? front : rear);
     return car;
+  }
+
+  private addSidewalls(
+    lighting: SdLighting,
+    parent: THREE.Object3D,
+    wheel: number,
+  ): void {
+    const radius = (this.info.wheelRadius[wheel] ?? 0.33) * 0.86;
+    const half = (this.info.tireWidth[wheel] ?? 0.3) * 0.5 + 0.002;
+    const geometry = new THREE.TorusGeometry(radius, 0.011, 6, 48);
+    geometry.rotateX(Math.PI / 2);
+    const material = lighting.unlit(this.compoundColour);
+    for (const side of [-1, 1]) {
+      const ring = new THREE.Mesh(geometry, material);
+      ring.position.set(0, side * half, 0);
+      parent.add(ring);
+    }
+  }
+
+  setCompound(index: number): void {
+    if (index === this.compoundShown) return;
+    this.compoundShown = index;
+    this.compoundColour.set((compounds[index] ?? compounds[1]).colour);
+  }
+
+  wheelRadii(): number[] {
+    return this.info.wheelRadius;
   }
 
   private addDrivers(drivers: THREE.Object3D[]): void {
@@ -277,6 +307,7 @@ export class SdCar {
     );
     transform2.add(group);
     this.root.add(transform2);
+    this.addSidewalls(lighting, transform2, i);
     this.wheels.push({ transform2, transform1, variants, discColor });
   }
 

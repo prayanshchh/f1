@@ -9,8 +9,8 @@ import type { Duplex } from "node:stream";
 import type { Plugin, ViteDevServer } from "vite";
 import { WebSocket, WebSocketServer } from "ws";
 
-const padPort = 5200;
-const setupPort = 5201;
+const padPort = Number(process.env["PAD_PORT"] ?? 5200);
+const setupPort = padPort + 1;
 const certDir = path.join(os.homedir(), ".f1-pad");
 const socketPath = "/__pad/ws";
 

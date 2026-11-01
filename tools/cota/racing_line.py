@@ -16,14 +16,8 @@ WEIGHT_FLOOR = 0.5
 GRAVITY = 9.81
 GRIP = 2.2
 DOWNFORCE_PER_AERO = 0.00032
-SKILLS = {
-    "arcade": (4, 1.0),
-    "semi-rookie": (4, 1.0),
-    "rookie": (3, 1.0),
-    "amateur": (2, 0.9),
-    "semi-pro": (1, 0.7),
-    "pro": (1, 0.7),
-}
+DOWNFORCE_FACTOR = 3
+GRIP_FACTOR = 1.0
 BRAKE_GRIP = 2.27
 DRAG = 0.000675
 POWER = 725.0
@@ -172,20 +166,17 @@ def build(track):
     height = y + offset * camber
     k = curvature(line, step)
     slope = (np.roll(height, -1) - height) / step
-    profiles = {}
-    for skill, (aero, grip) in SKILLS.items():
-        speed, braking = profile(k, slope, step, (DOWNFORCE_PER_AERO * aero, grip))
-        profiles[skill] = {
-            "lapTime": round(float(np.sum(step / speed)), 2),
-            "speed": rounded(speed, 2),
-            "braking": rounded(braking, 2),
-        }
+    speed, braking = profile(k, slope, step, (DOWNFORCE_PER_AERO * DOWNFORCE_FACTOR, GRIP_FACTOR))
     return {
         "length": track["length"],
         "x": rounded(line[:, 0], 3),
         "y": rounded(height, 3),
         "z": rounded(line[:, 1], 3),
-        "profiles": profiles,
+        "profile": {
+            "lapTime": round(float(np.sum(step / speed)), 2),
+            "speed": rounded(speed, 2),
+            "braking": rounded(braking, 2),
+        },
     }
 
 
@@ -194,8 +185,8 @@ def main():
     out = Path(sys.argv[2]) if len(sys.argv) > 2 else directory
     result = build(load(directory))
     (out / "racing-line.json").write_text(json.dumps(result, separators=(",", ":")) + "\n")
-    for skill, p in result["profiles"].items():
-        print(f"{skill}: lap {p['lapTime']:.2f} s, top {max(p['speed']) * 3.6:.0f} km/h")
+    p = result["profile"]
+    print(f"lap {p['lapTime']:.2f} s, top {max(p['speed']) * 3.6:.0f} km/h")
 
 
 if __name__ == "__main__":

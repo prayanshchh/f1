@@ -95,6 +95,7 @@
         <div class="dash-glass"></div>
         <svg class="ring ring-left" viewBox="0 0 140 140" aria-hidden="true">
           <circle class="ring-bg" cx="70" cy="70" r="60" />
+          <circle class="ring-disc" cx="70" cy="70" r="44" />
           <circle class="ring-ticks" cx="70" cy="70" r="50" />
           <circle
             class="ring-fill"
@@ -102,12 +103,26 @@
             cy="70"
             r="60"
             pathLength="100"
-            data-hud="fuel-ring"
+            data-hud="batt-ring"
           />
         </svg>
         <div class="dash-left part-fuel">
-          <small>Fuel</small><b data-hud="fuel">0%</b>
+          <small>Batt</small><b data-hud="batt">0%</b>
         </div>
+        <svg class="harvest part-fuel" viewBox="0 0 40 40" aria-hidden="true">
+          <circle class="harvest-bg" cx="20" cy="20" r="15" />
+          <circle
+            class="harvest-fill"
+            cx="20"
+            cy="20"
+            r="15"
+            pathLength="100"
+            data-hud="harvest-ring"
+          />
+          <circle class="harvest-hub" cx="20" cy="20" r="8" />
+        </svg>
+        <i class="fuel-can part-fuel" data-hud="fuel-can" hidden></i>
+        <i class="s-mode" data-hud="s-mode" hidden>S Mode</i>
         <svg class="ring ring-right" viewBox="0 0 140 140" aria-hidden="true">
           <circle class="ring-bg" cx="70" cy="70" r="60" />
           <circle
@@ -128,69 +143,56 @@
           <div class="gear" data-hud="gear">N</div>
           <div class="dash-status" data-hud="status"></div>
         </div>
+        <div class="boost-prompt part-fuel">
+          <kbd>B</kbd><span data-hud="boost-state">Boost</span>
+        </div>
         <div class="pedals part-inputs">
           <div class="pedal brake"><i data-hud="in-brake"></i></div>
           <div class="pedal throttle"><i data-hud="in-throttle"></i></div>
         </div>
       </section>
 
-      <section class="mfd part-tyres" data-hud="mfd">
-        <header>
-          <span>Tyres</span
-          ><span class="mfd-damage" data-hud="damage" hidden
-            >Damage <i></i
+      <section class="mfd part-tyres" data-hud="mfd" data-page="quick">
+        <div class="mfd-cap">
+          <span class="mfd-tab mfd-radio"
+            ><svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 14 V11 a8 8 0 0 1 16 0 V14" />
+              <rect x="2" y="13" width="4" height="7" rx="1.5" />
+              <rect x="18" y="13" width="4" height="7" rx="1.5" />
+              <path d="M20 20 q0 2 -5 2" /></svg
           ></span>
-        </header>
-        <div class="mfd-body">
-          <div class="mfd-col left">
-            <div class="mfd-temps" data-hud="tyre-fl"></div>
-            <div class="mfd-temps" data-hud="tyre-rl"></div>
+          <span class="mfd-tab mfd-pages">
+            <i data-hud="mfd-dots"></i><kbd>Y</kbd>
+          </span>
+        </div>
+        <div class="mfd-screen">
+          <div class="mfd-page quick" data-for="quick">
+            <div class="quick-row">
+              <span>Fuel Mix <em data-hud="fuel-delta"></em></span
+              ><b data-hud="fuel-mix">Standard</b><kbd>F</kbd>
+            </div>
+            <div class="quick-row">
+              <span>Front Brake Bias</span><b data-hud="bias">56%</b
+              ><kbd>[ ]</kbd>
+            </div>
+            <div class="quick-row">
+              <span>Differential</span><b data-hud="diff">60%</b><kbd>, .</kbd>
+            </div>
+            <div class="quick-row selected" data-hud="ers-row">
+              <span>ERS Deploy</span><b data-hud="ers-mode">Medium</b
+              ><kbd>M</kbd>
+            </div>
           </div>
-          <svg class="mfd-car" viewBox="0 0 120 230" aria-hidden="true">
-            <path
-              class="car-line"
-              d="M60 6 L52 22 L50 60 L22 52 L22 66 L48 72 L44 128 L40 170 L46 196 L30 196 L30 214 L90 214 L90 196 L74 196 L80 170 L76 128 L72 72 L98 66 L98 52 L70 60 L68 22 Z"
-            />
-            <rect
-              class="tyre"
-              x="12"
-              y="62"
-              width="18"
-              height="34"
-              rx="4"
-              data-hud="tyre-shape-fl"
-            />
-            <rect
-              class="tyre"
-              x="90"
-              y="62"
-              width="18"
-              height="34"
-              rx="4"
-              data-hud="tyre-shape-fr"
-            />
-            <rect
-              class="tyre"
-              x="10"
-              y="164"
-              width="20"
-              height="38"
-              rx="4"
-              data-hud="tyre-shape-rl"
-            />
-            <rect
-              class="tyre"
-              x="90"
-              y="164"
-              width="20"
-              height="38"
-              rx="4"
-              data-hud="tyre-shape-rr"
-            />
-          </svg>
-          <div class="mfd-col right">
-            <div class="mfd-temps" data-hud="tyre-fr"></div>
-            <div class="mfd-temps" data-hud="tyre-rr"></div>
+          <div class="mfd-page gauges" data-hud="mfd-gauges">
+            <svg
+              class="mfd-car"
+              viewBox="-190 100 380 940"
+              aria-hidden="true"
+              data-hud="mfd-car"
+            ></svg>
+            <div class="engine-pill" data-for="temps">
+              <b data-hud="engine-temp">--°C</b>
+            </div>
           </div>
         </div>
       </section>
@@ -198,7 +200,7 @@
       <div class="pad-badge" data-pad="badge" hidden>Phone connected</div>
       <div class="help part-help">
         <span><kbd>Esc</kbd> Menu</span><span><kbd>Arrows</kbd> Drive</span
-        ><span><kbd>E</kbd><kbd>Q</kbd> Shift</span
+        ><span><kbd>E</kbd><kbd>Q</kbd> Shift</span><span><kbd>Y</kbd> MFD</span
         ><span><kbd>P</kbd> Phone</span><span><kbd>C</kbd> Chase cam</span
         ><span><kbd>F2–F11</kbd> Cameras</span>
       </div>

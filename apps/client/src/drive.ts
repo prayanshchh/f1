@@ -2,17 +2,27 @@ import "@fontsource-variable/saira/wdth.css";
 import "./drive.css";
 import * as THREE from "three/webgpu";
 import {
+  boostMode,
+  ersModes,
+  fuelMixes,
+  nextErsMode,
+  OvertakeDetector,
+  toggleBoost,
+} from "./game/energy.ts";
+import {
   Engine,
   frameIndex,
   loadSpeedDreams,
+  type RaceSystems,
   setupSource,
 } from "./game/engine.ts";
 import { Hud, lapTime, signed, type TrackMap } from "./game/hud.ts";
 import { sdlKeycode } from "./game/keys.ts";
+import { compoundIndex, wearScale } from "./game/tyres.ts";
 import { LapTrace } from "./game/laptrace.ts";
 import { Menu } from "./game/menu.ts";
 import { SdAssets } from "./game/models.ts";
-import { PadLink } from "./game/pad.ts";
+import { type PadCommands, PadLink } from "./game/pad.ts";
 import { Atmosphere } from "./game/atmosphere.ts";
 import { Scene } from "./game/scene.ts";
 import { GameSound } from "./game/sound/game-sound.ts";
@@ -163,6 +173,80 @@ function drawer(renderer: THREE.WebGPURenderer, scene: Scene): () => void {
   };
 }
 
+function raceControls(engine: Engine, hud: Hud, settings: Settings) {
+  let cruise = settings.ersMode === boostMode ? 1 : settings.ersMode;
+  let padBoost = 0;
+  let padErs = 0;
+  let padPage = 0;
+  const cycleErs = () => {
+    cruise = nextErsMode(engine.energyInfo().mode, cruise);
+    engine.setErsMode(cruise);
+  };
+  const flipBoost = () => {
+    const mode = engine.energyInfo().mode;
+    if (mode !== boostMode) cruise = mode;
+    engine.setErsMode(toggleBoost(mode, cruise));
+  };
+  const nudgeBias = (delta: number) => {
+    engine.setBrakeBias(engine.energyInfo().brakeBias + delta);
+  };
+  const keys: Record<string, () => void> = {
+    b: flipBoost,
+    m: cycleErs,
+    f: () => {
+      engine.setFuelMix((engine.energyInfo().fuelMix + 1) % fuelMixes.length);
+    },
+    "[": () => {
+      nudgeBias(-0.01);
+    },
+    "]": () => {
+      nudgeBias(0.01);
+    },
+    y: () => {
+      hud.nextMfdPage();
+    },
+    x: () => {
+      engine.armStraight();
+    },
+    ",": () => {
+      engine.setDifferential(engine.energyInfo().differential - 5);
+    },
+    ".": () => {
+      engine.setDifferential(engine.energyInfo().differential + 5);
+    },
+  };
+  return {
+    key(event: KeyboardEvent, down: boolean): boolean {
+      const action = keys[event.key.toLowerCase()];
+      if (!action) return false;
+      event.preventDefault();
+      if (down && !event.repeat) action();
+      return true;
+    },
+    pad(pressed: PadCommands): void {
+      if (pressed.boost !== padBoost) flipBoost();
+      if (pressed.ers !== padErs) cycleErs();
+      if (pressed.page !== padPage) hud.nextMfdPage();
+      padPage = pressed.page;
+      padBoost = pressed.boost;
+      padErs = pressed.ers;
+    },
+  };
+}
+
+function raceSystems(settings: Settings): RaceSystems {
+  return {
+    compound: compoundIndex(settings.compound),
+    wearScale: wearScale(settings.tyreWear, settings.session, settings.laps),
+    isRace: settings.session === "race",
+    ersMode: settings.ersMode,
+    fuelMix: settings.fuelMix,
+    ersAssist: settings.ersAssist,
+    straightAssist: settings.straightAssist,
+    antiLock: settings.antiLock,
+  };
+}
+
 async function main(): Promise<void> {
   if (!canvas || !hudRoot) throw new Error("drive page markup is missing");
   fitStage();
@@ -203,6 +287,7 @@ async function main(): Promise<void> {
     car.car,
     settings.assist,
     performance.now() / 1000,
+    raceSystems(settings),
   );
   const assets = await SdAssets.open("/wasm/sd/");
   const scene = await Scene.load(
@@ -210,7 +295,7 @@ async function main(): Promise<void> {
     assets,
     car.body,
     renderer.getMaxAnisotropy(),
-    { mode: settings.racingLine, skill: settings.skill },
+    settings.racingLine,
   );
   const draw = drawer(renderer, scene);
 
@@ -260,7 +345,10 @@ async function main(): Promise<void> {
     });
   };
 
+  const controls = raceControls(engine, hud, settings);
+
   const drive = (down: boolean, event: KeyboardEvent) => {
+    if (controls.key(event, down)) return;
     const code = sdlKeycode(event);
     if (code === null) return;
     event.preventDefault();
@@ -287,17 +375,30 @@ async function main(): Promise<void> {
   let savedBest = reference
     ? reference.sectors.reduce((a, b) => a + b, 0)
     : Infinity;
+  const detector = new OvertakeDetector(engine.trackLength());
+  const armOvertake = (frame: Float64Array) => {
+    const distance = frame[frameIndex.distFromStart] ?? 0;
+    const gap = trace.delta(distance, frame[frameIndex.curLapTime] ?? 0);
+    if (detector.crossing(distance, gap)) engine.armOvertake();
+  };
   const step = (now: number) => {
     engine.analog(pad.current(now));
+    controls.pad(pad.pressed());
     const frame = engine.update(now);
+    armOvertake(frame);
+    const tyres = engine.tyreInfo();
+    const energy = engine.energyInfo();
     pad.feedback(
       now,
       Math.abs(frame[frameIndex.speed] ?? 0) * 3.6,
       frame[frameIndex.gear] ?? 0,
+      energy.battery / energy.capacity,
+      ersModes[energy.mode]?.label ?? "",
     );
     scene.update(frame);
+    scene.updateTyres(frame, tyres);
     sound.update(engine.carAudio(frame));
-    hud.update(frame, engine.hudInfo(), now);
+    hud.update(frame, engine.hudInfo(), tyres, energy, engine.carStatus(), now);
     const bestTime = trace.bestTime ?? Infinity;
     if (bestTime < savedBest) {
       savedBest = bestTime;

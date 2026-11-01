@@ -2,6 +2,7 @@ import * as THREE from "three/webgpu";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { frameIndex } from "./engine.ts";
 import type { SdLighting } from "./materials.ts";
+import { compounds } from "./tyres.ts";
 
 const gltfToSdWorld = new THREE.Matrix4().set(
   1,
@@ -99,6 +100,9 @@ export class GltfCar {
   private steeringWheel: THREE.Object3D | null = null;
   private visualAxleMid = 0;
   private offsetReady = false;
+  private readonly compoundColour = new THREE.Color();
+  private compoundShown = -1;
+  private readonly radii: number[] = [];
 
   static async load(
     url: string,
@@ -128,10 +132,38 @@ export class GltfCar {
         restZ: null,
       });
     }
+    car.addSidewalls(lighting);
     car.steeringWheel = gltf.scene.getObjectByName("steering-wheel") ?? null;
     car.visualAxleMid =
       ((car.wheels[0]?.rest.z ?? 0) + (car.wheels[2]?.rest.z ?? 0)) / 2;
     return car;
+  }
+
+  private addSidewalls(lighting: SdLighting): void {
+    const material = lighting.unlit(this.compoundColour);
+    const size = new THREE.Vector3();
+    for (const wheel of this.wheels) {
+      new THREE.Box3().setFromObject(wheel.spin).getSize(size);
+      const radius = Math.max(size.y, size.z) / 2;
+      this.radii.push(radius);
+      const geometry = new THREE.TorusGeometry(radius * 0.86, 0.011, 6, 48);
+      geometry.rotateY(Math.PI / 2);
+      for (const side of [-1, 1]) {
+        const ring = new THREE.Mesh(geometry, material);
+        ring.position.set((side * size.x) / 2, 0, 0);
+        wheel.pivot.add(ring);
+      }
+    }
+  }
+
+  setCompound(index: number): void {
+    if (index === this.compoundShown) return;
+    this.compoundShown = index;
+    this.compoundColour.set((compounds[index] ?? compounds[1]).colour);
+  }
+
+  wheelRadii(): number[] {
+    return this.radii;
   }
 
   setDraw(current: boolean): void {

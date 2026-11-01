@@ -24,15 +24,18 @@ export interface SpeedDreams {
 
 export const wasm = path.join(repoRoot, "apps/client/wasm/speed-dreams.js");
 
-export async function startCota(): Promise<SpeedDreams> {
+export async function startCota<M extends SpeedDreams = SpeedDreams>(
+  prepare?: (module: M) => void,
+): Promise<M> {
   const url = pathToFileURL(wasm).href;
   const loaded = (await import(url)) as {
-    default: (options: object) => Promise<SpeedDreams>;
+    default: (options: object) => Promise<M>;
   };
   const m = await loaded.default({
     print: () => undefined,
     printErr: () => undefined,
   });
+  prepare?.(m);
   m.cwrap("sdInit", "number", [
     "string",
     "string",

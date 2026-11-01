@@ -56,12 +56,29 @@ declare module "*/wasm/speed-dreams.js" {
     _sdAudio(out: number): void;
     _sdTrackSectors(out: number, max: number): number;
     _sdInputAssist(on: number): void;
+    _sdInputAntiLock(on: number): void;
     _sdInputAnalog(
       active: number,
       steer: number,
       throttle: number,
       brake: number,
     ): void;
+    _sdTyresConfigure(compound: number, scale: number): void;
+    _sdTyresInfo(out: number): void;
+    _sdEnergyConfigure(
+      race: number,
+      mode: number,
+      mix: number,
+      assist: number,
+    ): void;
+    _sdEnergyMode(mode: number): void;
+    _sdEnergyFuelMix(mix: number): void;
+    _sdEnergyOvertake(armed: number): void;
+    _sdEnergyBrakeBias(share: number): void;
+    _sdEnergyInfo(out: number): void;
+    _sdCarStatus(out: number): void;
+    _sdEnergyDifferential(percent: number): void;
+    _sdEnergyStraight(assisted: number, armed: number): void;
     _sdCarName(): number;
     _sdViewKey(key: number, ctrl: number): number;
     _sdViewResize(width: number, height: number): void;

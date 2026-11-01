@@ -31,8 +31,10 @@ static const double absCut = 30.0;
 static const double absRecover = 3.0;
 static const double analogSteerTime = 0.05;
 static const double analogThrottleTime = 0.08;
+static const double trailBrakeSteer = 0.1;
 
 static bool assist = true;
+static bool antiLock = false;
 static bool analog;
 static double analogSteer, analogThrottle, analogBrake;
 static bool left, right, up, down;
@@ -134,7 +136,8 @@ static void updateBraking(tCarElt *car, double dt)
         for (int i = FRNT_RGT; i <= FRNT_LFT; i++)
             excess = std::max(excess, longSlip(car, i) - wheelLockLimit);
     }
-    braking = limiter(braking, excess, wheelLockLimit, absCut, absRecover, dt);
+    bool turning = analog ? fabs(analogSteer) > trailBrakeSteer : left || right;
+    braking = antiLock || turning ? limiter(braking, excess, wheelLockLimit, absCut, absRecover, dt) : 1.0;
 }
 
 void sdInputConfigure()
@@ -225,6 +228,11 @@ EMSCRIPTEN_KEEPALIVE void sdInputAnalog(int active, double steerValue, double th
 EMSCRIPTEN_KEEPALIVE void sdInputAssist(int on)
 {
     assist = on != 0;
+}
+
+EMSCRIPTEN_KEEPALIVE void sdInputAntiLock(int on)
+{
+    antiLock = on != 0;
 }
 
 }

@@ -1,3 +1,4 @@
+import { nominalFuelPerLap } from "./energy.ts";
 import { ParamDoc, type ParamFs } from "./params.ts";
 
 export const tracks = [
@@ -35,6 +36,11 @@ export const cars = [
 ] as const;
 
 export const choices = {
+  tyreWear: [
+    { id: "off", label: "Off" },
+    { id: "real", label: "Real Life" },
+    { id: "scaled", label: "Race Length" },
+  ],
   session: [
     { id: "practice", label: "Practice" },
     { id: "race", label: "Race" },
@@ -73,14 +79,6 @@ export const choices = {
     { id: "autumn", label: "Autumn" },
     { id: "winter", label: "Winter" },
   ],
-  skill: [
-    { id: "arcade", label: "Arcade" },
-    { id: "semi-rookie", label: "Semi-rookie" },
-    { id: "rookie", label: "Rookie" },
-    { id: "amateur", label: "Amateur" },
-    { id: "semi-pro", label: "Semi-pro" },
-    { id: "pro", label: "Pro" },
-  ],
   racingLine: [
     { id: "full", label: "Full" },
     { id: "corners", label: "Corners Only" },
@@ -101,15 +99,21 @@ export interface Settings {
   session: ChoiceId<"session">;
   laps: number;
   fuel: number;
+  compound: string;
+  tyreWear: ChoiceId<"tyreWear">;
+  ersMode: number;
+  fuelMix: number;
+  ersAssist: boolean;
+  straightAssist: boolean;
   timeOfDay: ChoiceId<"timeOfDay">;
   clouds: ChoiceId<"clouds">;
   rain: ChoiceId<"rain">;
   season: ChoiceId<"season">;
-  skill: ChoiceId<"skill">;
   transmission: ChoiceId<"transmission">;
   racingLine: ChoiceId<"racingLine">;
   autoReverse: boolean;
   assist: boolean;
+  antiLock: boolean;
   abs: boolean;
   tc: boolean;
   steerSensitivity: number;
@@ -124,15 +128,15 @@ export const hudParts = {
   sectors: "Sector Times",
   map: "Track Map",
   lights: "Start Lights",
-  fuel: "Fuel Gauge",
-  tyres: "Tyre Temperatures (MFD)",
+  fuel: "Battery & Fuel",
+  tyres: "Tyres (MFD)",
   inputs: "Pedal Inputs",
   help: "Button Prompts",
 } as const;
 
 export type HudPart = keyof typeof hudParts;
 
-export const practiceFuelLaps = 10;
+const practiceFuelLaps = 10;
 
 export const defaults: Settings = {
   track: "cota",
@@ -140,15 +144,21 @@ export const defaults: Settings = {
   session: "practice",
   laps: 5,
   fuel: 0,
+  compound: "medium",
+  tyreWear: "scaled",
+  ersMode: 1,
+  fuelMix: 1,
+  ersAssist: false,
+  straightAssist: true,
   timeOfDay: "from track",
   clouds: "scarce clouds",
   rain: "none",
   season: "now",
-  skill: "rookie",
   transmission: "auto",
   racingLine: "full",
   autoReverse: true,
   assist: true,
+  antiLock: false,
   abs: true,
   tc: true,
   steerSensitivity: 0.6,
@@ -203,6 +213,16 @@ function applyUrl(settings: Settings, params: URLSearchParams): void {
   else if (car)
     settings.car =
       cars.find((c) => c.car === car && c.body === "sd")?.id ?? settings.car;
+}
+
+export function autoFuelLaps(settings: Settings): number {
+  return settings.session === "race" ? settings.laps + 1 : practiceFuelLaps + 1;
+}
+
+function startFuel(settings: Settings): number {
+  return settings.fuel > 0
+    ? settings.fuel
+    : autoFuelLaps(settings) * nominalFuelPerLap;
 }
 
 export function saveSettings(settings: Settings): void {
@@ -511,7 +531,6 @@ function setupItem(
 }
 
 const prefsPath = "/sd/local/drivers/human/preferences.xml";
-const humanPath = "/sd/local/drivers/human/human.xml";
 const racePath = "/sd/local/config/raceman/quickrace.xml";
 
 export function applySettings(source: SetupSource, settings: Settings): void {
@@ -531,11 +550,6 @@ export function applySettings(source: SetupSource, settings: Settings): void {
   race.setStr("Quick Race", "season", settings.season);
   race.setStr("Quick Race", "weather", "config");
   race.write(fs, racePath);
-
-  const human = ParamDoc.read(fs, humanPath);
-  if (!human) throw new Error("human.xml is missing");
-  human.setStr("Robots/index/1", "skill level", settings.skill);
-  human.write(fs, humanPath);
 
   const prefs = ParamDoc.read(fs, prefsPath);
   if (!prefs) throw new Error("preferences.xml is missing");
@@ -562,7 +576,6 @@ export function applySettings(source: SetupSource, settings: Settings): void {
     const value = chosen[item.id];
     if (value !== undefined) item.write(setup, value);
   }
-  if (settings.fuel > 0)
-    setup.setNum("Car", "initial fuel", settings.fuel, "l");
+  setup.setNum("Car", "initial fuel", startFuel(settings), "l");
   setup.write(fs, setupPath(car));
 }

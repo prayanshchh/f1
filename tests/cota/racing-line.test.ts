@@ -9,7 +9,6 @@ import {
   type RacingLineData,
   type SpeedProfile,
 } from "../../apps/client/src/game/racing-line.ts";
-import { choices } from "../../apps/client/src/game/settings.ts";
 import { repoRoot } from "../support/repo.ts";
 
 interface Point {
@@ -29,13 +28,7 @@ const n = line.x.length;
 const step = line.length / n;
 const kerbWidth = 1.2;
 
-function profile(skill: string): SpeedProfile {
-  const p = line.profiles[skill];
-  if (!p) throw new Error(`no profile for ${skill}`);
-  return p;
-}
-
-const rookie = profile("rookie");
+const rookie: SpeedProfile = line.profile;
 const value = (values: number[], i: number) => values[((i % n) + n) % n] ?? 0;
 
 function firstBrake(plan: Cue[], from: number): number {
@@ -82,32 +75,21 @@ describe("COTA racing line data", () => {
     }
   });
 
-  test("has a physically plausible profile for every driving proficiency", () => {
-    for (const { id } of choices.skill) {
-      const p = profile(id);
-      expect(p.speed).toHaveLength(n);
-      expect(p.braking).toHaveLength(n);
-      for (let i = 0; i < n; i++) {
-        const v = value(p.speed, i);
-        expect(v).toBeGreaterThan(10);
-        expect(v).toBeLessThan(100);
-        expect(v).toBeLessThanOrEqual(value(p.braking, i) + 1e-6);
-        const decel =
-          (value(p.braking, i) ** 2 - value(p.braking, i + 1) ** 2) /
-          (2 * step);
-        expect(decel).toBeLessThan(60);
-      }
-      const lap = p.speed.reduce((sum, v) => sum + step / v, 0);
-      expect(Math.abs(lap - p.lapTime)).toBeLessThan(0.05);
+  test("has a physically plausible speed profile", () => {
+    const p = line.profile;
+    expect(p.speed).toHaveLength(n);
+    expect(p.braking).toHaveLength(n);
+    for (let i = 0; i < n; i++) {
+      const v = value(p.speed, i);
+      expect(v).toBeGreaterThan(10);
+      expect(v).toBeLessThan(100);
+      expect(v).toBeLessThanOrEqual(value(p.braking, i) + 1e-6);
+      const decel =
+        (value(p.braking, i) ** 2 - value(p.braking, i + 1) ** 2) / (2 * step);
+      expect(decel).toBeLessThan(60);
     }
-  });
-
-  test("never expects more pace from a level with less downforce or grip", () => {
-    const order = ["arcade", "rookie", "amateur", "pro"].map(
-      (id) => profile(id).lapTime,
-    );
-    expect([...order].sort((a, b) => a - b)).toEqual(order);
-    expect(profile("semi-pro").lapTime).toBe(profile("pro").lapTime);
+    const lap = p.speed.reduce((sum, v) => sum + step / v, 0);
+    expect(Math.abs(lap - p.lapTime)).toBeLessThan(0.05);
   });
 });
 

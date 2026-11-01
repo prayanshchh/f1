@@ -12,6 +12,8 @@ import type { AtmosphereState } from "./atmosphere.ts";
 import type { RacingLineData, RacingLineMode } from "./racing-line.ts";
 import { RacingLineView } from "./racing-line-view.ts";
 import { SdSky } from "./sky.ts";
+import { TyreSmoke } from "./tyre-smoke.ts";
+import type { TyreInfo } from "./tyres.ts";
 
 const flipX = new THREE.Matrix4().makeScale(-1, 1, 1);
 
@@ -29,6 +31,7 @@ export class Scene {
   private readonly domeColors: THREE.BufferAttribute;
   private readonly dome: THREE.Mesh;
   private readonly sunlight: Sunlight;
+  private readonly smoke = new TyreSmoke();
   readonly atmosphere: AtmosphereState = {
     sunDirection: new THREE.Vector3(),
     haze: new THREE.Color(),
@@ -59,7 +62,7 @@ export class Scene {
     this.dome = new THREE.Mesh(geometry, this.lighting.dome());
     this.dome.renderOrder = -10;
     this.dome.frustumCulled = false;
-    this.scene.add(this.dome, track, car.root);
+    this.scene.add(this.dome, track, car.root, this.smoke.root);
     this.sunlight = new Sunlight(this.scene);
     castShadows(car.root);
   }
@@ -69,7 +72,7 @@ export class Scene {
     assets: SdAssets,
     body: string,
     anisotropy: number,
-    line: { mode: RacingLineMode; skill: string },
+    lineMode: RacingLineMode,
   ): Promise<Scene> {
     const lighting = new SdLighting();
     const local = engine.trackLocal();
@@ -81,9 +84,7 @@ export class Scene {
         ? GltfCar.load(vantaUrl, lighting, new THREE.Color("#d8471c"))
         : SdCar.load(assets, lighting, engine.carInfo()),
     ]);
-    const profile = data.profiles[line.skill] ?? data.profiles["rookie"];
-    if (!profile) throw new Error(`no racing line for ${line.skill}`);
-    const racingLine = new RacingLineView(data, profile, line.mode);
+    const racingLine = new RacingLineView(data, data.profile, lineMode);
     const start = engine.trackPoint(0, 0);
     const track = new THREE.Group();
     track.add(
@@ -150,6 +151,11 @@ export class Scene {
     (this.domeColors.array as Float32Array).set(sky.domeColors);
     this.domeColors.needsUpdate = true;
     this.dome.position.set(eyeX, eyeY, 0);
+  }
+
+  updateTyres(frame: Float64Array, tyres: TyreInfo): void {
+    this.smoke.update(frame, tyres, this.car.wheelRadii());
+    this.car.setCompound(tyres.compound);
   }
 
   resize(width: number, height: number): void {

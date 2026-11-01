@@ -1,4 +1,5 @@
 import { temperatureState, type TyreInfo } from "./tyres.ts";
+import { putAttr, putData, putStyle, putText } from "./hud-dom.ts";
 
 interface PartDamage {
   wingLeft: number;
@@ -177,6 +178,7 @@ export class Mfd {
   private readonly car: SVGSVGElement;
   private readonly engineTemp: HTMLElement;
   private page: Page = "quick";
+  private readonly parts = new Map<string, Element>();
 
   constructor(
     private readonly root: HTMLElement,
@@ -191,13 +193,13 @@ export class Mfd {
       slot.className = `mfd-corner ${corner.id} ${corner.left ? "left" : "right"}`;
       const temps = document.createElement("div");
       temps.className = "corner-temps";
-      temps.dataset["for"] = "temps";
+      putData(temps, "for", "temps");
       const surface = reading(temps, "surface");
       const inner = reading(temps, "inner");
       const brake = reading(temps, "brake");
       const wearBox = document.createElement("div");
       wearBox.className = "corner-wear";
-      wearBox.dataset["for"] = "wear";
+      putData(wearBox, "for", "wear");
       slot.append(temps, wearBox);
       gauges.append(slot);
       const shape = this.car.querySelector(`[data-part="${corner.id}"]`);
@@ -227,7 +229,7 @@ export class Mfd {
 
   private setPage(page: Page): void {
     this.page = page;
-    this.root.dataset["page"] = page;
+    putData(this.root, "page", page);
     this.root.querySelector("[data-hud=mfd-dots]")?.replaceChildren(
       ...pages.map((p) => {
         const bar = document.createElement("b");
@@ -250,14 +252,14 @@ export class Mfd {
     const inner = temperatureState(data.carcass, tyres.low, tyres.high);
     const brake = status.brakes[wheel] ?? 0;
     const paint = (node: HTMLElement, value: number, state: string) => {
-      node.textContent = `${String(Math.round(value))}°C`;
-      if (node.parentElement) node.parentElement.dataset["state"] = state;
+      putText(node, `${String(Math.round(value))}°C`);
+      if (node.parentElement) putData(node.parentElement, "state", state);
     };
     paint(view.surface, data.surface, surface);
     paint(view.inner, data.carcass, inner);
     paint(view.brake, brake, brakeState(brake));
     this.updateRing(view, wheel, data.wear, data.pressure, surface);
-    view.tyre.setAttribute("data-edge", inner);
+    putAttr(view.tyre, "data-edge", inner);
   }
 
   private updateRing(
@@ -271,18 +273,28 @@ export class Mfd {
     const target = wheel < 2 ? frontTarget : rearTarget;
     const offTarget = Math.min(1, Math.abs(pressure - target) / pressureSpan);
     const ring = isPressure ? pressureState(offTarget) : wearColour(wear);
-    view.wear.textContent = isPressure
-      ? pressure.toFixed(1)
-      : `${String(Math.round(wear * 100))}%`;
-    view.pressure.textContent = isPressure ? "psi" : "";
-    view.arc.style.strokeDashoffset = String(
-      100 - (isPressure ? offTarget : wear) * 100,
+    putText(
+      view.wear,
+      isPressure ? pressure.toFixed(1) : `${String(Math.round(wear * 100))}%`,
     );
-    view.arc.parentElement?.parentElement?.setAttribute("data-state", ring);
-    view.tyre.setAttribute(
-      "data-state",
-      this.page === "temps" ? surface : ring,
+    putText(view.pressure, isPressure ? "psi" : "");
+    putStyle(
+      view.arc,
+      "stroke-dashoffset",
+      String(100 - (isPressure ? offTarget : wear) * 100),
     );
+    const ringRoot = view.arc.parentElement?.parentElement;
+    if (ringRoot) putAttr(ringRoot, "data-state", ring);
+    putAttr(view.tyre, "data-state", this.page === "temps" ? surface : ring);
+  }
+
+  private partNode(part: string): Element {
+    let node = this.parts.get(part);
+    if (!node) {
+      node = this.car.querySelector(`[data-part="${part}"]`) ?? this.car;
+      this.parts.set(part, node);
+    }
+    return node;
   }
 
   private updateCar(status: CarStatus): void {
@@ -298,9 +310,7 @@ export class Mfd {
       engine: engineState(status.engineTemp),
     };
     for (const [part, state] of Object.entries(parts))
-      this.car
-        .querySelector(`[data-part="${part}"]`)
-        ?.setAttribute("data-state", state);
-    this.engineTemp.textContent = `${String(Math.round(status.engineTemp))}°C`;
+      putAttr(this.partNode(part), "data-state", state);
+    putText(this.engineTemp, `${String(Math.round(status.engineTemp))}°C`);
   }
 }

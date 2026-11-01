@@ -1,26 +1,34 @@
 import * as THREE from "three/webgpu";
 import {
   Fn,
+  If,
   abs,
+  cos,
   exp,
   float,
   floor,
   fract,
+  interleavedGradientNoise,
   mix,
   mx_cell_noise_float,
   mx_fractal_noise_float,
   output,
   positionWorld,
+  renderGroup,
   renderOutput,
+  screenCoordinate,
+  sin,
   smoothstep,
   step,
   materialColor,
   texture,
   uniform,
   uv,
+  vec2,
   vec3,
 } from "three/tsl";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { flatNoise } from "./flat-noise.ts";
 import type { SkyState } from "./sky.ts";
 
 const asphaltAlbedo = 5;
@@ -90,6 +98,14 @@ const tyreSizes = [
 const tyreShadowSoftness = 0.03;
 const tyreReach = 0.26;
 const tyreStrength = 0.88;
+const contactRange = 6;
+const goldenAngle = 2.399963229728653;
+const shadowTaps = [0, 1, 2, 3, 4].map((i) => {
+  const reach = Math.sqrt((i + 0.5) / 5);
+  const angle = i * goldenAngle;
+  return [Math.cos(angle) * reach, Math.sin(angle) * reach] as const;
+});
+const tyreHubMargin = 0.5;
 const groundMaterials =
   /(asphalt|road paint|road kerb|road runoff|road grass|pit strip|pit red|terrain)$/;
 const blendedMaterials = new Set(["cota track marks"]);
@@ -129,8 +145,24 @@ function sharpen(map: THREE.Texture | null, anisotropy: number): void {
   map.needsUpdate = true;
 }
 
-const contactCentre = uniform(new THREE.Vector2());
-const contactForward = uniform(new THREE.Vector2(1, 0));
+class DirectLighting extends THREE.PhysicalLightingModel {
+  override indirectSpecular(): void {
+    return;
+  }
+
+  override ambientOcclusion(): void {
+    return;
+  }
+}
+
+class RoadMaterial extends THREE.MeshStandardNodeMaterial {
+  override setupLightingModel(): THREE.PhysicalLightingModel {
+    return new DirectLighting();
+  }
+}
+
+const contactCentre = uniform(new THREE.Vector2()).setGroup(renderGroup);
+const contactForward = uniform(new THREE.Vector2(1, 0)).setGroup(renderGroup);
 
 export function setCarContact(x: number, y: number, fx: number, fy: number) {
   contactCentre.value.set(x, y);
@@ -139,72 +171,101 @@ export function setCarContact(x: number, y: number, fx: number, fy: number) {
 
 const contactShade = Fn(() => {
   const offset = positionWorld.xy.sub(contactCentre);
-  const along = offset.dot(contactForward);
-  const across = offset.y
-    .mul(contactForward.x)
-    .sub(offset.x.mul(contactForward.y));
-  const box = (x: number, y: number, hx: number, hy: number) => {
-    const dx = along.sub(x).abs().sub(hx).max(0);
-    const dy = across.sub(y).abs().sub(hy).max(0);
-    return dx.mul(dx).add(dy.mul(dy)).sqrt();
-  };
-  const fade = (distance: ReturnType<typeof box>, reach: number) =>
-    float(1).sub(smoothstep(0, reach, distance));
-  let shade = float(1).sub(
-    fade(
-      box(bodyContact.x, 0, bodyContact.hx, bodyContact.hy),
-      bodyContact.reach,
-    ).mul(bodyContact.strength),
-  );
-  for (const [x, y, hx, hy] of tyreContacts)
-    shade = shade.mul(
-      float(1).sub(fade(box(x, y, hx, hy), tyreReach).mul(tyreStrength)),
+  const result = float(1).toVar();
+  If(offset.dot(offset).lessThan(contactRange * contactRange), () => {
+    const along = offset.dot(contactForward);
+    const across = offset.y
+      .mul(contactForward.x)
+      .sub(offset.x.mul(contactForward.y));
+    const box = (x: number, y: number, hx: number, hy: number) => {
+      const dx = along.sub(x).abs().sub(hx).max(0);
+      const dy = across.sub(y).abs().sub(hy).max(0);
+      return dx.mul(dx).add(dy.mul(dy)).sqrt();
+    };
+    const fade = (distance: ReturnType<typeof box>, reach: number) =>
+      float(1).sub(smoothstep(0, reach, distance));
+    let shade = float(1).sub(
+      fade(
+        box(bodyContact.x, 0, bodyContact.hx, bodyContact.hy),
+        bodyContact.reach,
+      ).mul(bodyContact.strength),
     );
-  return shade;
+    for (const [x, y, hx, hy] of tyreContacts)
+      shade = shade.mul(
+        float(1).sub(fade(box(x, y, hx, hy), tyreReach).mul(tyreStrength)),
+      );
+    result.assign(shade);
+  });
+  return result;
 });
 
-const sunDirection = uniform(new THREE.Vector3(0, 0, 1));
-const tyresPresent = uniform(0);
+const sunDirection = uniform(new THREE.Vector3(0, 0, 1)).setGroup(renderGroup);
+const tyresPresent = uniform(0).setGroup(renderGroup);
 const tyres = tyreSizes.map(() => ({
-  centre: uniform(new THREE.Vector3()),
-  axis: uniform(new THREE.Vector3(0, 1, 0)),
+  centre: uniform(new THREE.Vector3()).setGroup(renderGroup),
+  axis: uniform(new THREE.Vector3(0, 1, 0)).setGroup(renderGroup),
 }));
+const tyreHub = uniform(new THREE.Vector3()).setGroup(renderGroup);
+const tyreHubReach = uniform(0).setGroup(renderGroup);
+const hubPoint = new THREE.Vector3();
 
 export function setTyreShadows(
   present: boolean,
   wheels: { centre: THREE.Vector3; axis: THREE.Vector3 }[],
 ): void {
   tyresPresent.value = present ? 1 : 0;
+  hubPoint.set(0, 0, 0);
   wheels.forEach((wheel, i) => {
     tyres[i]?.centre.value.copy(wheel.centre);
     tyres[i]?.axis.value.copy(wheel.axis);
+    hubPoint.add(wheel.centre);
   });
+  hubPoint.divideScalar(wheels.length);
+  tyreHub.value.copy(hubPoint);
+  let reach = 0;
+  wheels.forEach((wheel, i) => {
+    const [radius, halfWidth] = tyreSizes[i] ?? [0, 0];
+    reach = Math.max(
+      reach,
+      wheel.centre.distanceTo(hubPoint) + Math.hypot(radius, halfWidth),
+    );
+  });
+  tyreHubReach.value = reach * reach + tyreHubMargin;
 }
 
 const tyreSunlight = Fn(() => {
-  const open = tyres.map((tyre, i) => {
-    const [radius, halfWidth] = tyreSizes[i] ?? [0, 0];
-    const offset = positionWorld.sub(tyre.centre);
-    const across = offset.dot(tyre.axis);
-    const sunAcross = sunDirection.dot(tyre.axis);
-    const radial = offset.sub(tyre.axis.mul(across));
-    const sunRadial = sunDirection.sub(tyre.axis.mul(sunAcross));
-    const a = sunRadial.dot(sunRadial).max(1e-4);
-    const b = radial.dot(sunRadial);
-    const c = radial.dot(radial).sub(radius * radius);
-    const root = b.mul(b).sub(a.mul(c)).max(0).sqrt();
-    const safeAcross = sunAcross
-      .abs()
-      .max(1e-4)
-      .mul(step(0, sunAcross).mul(2).sub(1));
-    const enter = float(-halfWidth).sub(across).div(safeAcross);
-    const leave = float(halfWidth).sub(across).div(safeAcross);
-    const from = b.negate().sub(root).div(a).max(enter.min(leave)).max(0);
-    const to = b.negate().add(root).div(a).min(enter.max(leave));
-    const blocked = smoothstep(0, tyreShadowSoftness, to.sub(from));
-    return float(1).sub(blocked.mul(tyresPresent));
-  });
-  return open.reduce((all, one) => all.mul(one));
+  const fromHub = positionWorld.sub(tyreHub);
+  const towardSun = fromHub.dot(sunDirection);
+  const result = float(1).toVar();
+  If(
+    fromHub.dot(fromHub).sub(towardSun.mul(towardSun)).lessThan(tyreHubReach),
+    () => {
+      const open = tyres.map((tyre, i) => {
+        const [radius, halfWidth] = tyreSizes[i] ?? [0, 0];
+        const offset = positionWorld.sub(tyre.centre);
+        const across = offset.dot(tyre.axis);
+        const sunAcross = sunDirection.dot(tyre.axis);
+        const radial = offset.sub(tyre.axis.mul(across));
+        const sunRadial = sunDirection.sub(tyre.axis.mul(sunAcross));
+        const a = sunRadial.dot(sunRadial).max(1e-4);
+        const b = radial.dot(sunRadial);
+        const c = radial.dot(radial).sub(radius * radius);
+        const root = b.mul(b).sub(a.mul(c)).max(0).sqrt();
+        const safeAcross = sunAcross
+          .abs()
+          .max(1e-4)
+          .mul(step(0, sunAcross).mul(2).sub(1));
+        const enter = float(-halfWidth).sub(across).div(safeAcross);
+        const leave = float(halfWidth).sub(across).div(safeAcross);
+        const from = b.negate().sub(root).div(a).max(enter.min(leave)).max(0);
+        const to = b.negate().add(root).div(a).min(enter.max(leave));
+        const blocked = smoothstep(0, tyreShadowSoftness, to.sub(from));
+        return float(1).sub(blocked.mul(tyresPresent));
+      });
+      result.assign(open.reduce((all, one) => all.mul(one)));
+    },
+  );
+  return result;
 });
 
 const withTyreSunlight = ((shadow: ReturnType<typeof tyreSunlight>) =>
@@ -216,9 +277,7 @@ function shadeAsphalt(
 ): void {
   if (!source.map) return;
   const macro = float(1).add(
-    mx_fractal_noise_float(positionWorld.xy.mul(macroScale), 3).mul(
-      macroStrength,
-    ),
+    flatNoise(positionWorld.xy.mul(macroScale), 3).mul(macroStrength),
   );
   const line = uv(1);
   const band = exp(line.x.div(rubberWidth).pow(2).negate()).mul(line.y);
@@ -248,10 +307,10 @@ function shadeGrass(
   const verge = source.name.endsWith("grass");
   const ground = positionWorld.xy;
   const macro = float(1).add(
-    mx_fractal_noise_float(ground.mul(macroScale), 3).mul(grassMacro),
+    flatNoise(ground.mul(macroScale), 3).mul(grassMacro),
   );
   const clumps = float(1).add(
-    mx_fractal_noise_float(ground.mul(clumpScale), 2).mul(clumpStrength),
+    flatNoise(ground.mul(clumpScale), 2).mul(clumpStrength),
   );
   const stripe = verge
     ? float(1).add(
@@ -263,7 +322,7 @@ function shadeGrass(
   const patches = smoothstep(
     0.0,
     0.55,
-    mx_fractal_noise_float(ground.mul(patchScale), 3),
+    flatNoise(ground.mul(patchScale), 3),
   ).mul(verge ? vergeDryness : hillDryness);
   const green = texture(source.map, uv()).rgb.mul(grassTint);
   const straw = vec3(green.dot(vec3(0.3, 0.59, 0.11))).mul(strawTint);
@@ -306,7 +365,7 @@ export function surface(
   if (source.name === "cota crowd") return crowdMaterial();
   if (source.name === "cota start lamps") return startLampMaterial();
   const offset = depthOffsets[source.name] ?? 0;
-  const material = new THREE.MeshStandardNodeMaterial({
+  const material = new RoadMaterial({
     name: source.name,
     map: source.map,
     normalMap: source.normalMap,
@@ -350,7 +409,42 @@ export async function loadRoad(
   return gltf.scene;
 }
 
-const startLightsLit = uniform(0);
+function releaseGeometry(mesh: THREE.Mesh, kept: Set<unknown>): void {
+  if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
+  if (mesh instanceof THREE.InstancedMesh) mesh.computeBoundingSphere();
+  const attributes = [
+    ...Object.values(mesh.geometry.attributes),
+    mesh.geometry.index,
+    mesh instanceof THREE.InstancedMesh ? mesh.instanceMatrix : null,
+  ];
+  for (const attribute of attributes)
+    if (attribute instanceof THREE.BufferAttribute && !kept.has(attribute))
+      attribute.array = attribute.array.slice(0, 0);
+}
+
+function releaseImage(map: THREE.Texture | null): void {
+  const image: unknown = map?.source.data;
+  if (!map || !(image instanceof ImageBitmap)) return;
+  map.source.data = { width: image.width, height: image.height };
+  image.close();
+}
+
+export function releaseCpuCopies(
+  root: THREE.Object3D,
+  kept: Set<unknown>,
+): void {
+  root.traverse((object) => {
+    if (!(object instanceof THREE.Mesh)) return;
+    releaseGeometry(object as THREE.Mesh, kept);
+    const material = object.material as THREE.MeshStandardMaterial;
+    releaseImage(material.map);
+    releaseImage(material.normalMap);
+    releaseImage(material.roughnessMap);
+    releaseImage(material.emissiveMap);
+  });
+}
+
+const startLightsLit = uniform(0).setGroup(renderGroup);
 
 export function setStartLights(raceTime: number): void {
   startLightsLit.value =
@@ -363,7 +457,7 @@ export function setStartLights(raceTime: number): void {
 }
 
 function startLampMaterial(): THREE.MeshStandardNodeMaterial {
-  const material = new THREE.MeshStandardNodeMaterial({
+  const material = new RoadMaterial({
     roughness: 0.3,
     color: new THREE.Color(0.04, 0.01, 0.01),
     side: THREE.DoubleSide,
@@ -376,7 +470,7 @@ function startLampMaterial(): THREE.MeshStandardNodeMaterial {
 }
 
 function crowdMaterial(): THREE.MeshStandardNodeMaterial {
-  const material = new THREE.MeshStandardNodeMaterial({ roughness: 0.9 });
+  const material = new RoadMaterial({ roughness: 0.9 });
   material.colorNode = Fn(() => {
     const seat = positionWorld.mul(vec3(crowdSpacing, crowdSpacing, crowdRow));
     const cell = floor(seat);
@@ -398,6 +492,35 @@ function crowdMaterial(): THREE.MeshStandardNodeMaterial {
   return material;
 }
 
+const rotatedShadowFilter = Fn(
+  ({
+    depthTexture,
+    shadowCoord,
+  }: {
+    depthTexture: THREE.DepthTexture;
+    shadowCoord: THREE.Node<"vec3">;
+  }) => {
+    const phi = interleavedGradientNoise(screenCoordinate.xy)
+      .mul(6.28318530718)
+      .toVar();
+    const c = cos(phi).toVar();
+    const s = sin(phi).toVar();
+    const tap = ([x, y]: readonly [number, number]) =>
+      texture(
+        depthTexture,
+        shadowCoord.xy.add(
+          vec2(c.mul(x).sub(s.mul(y)), s.mul(x).add(c.mul(y))).mul(
+            shadowSoftness / shadowPixels,
+          ),
+        ),
+      ).compare(shadowCoord.z) as unknown as THREE.Node<"float">;
+    return shadowTaps
+      .map(tap)
+      .reduce((sum, one) => sum.add(one))
+      .mul(1 / 5);
+  },
+);
+
 export class Sunlight {
   readonly sun = new THREE.DirectionalLight(0xffffff, sunIntensity);
   readonly sky = new THREE.HemisphereLight(0xffffff, groundColor, skyIntensity);
@@ -417,6 +540,10 @@ export class Sunlight {
     this.sun.shadow.bias = -0.00006;
     this.sun.shadow.normalBias = 0.02;
     this.sun.shadow.radius = shadowSoftness;
+    Object.assign(this.sun.shadow, {
+      filterNode: rotatedShadowFilter,
+      discardColorBuffer: true,
+    });
     scene.add(this.sun, this.sun.target, this.sky);
   }
 

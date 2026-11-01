@@ -10,9 +10,11 @@ import {
 } from "three/tsl";
 import {
   cornerMask,
-  cues,
+  emptyPlan,
   layTiles,
+  planCues,
   wrap,
+  type Cue,
   type RacingLineData,
   type RacingLineMode,
   type SpeedProfile,
@@ -27,6 +29,7 @@ const opacity = 0.78;
 const behind = 4;
 const fadeStart = 450;
 const fadeEnd = 750;
+const planReach = fadeEnd + 150;
 const strongBrake = 22;
 const green = new THREE.Color("#4fb85a");
 const yellow = new THREE.Color("#f2c230");
@@ -39,12 +42,16 @@ export class RacingLineView {
   private readonly tint: THREE.InstancedBufferAttribute;
   private readonly visible: boolean[];
   private readonly colour = new THREE.Color();
+  private readonly plan: Cue[];
+  private readonly shown: boolean;
 
   constructor(
     private readonly data: RacingLineData,
     private readonly profile: SpeedProfile,
     mode: RacingLineMode,
   ) {
+    this.plan = emptyPlan(profile.speed.length);
+    this.shown = mode !== "off";
     const corners = cornerMask(data, profile);
     this.tiles = layTiles(data, corners);
     this.visible = this.tiles.map((t) => mode === "full" || !!corners[t.index]);
@@ -99,14 +106,19 @@ export class RacingLineView {
   }
 
   update(carDistance: number, carSpeed: number): void {
+    if (!this.shown) return;
     const length = this.data.length;
-    const plan = cues(this.profile, length, carDistance, carSpeed);
+    planCues(this.plan, this.profile, length, carDistance, carSpeed, planReach);
     const array = this.tint.array as Float32Array;
     this.tiles.forEach((tile, i) => {
       const ahead = wrap(tile.distance - carDistance + behind, length) - behind;
-      const cue = plan[tile.index];
+      if (ahead <= 0 || ahead >= fadeEnd) {
+        array[i * 4 + 3] = 0;
+        return;
+      }
+      const cue = this.plan[tile.index];
       const fade = 1 - THREE.MathUtils.smoothstep(ahead, fadeStart, fadeEnd);
-      const alpha = this.visible[i] && cue && ahead > 0 ? opacity * fade : 0;
+      const alpha = this.visible[i] && cue ? opacity * fade : 0;
       if (!cue || cue.kind === "accelerate") this.colour.copy(green);
       else if (cue.kind === "lift") this.colour.copy(yellow);
       else

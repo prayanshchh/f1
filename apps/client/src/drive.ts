@@ -173,7 +173,9 @@ function fitStage(): void {
 function drawer(renderer: THREE.WebGPURenderer, scene: Scene): () => void {
   const atmosphere = new Atmosphere(renderer, scene.scene, scene.camera);
   return () => {
+    scene.commitMoves();
     scene.renderAuxiliary(renderer);
+    scene.hideUnseenCrew();
     atmosphere.update(scene.atmosphere);
     atmosphere.render();
   };
@@ -259,7 +261,12 @@ async function main(): Promise<void> {
   if (!("gpu" in navigator))
     throw new Error("This page needs WebGPU (Chrome 113 or newer).");
 
-  const renderer = new THREE.WebGPURenderer({ canvas, antialias: true });
+  const renderer = new THREE.WebGPURenderer({
+    canvas,
+    antialias: true,
+    depth: false,
+    alpha: false,
+  });
   renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
   renderer.toneMapping = THREE.NoToneMapping;
   renderer.shadowMap.enabled = true;
@@ -316,7 +323,9 @@ async function main(): Promise<void> {
   const sound = await GameSound.start();
   hudRoot.hidden = false;
 
+  let frameStale = true;
   const resize = () => {
+    frameStale = true;
     const width = canvas.clientWidth;
     const height = canvas.clientHeight;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -479,8 +488,13 @@ async function main(): Promise<void> {
       }, 1500);
     }
   };
+  step(performance.now() / 1000);
+  scene.warmUp(draw);
   void renderer.setAnimationLoop(() => {
-    if (!paused && !finished) step(performance.now() / 1000);
+    const running = !paused && !finished;
+    if (running) step(performance.now() / 1000);
+    if (!running && !frameStale) return;
+    frameStale = false;
     canvas.style.transform = scene.mirrored ? "scaleX(-1)" : "";
     draw();
   });

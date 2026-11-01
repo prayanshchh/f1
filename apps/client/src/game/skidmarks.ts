@@ -39,8 +39,6 @@ export class SkidMarks {
       new Float32Array(capacity * 6),
       1,
     );
-    this.positions.setUsage(THREE.DynamicDrawUsage);
-    this.strengths.setUsage(THREE.DynamicDrawUsage);
     geometry.setAttribute("position", this.positions);
     geometry.setAttribute("strength", this.strengths);
     geometry.setDrawRange(0, 0);

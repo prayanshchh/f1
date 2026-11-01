@@ -15,6 +15,7 @@ import { SdAssets } from "./game/models.ts";
 import { PadLink } from "./game/pad.ts";
 import { Atmosphere } from "./game/atmosphere.ts";
 import { Scene } from "./game/scene.ts";
+import { GameSound } from "./game/sound/game-sound.ts";
 import {
   applySettings,
   carOf,
@@ -228,6 +229,7 @@ async function main(): Promise<void> {
     map: trackMap(engine),
   });
   const pad = padLink();
+  const sound = await GameSound.start();
   hudRoot.hidden = false;
 
   const resize = () => {
@@ -246,10 +248,12 @@ async function main(): Promise<void> {
   const pause = () => {
     if (paused || finished) return;
     paused = true;
+    sound.mute(true);
     void menu.run(true).then((action) => {
       if (action === "resume") {
         hud.setParts(settings.hud);
         paused = false;
+        sound.mute(false);
         return;
       }
       restart(true);
@@ -292,6 +296,7 @@ async function main(): Promise<void> {
       frame[frameIndex.gear] ?? 0,
     );
     scene.update(frame);
+    sound.update(engine.carAudio(frame));
     hud.update(frame, engine.hudInfo(), now);
     const bestTime = trace.bestTime ?? Infinity;
     if (bestTime < savedBest) {
@@ -303,6 +308,7 @@ async function main(): Promise<void> {
     }
     if (totalLaps !== null && (frame[frameIndex.laps] ?? 0) > totalLaps) {
       finished = true;
+      sound.mute(true);
       window.setTimeout(() => {
         showResults(
           hud,

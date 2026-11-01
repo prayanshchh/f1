@@ -10,6 +10,8 @@ const deadZone = 0.03;
 const curve = 1.3;
 const gravityTime = 0.04;
 const minGravity = 3;
+const vibrateFrom = 0.15;
+const vibratePulse = 60;
 const riseTime: Record<Pedal, number> = { gas: 1.2, brake: 0.8 };
 const fallTime: Record<Pedal, number> = { gas: 0.2, brake: 0.15 };
 
@@ -52,6 +54,11 @@ function savedSensitivity(): number {
     saved < sensitivities.length
     ? saved
     : defaultSensitivity;
+}
+
+function pulse(rumble: number): void {
+  if ("vibrate" in navigator && rumble > vibrateFrom)
+    navigator.vibrate(vibratePulse);
 }
 
 function isPortrait(): boolean {
@@ -213,6 +220,7 @@ class Pad {
       !("gear" in message)
     )
       return;
+    if ("rumble" in message) pulse(Number(message.rumble));
     const gear = Number(message.gear);
     element("speed").textContent = String(Math.round(Number(message.speed)));
     element("gear").textContent =

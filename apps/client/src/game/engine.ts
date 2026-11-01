@@ -30,6 +30,14 @@ export const frameIndex = {
   size: 88,
 } as const;
 
+const telemetrySize = 40;
+const telemetryWheels = 8;
+
+export interface WheelGrip {
+  slip: number;
+  load: number;
+}
+
 export interface HudInfo {
   fuel: number;
   tank: number;
@@ -83,9 +91,11 @@ export class Engine {
     track: string,
     car: string,
     assist: boolean,
+    antiLock: boolean,
     now: number,
   ): Engine {
     module._sdInputAssist(assist ? 1 : 0);
+    module._sdInputAntiLock(antiLock ? 1 : 0);
     const init = module.cwrap("sdInit", "number", [
       "string",
       "string",
@@ -108,6 +118,18 @@ export class Engine {
     return new Engine(module);
   }
 
+  speedLimit(metresPerSecond: number): void {
+    this.module._sdInputSpeedLimit(metresPerSecond);
+  }
+
+  pitHold(on: boolean): void {
+    this.module._sdInputPitHold(on ? 1 : 0);
+  }
+
+  pitService(fuel: number): void {
+    this.module._sdPitService(fuel);
+  }
+
   viewKey(code: number, ctrl: boolean): boolean {
     return this.module._sdViewKey(code, ctrl ? 1 : 0) !== 0;
   }
@@ -118,7 +140,9 @@ export class Engine {
 
   analog(
     input: { steer: number; throttle: number; brake: number } | null,
+    direct = false,
   ): void {
+    this.module._sdInputSteerDirect(direct ? 1 : 0);
     if (input)
       this.module._sdInputAnalog(1, input.steer, input.throttle, input.brake);
     else this.module._sdInputAnalog(0, 0, 0, 0);
@@ -165,6 +189,16 @@ export class Engine {
       worldY: at(8) - at(5) + 1,
       worldZ: at(9) - at(6) + 1,
     };
+  }
+
+  wheelGrip(): WheelGrip[] {
+    const v = this.doubles(telemetrySize, (p) => {
+      this.module._sdTelemetry(p);
+    });
+    return [0, 1, 2, 3].map((i) => {
+      const at = (k: number) => v[telemetryWheels + i * 6 + k] ?? 0;
+      return { slip: Math.hypot(at(0), at(1)), load: at(4) };
+    });
   }
 
   carAudio(frame: Float64Array): CarAudio {

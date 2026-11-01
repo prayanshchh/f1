@@ -45,14 +45,14 @@ export class PadLink {
     return now - this.receivedAt < staleAfter ? this.input : null;
   }
 
-  feedback(now: number, speed: number, gear: number): void {
+  feedback(now: number, speed: number, gear: number, rumble: number): void {
     if (
       now - this.sentAt < feedbackInterval ||
       this.socket?.readyState !== WebSocket.OPEN
     )
       return;
     this.sentAt = now;
-    this.socket.send(JSON.stringify({ speed, gear }));
+    this.socket.send(JSON.stringify({ speed, gear, rumble }));
   }
 
   private connect(): void {

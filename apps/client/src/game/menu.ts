@@ -323,6 +323,8 @@ export class Menu {
             racingLine: defaults.racingLine,
             autoReverse: defaults.autoReverse,
             assist: defaults.assist,
+            antiLock: defaults.antiLock,
+            pitExperience: defaults.pitExperience,
             abs: defaults.abs,
             tc: defaults.tc,
             steerSensitivity: defaults.steerSensitivity,
@@ -810,9 +812,18 @@ export class Menu {
           s.autoReverse = v;
         },
       ),
+      this.choice(
+        "Pit Stop Experience",
+        "Immersive tests your timing: press Space, or the brake on your phone, as the turn-in countdown reaches zero. Broadcast turns in for you with a perfect stop.",
+        choices.pitExperience,
+        () => s.pitExperience,
+        (id) => {
+          s.pitExperience = id as Settings["pitExperience"];
+        },
+      ),
       this.toggle(
         "Steering Assist",
-        "Smooths keyboard and phone steering and adds its own traction control and ABS. Turn it off to use Speed Dreams' own ABS, traction control and steering sensitivity.",
+        "Smooths keyboard and phone steering and adds its own traction control. Turn it off to use Speed Dreams' own ABS, traction control and steering sensitivity.",
         () => s.assist,
         (v) => {
           s.assist = v;
@@ -820,7 +831,19 @@ export class Menu {
         true,
       ),
     ];
-    if (s.assist) return rows;
+    if (s.assist) {
+      rows.push(
+        this.toggle(
+          "Anti-Lock Brakes",
+          "Off: braking hard in a straight line can lock the wheels, as on a real F1 car, but the brakes ease off for you as soon as you steer so the car still turns. On: the wheels never lock.",
+          () => s.antiLock,
+          (v) => {
+            s.antiLock = v;
+          },
+        ),
+      );
+      return rows;
+    }
     const slider = (
       label: string,
       info: string,

@@ -81,6 +81,10 @@ export const choices = {
     { id: "semi-pro", label: "Semi-pro" },
     { id: "pro", label: "Pro" },
   ],
+  pitExperience: [
+    { id: "immersive", label: "Immersive" },
+    { id: "broadcast", label: "Broadcast" },
+  ],
   racingLine: [
     { id: "full", label: "Full" },
     { id: "corners", label: "Corners Only" },
@@ -110,6 +114,8 @@ export interface Settings {
   racingLine: ChoiceId<"racingLine">;
   autoReverse: boolean;
   assist: boolean;
+  antiLock: boolean;
+  pitExperience: ChoiceId<"pitExperience">;
   abs: boolean;
   tc: boolean;
   steerSensitivity: number;
@@ -149,6 +155,8 @@ export const defaults: Settings = {
   racingLine: "full",
   autoReverse: true,
   assist: true,
+  antiLock: false,
+  pitExperience: "immersive",
   abs: true,
   tc: true,
   steerSensitivity: 0.6,

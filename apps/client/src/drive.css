@@ -2292,3 +2292,135 @@ kbd,
     transform: translateX(280px);
   }
 }
+
+.pit-banner {
+  left: 50%;
+  top: calc(40px * var(--s));
+  translate: -50% 0;
+  transform-origin: 50% 0;
+  display: flex;
+  align-items: stretch;
+  height: 66px;
+  background: rgb(14 17 26 / 90%);
+  color: #fff;
+}
+
+.pit-banner b {
+  display: grid;
+  place-items: center;
+  width: 84px;
+  background: #1fa64a;
+  font-size: 30px;
+}
+
+.pit-banner[data-over="true"] b {
+  background: #e10600;
+}
+
+.pit-banner div {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 300px;
+  padding: 0 18px;
+  font-size: 18px;
+}
+
+.pit-banner i {
+  font-style: normal;
+  font-weight: 700;
+}
+
+.pit-banner small {
+  color: #b9c0cf;
+  font-size: 14px;
+}
+
+.pit-panel {
+  left: 50%;
+  top: calc(116px * var(--s));
+  translate: -50% 0;
+  transform-origin: 50% 0;
+  width: 400px;
+  background: rgb(10 13 20 / 92%);
+  color: #fff;
+}
+
+.pit-panel header {
+  padding: 6px;
+  color: #35d6e8;
+  font-size: 18px;
+  font-weight: 700;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.pit-panel div {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+.pit-panel span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 10px;
+  border-right: 1px solid rgb(255 255 255 / 18%);
+}
+
+.pit-panel small {
+  font-size: 16px;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.pit-panel b {
+  font-size: 28px;
+}
+
+.pit-turn {
+  left: 50%;
+  top: 36%;
+  translate: -50% 0;
+  transform-origin: 50% 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px 36px;
+  background: radial-gradient(
+    closest-side,
+    rgb(8 40 60 / 85%),
+    rgb(8 40 60 / 0%)
+  );
+  color: #fff;
+}
+
+.pit-turn small {
+  font-size: 20px;
+  text-transform: uppercase;
+}
+
+.pit-turn b {
+  color: #35d6e8;
+  font-size: 44px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pit-turn em {
+  font-size: 16px;
+  font-style: normal;
+}
+
+.pit-turn[data-grade="optimal"] b {
+  color: #c77dff;
+}
+
+.pit-turn[data-grade="good"] b {
+  color: #39d353;
+}
+
+.pit-turn[data-grade="early"] b,
+.pit-turn[data-grade="late"] b {
+  color: #f2c230;
+}

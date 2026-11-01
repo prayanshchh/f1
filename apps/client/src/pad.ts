@@ -10,6 +10,8 @@ const deadZone = 0.03;
 const curve = 1.3;
 const gravityTime = 0.04;
 const minGravity = 3;
+const vibrateFrom = 0.15;
+const vibratePulse = 60;
 const riseTime: Record<Pedal, number> = { gas: 1.2, brake: 0.8 };
 const fallTime: Record<Pedal, number> = { gas: 0.2, brake: 0.15 };
 
@@ -52,6 +54,11 @@ function savedSensitivity(): number {
     saved < sensitivities.length
     ? saved
     : defaultSensitivity;
+}
+
+function pulse(rumble: number): void {
+  if ("vibrate" in navigator && rumble > vibrateFrom)
+    navigator.vibrate(vibratePulse);
 }
 
 function isPortrait(): boolean {
@@ -215,6 +222,13 @@ class Pad {
     element("link").textContent = on ? "Live" : "Reconnecting";
   }
 
+  private showEnergy(message: object): void {
+    if (!("battery" in message && "mode" in message)) return;
+    element("batt").textContent =
+      `Batt ${String(Math.round(Number(message.battery) * 100))}%`;
+    element("ers-mode").textContent = String(message.mode);
+  }
+
   private onFeedback(data: unknown): void {
     if (typeof data !== "string") return;
     const message: unknown = JSON.parse(data);
@@ -225,11 +239,8 @@ class Pad {
       !("gear" in message)
     )
       return;
-    if ("battery" in message && "mode" in message) {
-      element("batt").textContent =
-        `Batt ${String(Math.round(Number(message.battery) * 100))}%`;
-      element("ers-mode").textContent = String(message.mode);
-    }
+    this.showEnergy(message);
+    if ("rumble" in message) pulse(Number(message.rumble));
     const gear = Number(message.gear);
     element("speed").textContent = String(Math.round(Number(message.speed)));
     element("gear").textContent =

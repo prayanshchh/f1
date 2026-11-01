@@ -247,6 +247,11 @@ void sdTyresReset(tCarElt *car)
     fit(startCompound, 0, 0);
 }
 
+void sdTyresService()
+{
+    fit(fitted, 0, 0);
+}
+
 void sdTyresStep(tCarElt *elt, double dt)
 {
     if (elt->_laps != lastLap)

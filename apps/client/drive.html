@@ -91,6 +91,27 @@
         <circle class="map-car" r="7" data-hud="map-car" />
       </svg>
 
+      <section class="pit-banner" data-hud="pit-banner" hidden>
+        <b data-hud="pit-limit">80</b>
+        <div>
+          <span>Current speed - <i data-hud="pit-speed">0</i> KPH</span>
+          <small data-hud="pit-distance"></small>
+        </div>
+      </section>
+      <section class="pit-panel" data-hud="pit-panel" hidden>
+        <header>Pit Lane</header>
+        <div>
+          <span><small>Pit</small><b data-hud="pit-time">0.0</b></span>
+          <span
+            ><small>Stop<br />Time</small><b data-hud="pit-stop">-.-</b></span
+          >
+        </div>
+      </section>
+      <section class="pit-turn" data-hud="pit-turn" hidden>
+        <small>Turn-In</small>
+        <b data-hud="pit-turn-value">0.0</b>
+        <em data-hud="pit-turn-hint"></em>
+      </section>
       <section class="dash" data-hud="dash">
         <div class="dash-glass"></div>
         <svg class="ring ring-left" viewBox="0 0 140 140" aria-hidden="true">

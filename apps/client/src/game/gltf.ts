@@ -1,10 +1,11 @@
 import * as THREE from "three/webgpu";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { float, smoothstep, uv, vec3 } from "three/tsl";
 import { frameIndex } from "./engine.ts";
 import type { SdLighting } from "./materials.ts";
 import { compounds } from "./tyres.ts";
 
-const gltfToSdWorld = new THREE.Matrix4().set(
+export const gltfToSdWorld = new THREE.Matrix4().set(
   1,
   0,
   0,
@@ -41,6 +42,9 @@ const gltfToSdCar = new THREE.Matrix4().set(
   1,
 );
 const wheelNames = ["wheel-fr", "wheel-fl", "wheel-rr", "wheel-rl"] as const;
+const contactMargin = 0.5;
+const contactDarkness = 0.55;
+const contactLift = 0.02;
 const steeringWheelRotation = 2.0;
 
 export interface TrackFrame {
@@ -93,12 +97,43 @@ interface Wheel {
   restZ: number | null;
 }
 
+function contactShadow(wheels: THREE.Vector3[]): THREE.Mesh {
+  const along = wheels.map((w) => w.z);
+  const across = wheels.map((w) => w.x);
+  const length = Math.max(...along) - Math.min(...along) + contactMargin * 2;
+  const width = Math.max(...across) - Math.min(...across) + contactMargin;
+  const material = new THREE.MeshBasicNodeMaterial({
+    transparent: true,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -4,
+    polygonOffsetUnits: -16,
+  });
+  const centred = uv().sub(0.5).mul(2);
+  material.colorNode = vec3(0);
+  material.opacityNode = float(1)
+    .sub(smoothstep(0.35, 1, centred.length()))
+    .mul(contactDarkness);
+  const shadow = new THREE.Mesh(
+    new THREE.PlaneGeometry(length, width),
+    material,
+  );
+  shadow.position.set(
+    (Math.max(...along) + Math.min(...along)) / 2,
+    0,
+    contactLift,
+  );
+  shadow.renderOrder = 1;
+  return shadow;
+}
+
 export class GltfCar {
   readonly root = new THREE.Group();
   private readonly model = new THREE.Group();
   private readonly wheels: Wheel[] = [];
   private steeringWheel: THREE.Object3D | null = null;
   private visualAxleMid = 0;
+  private visualWheelHeight = 0;
   private offsetReady = false;
   private readonly compoundColour = new THREE.Color();
   private compoundShown = -1;
@@ -136,6 +171,9 @@ export class GltfCar {
     car.steeringWheel = gltf.scene.getObjectByName("steering-wheel") ?? null;
     car.visualAxleMid =
       ((car.wheels[0]?.rest.z ?? 0) + (car.wheels[2]?.rest.z ?? 0)) / 2;
+    car.visualWheelHeight =
+      car.wheels.reduce((sum, w) => sum + w.rest.y, 0) / car.wheels.length;
+    car.model.add(contactShadow(car.wheels.map((w) => w.rest)));
     return car;
   }
 
@@ -179,6 +217,9 @@ export class GltfCar {
       this.model.position.x =
         (wheel(0, 0) + wheel(1, 0) + wheel(2, 0) + wheel(3, 0)) / 4 -
         this.visualAxleMid;
+      this.model.position.z =
+        (wheel(0, 2) + wheel(1, 2) + wheel(2, 2) + wheel(3, 2)) / 4 -
+        this.visualWheelHeight;
       this.offsetReady = true;
     }
     this.wheels.forEach((w, i) => {

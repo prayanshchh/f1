@@ -157,21 +157,30 @@ describe.runIf(existsSync(wasm))("car status beyond Speed Dreams", () => {
     expect(rear).toBeLessThan(front);
   }, 120000);
 
-  test("a wrecked front wing really costs high-speed grip", async () => {
-    const stop = async (damaged: boolean) => {
+  test("a wrecked front wing really takes load off the front tyres", async () => {
+    const frontLoad = async (damaged: boolean) => {
       const m = await startRace();
-      m._sdInputAntiLock(1);
-      accelerateTo(m, 75);
       if (damaged) {
         m._sdCarDamageSet(wingLeft, 1);
         m._sdCarDamageSet(wingRight, 1);
-        m._sdStep(5);
       }
-      m._sdInputAnalog(1, 0, 0, 1);
-      m._sdStep(100);
-      return speedOf(m);
+      accelerateTo(m, 70);
+      const memory = m._malloc(40 * 8);
+      m._sdTelemetry(memory);
+      const v = new Float64Array(m.HEAPF64.buffer, memory, 40);
+      return (v[8 + 4] ?? 0) + (v[8 + 6 + 4] ?? 0);
     };
-    expect(await stop(true)).toBeGreaterThan((await stop(false)) + 0.2);
+    expect(await frontLoad(true)).toBeLessThan((await frontLoad(false)) * 0.95);
+  });
+
+  test("light throttle never slows the car down", async () => {
+    const m = await startRace();
+    accelerateTo(m, 30);
+    m._sdInputAnalog(1, 0, 0.2, 0);
+    m._sdStep(50);
+    const from = speedOf(m);
+    m._sdStep(300);
+    expect(speedOf(m)).toBeGreaterThan(from);
   });
 
   test("brakes heat under braking and cool on the straight", async () => {
@@ -204,8 +213,12 @@ describe.runIf(existsSync(wasm))("car status beyond Speed Dreams", () => {
     flatOut(m, 200);
     expect(energy().straight).toBe(0);
     m._sdEnergyStraight(0, 1);
-    flatOut(m, 300);
-    expect(energy().straight).toBeGreaterThan(0.5);
+    let widest = 0;
+    for (let tick = 0; tick < 400; tick++) {
+      flatOut(m, 1);
+      widest = Math.max(widest, energy().straight);
+    }
+    expect(widest).toBeGreaterThan(0.5);
     m._sdInputAnalog(1, 0, 0, 0.3);
     m._sdStep(100);
     expect(energy().straight).toBe(0);

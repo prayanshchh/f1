@@ -26,6 +26,7 @@ export interface RaceSystems extends SpeedDreams {
     assist: number,
   ) => void;
   _sdEnergyMode: (mode: number) => void;
+  _sdPitService: (fuel: number) => void;
   _sdCarStatus: (out: number) => void;
   _sdCarDamageSet: (part: number, value: number) => void;
   _sdEnergyDifferential: (percent: number) => void;

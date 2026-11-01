@@ -98,7 +98,7 @@ def principal_axes(outline):
     return vectors[0], vectors[1]
 
 
-def pit_building(facade, concrete, roof, data):
+def pit_building(facade, concrete, roof, data, track_side):
     outline = np.array(data["outline"])
     long_axis, short_axis = principal_axes(outline)
     u = outline @ long_axis
@@ -113,6 +113,8 @@ def pit_building(facade, concrete, roof, data):
     span = u.max() - u.min()
     for a, b, textured in ((0, 1, True), (1, 2, False), (2, 3, True), (3, 0, False)):
         pa, pb = corners[a], corners[b]
+        if textured and np.linalg.norm((pa + pb) / 2 - track_side) < np.linalg.norm((corners[(a + 2) % 4] + corners[(b + 2) % 4]) / 2 - track_side):
+            continue
         target = facade if textured else concrete
         repeat = span / FACADE_METRES[0] if textured else 1
         target.add([(*pa, base), (*pb, base), (*pb, base + height), (*pa, base + height)], [(0, 0), (repeat, 0), (repeat, 1), (0, 1)])

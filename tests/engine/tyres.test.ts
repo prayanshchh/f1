@@ -5,6 +5,7 @@ import {
   peakBraking,
   speedOf,
   startRace,
+  statusReader,
   tyreReader,
 } from "../support/race-systems.ts";
 import { wasm } from "../support/speed-dreams.ts";
@@ -103,6 +104,22 @@ describe.runIf(existsSync(wasm))("tyres from the engine", () => {
     }
     expect(peak).toBeGreaterThan(0.5);
     expect(read().wear(0)).toBeGreaterThan(before);
+  });
+
+  test("a pit stop fits fresh tyres of the same compound and repairs damage", async () => {
+    const m = await startRace({ compound: hard });
+    const read = tyreReader(m);
+    const status = statusReader(m);
+    m._sdTyresFit(hard, 100, 0.8);
+    m._sdCarDamageSet(0, 0.5);
+    m._sdStep(5);
+    expect(status().part(0)).toBeGreaterThan(0);
+    m._sdPitService(50);
+    const fresh = read();
+    expect(fresh.compound).toBe(hard);
+    expect(fresh.wear(0)).toBe(0);
+    expect(fresh.surface(0)).toBe(70);
+    expect(status().part(0)).toBe(0);
   });
 
   test("gentle braking never reports a lock-up", async () => {

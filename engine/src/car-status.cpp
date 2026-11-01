@@ -133,6 +133,11 @@ void sdCarStatusReset(tCarElt *elt)
     engineTemp = engineStart;
 }
 
+void sdCarStatusRepair()
+{
+    std::fill(parts, parts + PART_COUNT, 0.0);
+}
+
 void sdCarStatusStep(tCarElt *elt, double dt)
 {
     tCar *car = &SimCarTable[elt->index];

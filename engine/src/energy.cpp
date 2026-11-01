@@ -35,6 +35,7 @@ const double rampDown = 100.0e3;
 const double rampUp = 2000.0e3;
 const double startDeploySpeed = 50.0;
 const double halfThrottle = 0.5;
+const double coastThrottle = 0.03;
 const double minAlpha = 1e-3;
 const double flowRate = 3000.0e6 / 3600.0;
 const double fuelEnergy = 40.0e6;
@@ -44,6 +45,7 @@ const double mixBurn[4] = {0.90, 1.00, 1.08, 1.14};
 const double maxTorqueScale = 6.0;
 const char *const hybridCategory = "22MP1";
 const double straightAlpha = 0.97;
+const double straightLift = 0.5;
 const double straightSteer = 0.05;
 const double straightSpeed = 130.0;
 const double straightOpenRate = 3.0;
@@ -169,9 +171,16 @@ Split pedalSplit(double alpha, double ice, double kph, double dt)
     double half = kph >= clipSpeed ? full : full * 0.5;
     if (alpha < halfThrottle)
     {
-        double y = alpha / halfThrottle;
-        double harvest = full + (half - full) * y;
-        return {ice * y - harvest, harvest};
+        double reach = std::max(0.0, ice - half);
+        double request = reach * alpha / halfThrottle;
+        double harvest = std::min(half, ice - request);
+        if (alpha < coastThrottle)
+        {
+            double y = alpha / coastThrottle;
+            double coastRequest = reach * coastThrottle / halfThrottle;
+            return {-full + (coastRequest + full) * y, full + (harvest - full) * y};
+        }
+        return {request, harvest};
     }
     double x = (alpha - halfThrottle) / (1.0 - halfThrottle);
     double harvest = half * (1.0 - x);
@@ -211,7 +220,7 @@ void setTorque(tEngine &engine, double alpha, double torque, double rads)
 void updateAero(tCar *car, tCarElt *elt, double alpha, double brake, double kph, double dt)
 {
     bool pedals = alpha >= straightAlpha && brake < 0.02;
-    if (!straightAssist && !pedals)
+    if (!straightAssist && (alpha < straightLift || brake >= 0.02))
         straightArmed = false;
     bool open = pedals && kph >= straightSpeed && (straightAssist ? fabs(elt->_steerCmd) < straightSteer : straightArmed);
     double rate = open ? straightOpenRate : -straightCloseRate;

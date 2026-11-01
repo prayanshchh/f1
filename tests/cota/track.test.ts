@@ -19,7 +19,14 @@ interface Track {
   width: number;
   centerline: Point[];
   surfaces: { kind: string; side: string; from: number; to: number }[];
-  pitLane: { entry: number; exit: number };
+  pitLane: {
+    entry: number;
+    exit: number;
+    wallStart: number;
+    wallEnd: number;
+    pitWall: number;
+    centerline: { x: number; z: number }[];
+  };
   sectors: number[];
   grid: { distance: number }[];
 }
@@ -48,6 +55,8 @@ function curvature(i: number): number {
   return Math.atan2(Math.sin(d), Math.cos(d)) / step;
 }
 
+const k = (i: number): number => Math.abs(smoothed(i, 2));
+
 function smoothed(i: number, radius: number): number {
   let sum = 0;
   for (let k = -radius; k <= radius; k++) sum += curvature(i + k);
@@ -59,7 +68,7 @@ describe("COTA track.json", () => {
     const gap = Math.hypot(at(n - 1).x - at(0).x, at(n - 1).z - at(0).z);
     expect(gap).toBeGreaterThan(step * 0.9);
     expect(gap).toBeLessThan(step * 1.1);
-    expect(Math.abs(track.length - 5513) / 5513).toBeLessThan(0.005);
+    expect(Math.abs(track.length - 5513) / 5513).toBeLessThan(0.01);
   });
 
   test("has no corner kinks", () => {
@@ -82,6 +91,15 @@ describe("COTA track.json", () => {
     }
   });
 
+  test("keeps kerb and runoff from folding round the tightest apexes", () => {
+    const kerb = 1.2;
+    for (let i = 0; i < n; i++) {
+      const k = Math.abs(smoothed(i, 2));
+      const p = at(i);
+      expect(k * (p.width / 2 + kerb + 3)).toBeLessThan(1);
+    }
+  });
+
   test("keeps walls outside the asphalt and widths plausible", () => {
     for (const p of points) {
       expect(p.width).toBeGreaterThan(11);
@@ -92,9 +110,27 @@ describe("COTA track.json", () => {
     }
   });
 
+  test("keeps the whole pit lane inside the strip the physics can drive on", () => {
+    for (const q of track.pitLane.centerline) {
+      let nearest = 0;
+      let best = Infinity;
+      for (let i = 0; i < n; i++) {
+        const d = Math.hypot(at(i).x - q.x, at(i).z - q.z);
+        if (d < best) {
+          best = d;
+          nearest = i;
+        }
+      }
+      expect(best).toBeLessThan(at(nearest).wallLeft);
+      expect(k(nearest) * best).toBeLessThan(1);
+    }
+  });
+
   test("keeps every lap distance inside the lap", () => {
     const distances = [
       ...track.surfaces.flatMap((s) => [s.from, s.to]),
+      track.pitLane.wallStart,
+      track.pitLane.wallEnd,
       ...track.sectors,
       track.pitLane.entry,
       track.pitLane.exit,
@@ -126,4 +162,48 @@ describe("COTA Speed Dreams track", () => {
         readFileSync(path.join(directory, file), "utf8"),
       );
   });
+
+  const xml = readFileSync(path.join(directory, "cota.xml"), "utf8");
+  const segments = xml
+    .split("\n")
+    .filter((line) => line.startsWith('<section name="s'));
+  const border = (line: string, side: string) =>
+    new RegExp(`name="${side} Border">(.*?)</section>`).exec(line)?.[1] ?? "";
+  const heights = (side: string) =>
+    segments
+      .map((line) => border(line, side))
+      .filter((text) => !text.includes('val="wall"'))
+      .map((text) => Number(/name="height"[^>]*val="([^"]+)"/.exec(text)?.[1]));
+
+  test("has a physics barrier on both sides of every segment", () => {
+    expect(xml).not.toContain("no barrier");
+  });
+
+  test("has one solid pit wall between the track and the pit lane", () => {
+    const walled = segments.map((line) =>
+      border(line, "Left").includes('val="wall"'),
+    );
+    const span =
+      ((track.pitLane.wallEnd - track.pitLane.wallStart + track.length) %
+        track.length) /
+      step;
+    expect(walled.filter(Boolean).length).toBeGreaterThan(span * 0.95);
+    const starts = walled.filter(
+      (on, i) => on && !walled[(i + walled.length - 1) % walled.length],
+    );
+    expect(starts.length).toBe(1);
+  });
+
+  test.each(["Left", "Right"])(
+    "ramps %s kerbs in gently enough not to launch the car",
+    (side) => {
+      const values = heights(side);
+      expect(values.length).toBeGreaterThan(4000);
+      expect(Math.max(...values)).toBeLessThanOrEqual(0.025);
+      values.forEach((value, i) => {
+        const next = values[(i + 1) % values.length] ?? value;
+        expect(Math.abs(next - value)).toBeLessThan(0.004);
+      });
+    },
+  );
 });

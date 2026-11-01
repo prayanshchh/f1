@@ -7,6 +7,7 @@ import {
   fuelLapsDelta,
   fuelMixes,
 } from "./energy.ts";
+import type { PitControl } from "./pitstop.ts";
 import { frameIndex, type HudInfo, outOfRaceState } from "./engine.ts";
 import type { LapResult, LapTrace } from "./laptrace.ts";
 import { type CarStatus, Mfd } from "./mfd.ts";
@@ -201,6 +202,50 @@ export class Hud {
     this.updateMap(distance);
     this.updateWarnings(info, tyres, laps, now);
     this.updateToast(now);
+  }
+
+  updatePit(control: PitControl): void {
+    const active = control.phase !== "track";
+    this.updatePitPanel(control, active);
+    this.updatePitBanner(control, active);
+    this.updatePitTurn(control);
+  }
+
+  private updatePitPanel(control: PitControl, active: boolean): void {
+    this.find("pit-panel").hidden = !active || control.pitTime === null;
+    this.find("pit-time").textContent = (control.pitTime ?? 0).toFixed(1);
+    const running = control.serviceProgress * (control.estimate ?? 0);
+    const stop =
+      control.stopTime ?? (control.phase === "service" ? running : null);
+    this.find("pit-stop").textContent = stop === null ? "-.-" : stop.toFixed(1);
+  }
+
+  private updatePitBanner(control: PitControl, active: boolean): void {
+    const banner = this.find("pit-banner");
+    banner.hidden = !active || control.limit <= 0;
+    const limitKph = Math.round(control.limit * 3.6);
+    banner.dataset["over"] = String(control.speedKph > limitKph + 1);
+    this.find("pit-limit").textContent = String(limitKph);
+    this.find("pit-speed").textContent = String(Math.round(control.speedKph));
+    this.find("pit-distance").textContent =
+      control.distanceToBox === null
+        ? ""
+        : `Your box - ${String(Math.round(control.distanceToBox))}m`;
+  }
+
+  private updatePitTurn(control: PitControl): void {
+    const grade =
+      control.phase === "boxing" || control.phase === "service"
+        ? control.grade
+        : null;
+    const turn = this.find("pit-turn");
+    turn.hidden = control.countdown === null && grade === null;
+    turn.dataset["grade"] = grade ?? "";
+    this.find("pit-turn-value").textContent =
+      grade?.toUpperCase() ?? (control.countdown ?? 0).toFixed(1);
+    this.find("pit-turn-hint").textContent = grade
+      ? `Estimated stop time ${(control.estimate ?? 0).toFixed(1)}s`
+      : "Press Space / Brake";
   }
 
   private buildRows(): void {

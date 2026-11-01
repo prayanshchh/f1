@@ -4,6 +4,7 @@ import { repoRoot } from "./repo.ts";
 
 export interface SpeedDreams {
   HEAPF64: Float64Array;
+  HEAPF32: Float32Array;
   cwrap: (
     name: string,
     result: string,
@@ -14,6 +15,12 @@ export interface SpeedDreams {
   _sdTelemetry: (pointer: number) => void;
   _sdAudio: (pointer: number) => void;
   _sdFrame: () => number;
+  _sdHudInfo: (pointer: number) => void;
+  _sdTrackLocal2Global: (d: number, l: number, out: number) => number;
+  _sdInputSpeedLimit: (limit: number) => void;
+  _sdInputSteerDirect: (on: number) => void;
+  _sdInputPitHold: (on: number) => void;
+  _sdPitService: (fuel: number) => void;
   _sdInputAnalog: (
     active: number,
     steer: number,

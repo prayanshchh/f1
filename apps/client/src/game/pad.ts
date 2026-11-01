@@ -60,6 +60,7 @@ export class PadLink {
     now: number,
     speed: number,
     gear: number,
+    rumble: number,
     battery: number,
     mode: string,
   ): void {
@@ -69,7 +70,7 @@ export class PadLink {
     )
       return;
     this.sentAt = now;
-    this.socket.send(JSON.stringify({ speed, gear, battery, mode }));
+    this.socket.send(JSON.stringify({ speed, gear, rumble, battery, mode }));
   }
 
   private connect(): void {

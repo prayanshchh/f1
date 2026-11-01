@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -20,6 +21,7 @@ extern tTrack *TrackBuildv1(const char *trackfile);
 extern void SimInit(int nbcars, tTrack *track);
 extern void SimConfig(tCarElt *carElt);
 extern void SimUpdate(tSituation *s, double deltaTime);
+extern void SimReConfig(tCarElt *carElt);
 
 extern "C" int moduleWelcome(const tModWelcomeIn *welcomeIn, tModWelcomeOut *welcomeOut);
 extern "C" int moduleInitialize(tModInfo *modInfo);
@@ -208,6 +210,7 @@ static void runOneStep(double deltaTimeIncrement)
                 robot->rbDrive(robot->index, s->cars[i], s);
             }
         }
+        sdInputApplyHold(s->cars[0]);
         pCurrReInfo->_reLastRobTime = s->currentTime;
     }
 
@@ -445,6 +448,21 @@ EMSCRIPTEN_KEEPALIVE void sdTelemetry(double *out)
     sdInputState(&out[32]);
 }
 
+EMSCRIPTEN_KEEPALIVE void sdPitService(double fuel)
+{
+    tCarElt *car = ReInfo->s->cars[0];
+    car->pitcmd.fuel = (tdble)std::max(0.0, fuel - car->_fuel);
+    car->pitcmd.repair = car->_dammage;
+    car->pitcmd.tireChange = tCarPitCmd::ALL;
+    car->pitcmd.tiresetChange = tCarPitCmd::NON_CHANGE;
+    SimReConfig(car);
+    sdTyresService();
+    sdCarStatusRepair();
+    car->pitcmd.fuel = 0;
+    car->pitcmd.repair = 0;
+    car->pitcmd.tireChange = tCarPitCmd::NONE;
+}
+
 static int surfaceClass(const tTrackSeg *seg)
 {
     const char *material = seg && seg->surface ? seg->surface->material : nullptr;
@@ -636,8 +654,8 @@ EMSCRIPTEN_KEEPALIVE int sdTrackLocal2Global(double toStart, double toMiddle, fl
     if (seg->type != TR_STR)
         pos.toStart /= seg->radius;
     pos.toMiddle = (tdble)toMiddle;
-    pos.toRight = seg->width / 2 - pos.toMiddle;
-    pos.toLeft = seg->width / 2 + pos.toMiddle;
+    pos.toRight = seg->width / 2 + pos.toMiddle;
+    pos.toLeft = seg->width / 2 - pos.toMiddle;
     tdble x, y;
     RtTrackLocal2Global(&pos, &x, &y, TR_TOMIDDLE);
     out[0] = x;

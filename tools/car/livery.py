@@ -7,12 +7,15 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from scipy.ndimage import gaussian_filter
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from design import linear, use
+
+CONTRAST = 0.22
+DARK_TEXT = np.array([0.008, 0.008, 0.010])
+LIGHT_TEXT = np.array([0.8, 0.81, 0.82])
+LOD_ALBEDO = 2048
+LOD_ORM = 1024
 FONT = Path("apps/client/node_modules/@fontsource-variable/saira/files/saira-latin-wght-normal.woff2")
-EMBER = np.array([0.23, 0.011, 0.005])
-GRAPHITE = np.array([0.045, 0.048, 0.056])
-EMBER_DEEP = np.array([0.10, 0.005, 0.003])
-PEARL = np.array([0.80, 0.81, 0.82])
-GOLD = np.array([0.90, 0.56, 0.05])
 CARBON = np.array([0.018, 0.018, 0.021])
 BLACK = np.array([0.008, 0.008, 0.010])
 COCKPIT = np.array([0.022, 0.022, 0.025])
@@ -90,6 +93,9 @@ class Atlas:
 
 
 def blend(target, colour, alpha):
+    if colour is None:
+        bright = target @ np.array([0.2126, 0.7152, 0.0722]) > CONTRAST
+        colour = np.where(bright[..., None], DARK_TEXT, LIGHT_TEXT)
     target += (np.asarray(colour) - target) * alpha[..., None]
 
 
@@ -142,7 +148,7 @@ def along_decal(atlas, albedo, text, y, x, length, colour, parts, sign, weight=8
     blend(albedo, colour, sample(mask, u, v) * (atlas.nz > 0.25) * atlas.where(parts))
 
 
-def strip_decal(atlas, albedo, island_name, text, along, around, length, colour, weight=800):
+def strip_decal(atlas, albedo, island_name, text, along, around, length, weight=800):
     island = next(i for i in atlas.islands if i["name"] == island_name)
     mask = text_mask(text, weight=weight)
     window = atlas.window(island, 0)
@@ -157,10 +163,40 @@ def strip_decal(atlas, albedo, island_name, text, along, around, length, colour,
     tall_uv = length * mask.shape[0] / mask.shape[1]
     a = 0.5 + (scale_v - along) / length
     b = 0.5 + (scale_u - around) / tall_uv
-    albedo[window] += (np.asarray(colour) - albedo[window]) * sample(mask, a, b)[..., None]
+    albedo[window] += (LIGHT_TEXT - albedo[window]) * sample(mask, a, b)[..., None]
 
 
-def paint(atlas):
+def scheme(team, atlas, body, wings_colour):
+    x, y, z = atlas.x, atlas.y, atlas.z
+    absy = np.abs(y)
+    kind = team["pattern"]
+    width = 0.012
+    if kind == "deck":
+        limit = np.interp(x, [-1.27, -1.10, -0.80, -0.40, 0.0, 0.50, 0.90, 1.10, 1.13], [0.0, 0.14, 0.30, 0.38, 0.38, 0.30, 0.19, 0.17, 0.0])
+        top = atlas.nz > 0.15
+        return body & top & (absy < limit), body & top & (np.abs(absy - (limit + 0.018)) < 0.006) & (x < 1.13) & (x > -1.30)
+    if kind == "halfway":
+        line = x + 0.9 * (z - 0.35) + 0.15
+    elif kind == "spear":
+        line = np.interp(x, [-2.1, -1.3, -0.4, 0.5, 1.4, 2.8], [0.03, 0.09, 0.2, 0.14, 0.075, 0.03]) - absy
+        line = np.where(atlas.nz > -0.1, -line, 1.0)
+    elif kind == "flank":
+        line = z - (0.27 + 0.13 * np.clip(x + 0.3, -1.2, 1.8) * 0.5)
+        line = np.where(absy > 0.05, line, 1.0)
+    else:
+        line = np.maximum(0.21 + 0.45 * np.clip(x - 0.55, -1.4, 0) * -0.1 - absy, np.abs(x + 0.1) - 0.68)
+    return body & (line < 0), body & (np.abs(line) < width)
+
+
+def paint(atlas, team):
+    global LIGHT_TEXT, DARK_TEXT
+    EMBER = np.array(linear(team["colours"]["primary"]))
+    EMBER_DEEP = np.array(linear(team["colours"]["deep"]))
+    PEARL = np.array(linear(team["colours"]["secondary"]))
+    GOLD = np.array(linear(team["colours"]["accent"]))
+    NORTHWIND, VOLTARA, KESTREL, AURELIA = team["sponsors"]
+    VANTA = team["name"].upper()
+    NUMBER = team["number"]
     x, y, z = atlas.x, atlas.y, atlas.z
     absy = np.abs(y)
     albedo = np.empty(x.shape + (3,), np.float32)
@@ -194,20 +230,24 @@ def paint(atlas):
     albedo[wings] = CARBON
     carbon[wings] = 1.0
     rough[wings] = 0.46
+    if team["wings"] != "carbon":
+        panels = atlas.where(r"^(fw-main|fw-flap2|fw-outer|rw-flap)") & (atlas.nz > 0.0)
+        albedo[panels] = EMBER
+        carbon[panels] = 0.0
+        rough[panels] = ROUGH_PAINT
 
     fade = np.clip((x + 0.15) / 1.1, 0, 1)
-    deep = (chassis | pods | atlas.where(r"^(engine-fin|roll-hoop-blade)")) & colour
+    body = chassis | pods | atlas.where(r"^(engine-fin|roll-hoop-blade)")
+    deep = body & colour
     albedo[deep] = (EMBER_DEEP[None] * (1 - fade[deep, None]) + EMBER[None] * fade[deep, None])
 
-    white_edge = np.interp(x, [-1.27, -1.10, -0.80, -0.40, 0.0, 0.50, 0.90, 1.10, 1.13], [0.0, 0.14, 0.30, 0.38, 0.38, 0.30, 0.19, 0.17, 0.0])
-    deck = (chassis | pods | atlas.where(r"^(engine-fin|roll-hoop-blade)")) & (atlas.nz > 0.15)
-    cover = deck & (absy < white_edge)
+    cover, edge = scheme(team, atlas, body, EMBER)
     albedo[cover] = PEARL
     carbon[cover] = 0.0
     rough[cover] = ROUGH_PAINT
-    edge = deck & (np.abs(absy - (white_edge + 0.018)) < 0.006) & (x < 1.13) & (x > -1.30)
-    albedo[edge] = PEARL
+    albedo[edge] = PEARL if team["pattern"] == "deck" else GOLD
     carbon[edge] = 0.0
+    rough[edge] = ROUGH_PAINT
     pinstripe = chassis & (np.abs(z - sweep_line) < 0.007)
     albedo[pinstripe] = GOLD
     carbon[pinstripe] = 0.0
@@ -235,14 +275,12 @@ def paint(atlas):
     along_hoop = ((grid_v + 0.5) / atlas.size - hoop["y"]) / hoop["h"]
     around_hoop = ((grid_u + 0.5) / atlas.size - hoop["x"]) / hoop["w"]
     centre = np.abs(along_hoop - 0.5) < 0.085
-    rim = np.abs(around_hoop - 0.25) > 0.105
     top_half = (around_hoop > 0.02) & (around_hoop < 0.48)
     window_albedo = albedo[rows, cols]
     window_albedo[centre & top_half] = EMBER
     window_carbon = carbon[rows, cols]
     window_carbon[centre & top_half] = 0.0
     carbon[rows, cols] = window_carbon
-    del rim
     albedo[rows, cols] = window_albedo
 
     albedo[atlas.where(r"^cockpit-pad")] = PEARL
@@ -269,7 +307,7 @@ def paint(atlas):
     rough[fin_accent] = ROUGH_PAINT
 
     helmet = atlas.where(r"^helmet")
-    albedo[helmet] = PEARL
+    albedo[helmet] = np.array(linear(team.get("helmet", "#e7e8e9")))
     albedo[helmet & (np.abs(z - 0.768) < 0.03)] = EMBER
     albedo[helmet & (np.abs(y) < 0.018)] = EMBER
     albedo[helmet & (z > 0.813)] = GOLD
@@ -290,59 +328,60 @@ def paint(atlas):
     albedo[fasteners] = albedo[fasteners] * 0.45 + 0.08
     height[fasteners] = 0.35
 
-    white = PEARL
-    side_decal(atlas, albedo, height, "VANTA", -0.05, 0.445, 0.60, white, r"^sidepod")
-    side_decal(atlas, albedo, height, "NORTHWIND", -0.70, 0.385, 0.44, white, r"^sidepod")
-    side_decal(atlas, albedo, height, "VOLTARA", 1.28, 0.385, 0.40, white, r"^monocoque")
-    side_decal(atlas, albedo, height, "KESTREL", 2.00, 0.300, 0.24, white, r"^monocoque")
-    side_decal(atlas, albedo, height, "07", 0.28, 0.585, 0.17, white, r"^monocoque", weight=900)
-    side_decal(atlas, albedo, height, "07", -0.95, 0.53, 0.20, EMBER, r"^monocoque", weight=900)
-    side_decal(atlas, albedo, height, "VANTA", -2.14, 0.845, 0.28, white, r"^rw-endplate\.", weight=900)
-    side_decal(atlas, albedo, height, "AURELIA", -2.08, 0.63, 0.20, white, r"^rw-endplate\.")
-    side_decal(atlas, albedo, height, "NORTHWIND", 2.36, 0.19, 0.30, white, r"^fw-endplate")
-    side_decal(atlas, albedo, height, "VANTA", 0.15, 0.10, 0.5, white, r"^inwash-1", weight=900)
+    LIGHT_TEXT = np.array(linear(team.get("text", "#e7e8e9")))
+    white = None
+    side_decal(atlas, albedo, height, VANTA, -0.05, 0.445, 0.60, white, r"^sidepod")
+    side_decal(atlas, albedo, height, NORTHWIND, -0.70, 0.385, 0.44, white, r"^sidepod")
+    side_decal(atlas, albedo, height, VOLTARA, 1.28, 0.385, 0.40, white, r"^monocoque")
+    side_decal(atlas, albedo, height, KESTREL, 2.00, 0.300, 0.24, white, r"^monocoque")
+    side_decal(atlas, albedo, height, NUMBER, 0.28, 0.585, 0.17, white, r"^monocoque", weight=900)
+    side_decal(atlas, albedo, height, NUMBER, -0.95, 0.53, 0.20, None, r"^monocoque", weight=900)
+    side_decal(atlas, albedo, height, VANTA, -2.14, 0.845, 0.28, white, r"^rw-endplate\.", weight=900)
+    side_decal(atlas, albedo, height, AURELIA, -2.08, 0.63, 0.20, white, r"^rw-endplate\.")
+    side_decal(atlas, albedo, height, NORTHWIND, 2.36, 0.19, 0.30, white, r"^fw-endplate")
+    side_decal(atlas, albedo, height, VANTA, 0.15, 0.10, 0.5, white, r"^inwash-1", weight=900)
 
-    top_decal(atlas, albedo, height, "07", 1.72, 0.20, white, r"^monocoque", read_from_front=True, weight=900)
-    top_decal(atlas, albedo, height, "VANTA", 2.62, 0.10, white, r"^monocoque", read_from_front=True, weight=900)
-    top_decal(atlas, albedo, height, "AURELIA", 2.42, 0.13, white, r"^monocoque", read_from_front=True)
-    top_decal(atlas, albedo, height, "KESTREL", 2.20, 0.17, white, r"^monocoque", read_from_front=True)
-    top_decal(atlas, albedo, height, "VOLTARA", 2.02, 0.19, white, r"^monocoque", read_from_front=True)
-    top_decal(atlas, albedo, height, "NORTHWIND", 1.42, 0.26, white, r"^monocoque", read_from_front=True)
-    top_decal(atlas, albedo, height, "VANTA", 1.28, 0.20, white, r"^monocoque", read_from_front=True, weight=900)
-    top_decal(atlas, albedo, height, "VANTA", 1.00, 0.26, BLACK, r"^monocoque", read_from_front=True, weight=900)
-    top_decal(atlas, albedo, height, "VOLTARA", -0.75, 0.24, BLACK, r"^(monocoque|sidepod)", weight=900)
+    top_decal(atlas, albedo, height, NUMBER, 1.72, 0.20, white, r"^monocoque", read_from_front=True, weight=900)
+    top_decal(atlas, albedo, height, VANTA, 2.62, 0.10, white, r"^monocoque", read_from_front=True, weight=900)
+    top_decal(atlas, albedo, height, AURELIA, 2.42, 0.13, white, r"^monocoque", read_from_front=True)
+    top_decal(atlas, albedo, height, KESTREL, 2.20, 0.17, white, r"^monocoque", read_from_front=True)
+    top_decal(atlas, albedo, height, VOLTARA, 2.02, 0.19, white, r"^monocoque", read_from_front=True)
+    top_decal(atlas, albedo, height, NORTHWIND, 1.42, 0.26, white, r"^monocoque", read_from_front=True)
+    top_decal(atlas, albedo, height, VANTA, 1.28, 0.20, white, r"^monocoque", read_from_front=True, weight=900)
+    top_decal(atlas, albedo, height, VANTA, 1.00, 0.26, None, r"^monocoque", read_from_front=True, weight=900)
+    top_decal(atlas, albedo, height, VOLTARA, -0.75, 0.24, None, r"^(monocoque|sidepod)", weight=900)
     for side in (1, -1):
-        top_decal(atlas, albedo, height, "VOLTARA", 0.05, 0.25, white, r"^sidepod", y=side * 0.47, up=0.55)
-        top_decal(atlas, albedo, height, "NORTHWIND", 2.66, 0.26, white, r"^fw-main", y=side * 0.31, up=0.3, read_from_front=True, angle=side * 0.32)
-        top_decal(atlas, albedo, height, "VOLTARA", 2.33, 0.17, white, r"^fw-flap1", y=side * 0.31, up=0.1, read_from_front=True, angle=side * 0.32)
+        top_decal(atlas, albedo, height, VOLTARA, 0.05, 0.25, white, r"^sidepod", y=side * 0.47, up=0.55)
+        top_decal(atlas, albedo, height, NORTHWIND, 2.66, 0.26, white, r"^fw-main", y=side * 0.31, up=0.3, read_from_front=True, angle=side * 0.32)
+        top_decal(atlas, albedo, height, VOLTARA, 2.33, 0.17, white, r"^fw-flap1", y=side * 0.31, up=0.1, read_from_front=True, angle=side * 0.32)
 
-    upper_decal(atlas, albedo, "NORTHWIND", 0.0, -2.03, 0.54, white, r"^rw-main")
+    upper_decal(atlas, albedo, NORTHWIND, 0.0, -2.03, 0.54, white, r"^rw-main")
     for sign in (1, -1):
-        upper_decal(atlas, albedo, "VANTA", sign * 0.33, -2.30, 0.17, white, r"^rw-flap", weight=900)
+        upper_decal(atlas, albedo, VANTA, sign * 0.33, -2.30, 0.17, white, r"^rw-flap", weight=900)
     for sign in (1, -1):
-        top_decal(atlas, albedo, height, "NORTHWIND", 1.70, 0.215, white, r"^susp-upper-a", y=sign * 0.36, angle=sign * 0.26, up=-1)
-        top_decal(atlas, albedo, height, "VOLTARA", 1.70, 0.20, white, r"^susp-lower-a", y=sign * 0.37, up=-1)
-        along_decal(atlas, albedo, "KESTREL", sign * 0.262, 0.46, 0.20, BLACK, r"^monocoque", sign)
-        along_decal(atlas, albedo, "VOLTARA", sign * 0.335, 0.12, 0.30, white, r"^monocoque", sign)
-        upper_decal(atlas, albedo, "VANTA", sign * 0.58, 0.665, 0.13, white, r"^mirror-housing", weight=900)
-        upper_decal(atlas, albedo, "NORTHWIND", sign * 0.36, 0.695, 0.13, white, r"^mirror-housing")
-    for x_pos, text, length in ((1.27, "AURELIA", 0.16), (2.05, "NORTHWIND", 0.17)):
+        top_decal(atlas, albedo, height, NORTHWIND, 1.70, 0.215, white, r"^susp-upper-a", y=sign * 0.36, angle=sign * 0.26, up=-1)
+        top_decal(atlas, albedo, height, VOLTARA, 1.70, 0.20, white, r"^susp-lower-a", y=sign * 0.37, up=-1)
+        along_decal(atlas, albedo, KESTREL, sign * 0.262, 0.46, 0.20, None, r"^monocoque", sign)
+        along_decal(atlas, albedo, VOLTARA, sign * 0.335, 0.12, 0.30, white, r"^monocoque", sign)
+        upper_decal(atlas, albedo, VANTA, sign * 0.58, 0.665, 0.13, white, r"^mirror-housing", weight=900)
+        upper_decal(atlas, albedo, NORTHWIND, sign * 0.36, 0.695, 0.13, white, r"^mirror-housing")
+    for x_pos, text, length in ((1.27, AURELIA, 0.16), (2.05, NORTHWIND, 0.17)):
         side_decal(atlas, albedo, height, text, x_pos, 0.47 if x_pos < 2 else 0.34, length, white, r"^monocoque")
     for sign in (1, -1):
         small_x = np.linspace(0.32, -1.10, 6)
-        for k, mark in enumerate(("V26", "07", "VANTA", "KESTREL", "AURELIA", "VOLTARA")):
+        for k, mark in enumerate((NUMBER, NUMBER, VANTA, KESTREL, AURELIA, VOLTARA)):
             side_decal(atlas, albedo, height, mark, small_x[k], 0.30 + 0.02 * np.cos(k), 0.09, white, r"^sidepod", side=sign, weight=700)
-    rear_decal(atlas, albedo, "VANTA", 0.0, 0.875, 0.34, white, r"^rw-flap", weight=900)
-    rear_decal(atlas, albedo, "NORTHWIND", 0.0, 0.770, 0.40, white, r"^rw-main", facing=0.05)
+    rear_decal(atlas, albedo, VANTA, 0.0, 0.875, 0.34, white, r"^rw-flap", weight=900)
+    rear_decal(atlas, albedo, NORTHWIND, 0.0, 0.770, 0.40, white, r"^rw-main", facing=0.05)
 
     for text, along, length in (
-        ("VOLTARA", 0.24, 0.11),
-        ("NORTHWIND", 0.385, 0.12),
-        ("VANTA", 0.5, 0.075),
-        ("KESTREL", 0.615, 0.10),
-        ("AURELIA", 0.76, 0.10),
+        (VOLTARA, 0.24, 0.11),
+        (NORTHWIND, 0.385, 0.12),
+        (VANTA, 0.5, 0.075),
+        (KESTREL, 0.615, 0.10),
+        (AURELIA, 0.76, 0.10),
     ):
-        strip_decal(atlas, albedo, "halo-hoop", text, along, 0.25, length, PEARL, weight=850)
+        strip_decal(atlas, albedo, "halo-hoop", text, along, 0.25, length, weight=850)
 
     occlusion = gaussian_filter(np.clip(atlas.ao, 0, 1), atlas.size / 1600) ** 1.15
     soot = np.clip((-x - 1.7) / 0.5, 0, 1) * np.clip(1 - np.abs(z - 0.38) / 0.25, 0, 1) * np.clip(1 - absy / 0.25, 0, 1)
@@ -385,24 +424,26 @@ def tyre_texture(out):
     array = array.copy()
     array[tread] *= 0.72
     rough[tread] = 0.62
-    for centre in (0.135, 0.865):
-        band = np.abs(v - centre) < 0.024
-        array[band] = (0.56, 0.11, 0.10)
     for centre in (0.30, 0.325, 0.675, 0.70):
         array[np.abs(v - centre) < 0.0035] *= 0.6
-    Image.fromarray(np.round(array * 255).astype(np.uint8)).save(out / "tyre.jpg", quality=90, subsampling=0)
+    Image.fromarray(np.round(array * 255).astype(np.uint8)).save(out / "shared" / "tyre.jpg", quality=90, subsampling=0)
 
 
 def main():
-    work = Path(sys.argv[1] if len(sys.argv) > 1 else "build/car")
-    out = Path(sys.argv[2] if len(sys.argv) > 2 else "content/cars/vanta-26")
+    team = use(sys.argv[1] if len(sys.argv) > 1 else "vanta")
+    work = Path(sys.argv[2] if len(sys.argv) > 2 else f"build/car/{team['id']}")
+    root = Path("content/cars")
+    out = root / team["id"]
     atlas = Atlas(work)
-    albedo, rough, carbon, height, occlusion = paint(atlas)
+    albedo, rough, carbon, height, occlusion = paint(atlas, team)
+    orm = np.stack([occlusion, rough, carbon], axis=-1)
     save_rgb(out / "albedo.jpg", albedo)
-    save_rgb(out / "orm.jpg", np.stack([occlusion, rough, carbon], axis=-1), gamma=False, size=4096)
+    save_rgb(out / "albedo-lod.jpg", albedo, size=LOD_ALBEDO)
+    save_rgb(out / "orm.jpg", orm, gamma=False, size=4096)
+    save_rgb(out / "orm-lod.jpg", orm, gamma=False, size=LOD_ORM)
     save_rgb(out / "bump.jpg", np.stack([height, height, height], axis=-1), gamma=False, size=4096, quality=88)
-    tyre_texture(out)
-    print(f"livery: {atlas.size}px -> {out}")
+    tyre_texture(root)
+    print(f"livery: {team['id']} {atlas.size}px")
 
 
 if __name__ == "__main__":

@@ -1,10 +1,12 @@
 import * as THREE from "three/webgpu";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { float, smoothstep, uv, vec3 } from "three/tsl";
-import { carEnvironment, carMaterials, carTextures, mirrorLayout } from "./carpaint.ts";
+import { carMaterials, carTextures, mirrorLayout } from "./carpaint.ts";
 import type { CarMaterials, DashReadout, MirrorName } from "./carpaint.ts";
 import { frameIndex } from "./engine.ts";
-import type { SdLighting } from "./materials.ts";
+import { unlitMaterial } from "./materials.ts";
+import { setTyreShadows } from "./road.ts";
+import { carFile } from "./teams.ts";
 import { compounds } from "./tyres.ts";
 
 export const gltfToSdWorld = new THREE.Matrix4().set(
@@ -25,7 +27,7 @@ export const gltfToSdWorld = new THREE.Matrix4().set(
   0,
   1,
 );
-const gltfToSdCar = new THREE.Matrix4().set(
+export const gltfToSdCar = new THREE.Matrix4().set(
   0,
   0,
   1,
@@ -52,6 +54,12 @@ const mirrorFov = 15;
 const mirrorForward = 0.62;
 const mirrorOutward = 0.12;
 const mirrorNames: MirrorName[] = ["mirror-l", "mirror-r"];
+export const wheelRest = [
+  new THREE.Vector3(0.78, 0, 1.7),
+  new THREE.Vector3(-0.78, 0, 1.7),
+  new THREE.Vector3(0.75, 0, -1.7),
+  new THREE.Vector3(-0.75, 0, -1.7),
+];
 const contactMargin = 0.5;
 const contactDarkness = 0.55;
 const contactLift = 0.02;
@@ -86,7 +94,7 @@ interface Wheel {
   restZ: number | null;
 }
 
-function contactShadow(wheels: THREE.Vector3[]): THREE.Mesh {
+export function contactShadow(wheels: THREE.Vector3[]): THREE.Mesh {
   const along = wheels.map((w) => w.z);
   const across = wheels.map((w) => w.x);
   const length = Math.max(...along) - Math.min(...along) + contactMargin * 2;
@@ -125,6 +133,14 @@ export class GltfCar {
   private visualAxleMid = 0;
   private visualWheelHeight = 0;
   private offsetReady = false;
+  private contacts: { centre: THREE.Vector3; axis: THREE.Vector3 }[] = [];
+  private lift = 0;
+  private heave = 0;
+  private roll = 0;
+  private wheelsOff = false;
+  private readonly rollMatrix = new THREE.Matrix4();
+  private readonly basisY = new THREE.Vector3();
+  private readonly basisZ = new THREE.Vector3();
   private readonly compoundColour = new THREE.Color();
   private compoundShown = -1;
   private readonly radii: number[] = [];
@@ -178,16 +194,15 @@ export class GltfCar {
   }
 
   static async load(
-    url: string,
+    team: string,
     renderer: THREE.WebGPURenderer,
-    lighting: SdLighting,
+    env: THREE.Texture,
   ): Promise<GltfCar> {
     const car = new GltfCar();
     const anisotropy = renderer.getMaxAnisotropy();
-    const gltf = await new GLTFLoader().loadAsync(url);
-    const env = carEnvironment(renderer);
+    const gltf = await new GLTFLoader().loadAsync(carFile(team, "car.glb"));
     const materials = carMaterials(
-      carTextures(anisotropy),
+      carTextures(team, anisotropy),
       env,
       {
         "mirror-l": car.addMirror("mirror-l"),
@@ -221,19 +236,22 @@ export class GltfCar {
         restZ: null,
       });
     }
-    car.addSidewalls(lighting);
+    car.addSidewalls();
     car.steeringWheel = gltf.scene.getObjectByName("steering-wheel") ?? null;
     car.driverHead = gltf.scene.getObjectByName("driver-head") ?? null;
     car.visualAxleMid =
       ((car.wheels[0]?.rest.z ?? 0) + (car.wheels[2]?.rest.z ?? 0)) / 2;
     car.visualWheelHeight =
       car.wheels.reduce((sum, w) => sum + w.rest.y, 0) / car.wheels.length;
-    car.model.add(contactShadow(car.wheels.map((w) => w.rest)));
+    car.contacts = car.wheels.map(() => ({
+      centre: new THREE.Vector3(),
+      axis: new THREE.Vector3(),
+    }));
     return car;
   }
 
-  private addSidewalls(lighting: SdLighting): void {
-    const material = lighting.unlit(this.compoundColour);
+  private addSidewalls(): void {
+    const material = unlitMaterial(this.compoundColour);
     const size = new THREE.Vector3();
     for (const wheel of this.wheels) {
       new THREE.Box3().setFromObject(wheel.spin).getSize(size);
@@ -263,6 +281,32 @@ export class GltfCar {
     this.root.visible = current;
     this.mirrorsShown = current;
     if (this.driverHead) this.driverHead.visible = driver;
+  }
+
+  setRumble(heave: number, roll: number): void {
+    this.heave = heave;
+    this.roll = roll;
+  }
+
+  setPitService(lift: number, wheelsOff: boolean): void {
+    this.lift = lift;
+    this.wheelsOff = wheelsOff;
+  }
+
+  private updateTyreShadows(): void {
+    this.root.updateMatrixWorld(true);
+    this.wheels.forEach((wheel, i) => {
+      const contact = this.contacts[i];
+      if (!contact) return;
+      wheel.pivot.matrixWorld.extractBasis(
+        contact.axis,
+        this.basisY,
+        this.basisZ,
+      );
+      contact.axis.normalize();
+      contact.centre.setFromMatrixPosition(wheel.pivot.matrixWorld);
+    });
+    setTyreShadows(!this.wheelsOff, this.contacts);
   }
 
   setDash(dash: Pick<DashReadout, "fuel" | "tyres">): void {
@@ -303,17 +347,25 @@ export class GltfCar {
     for (const glass of this.glass) glass.visible = true;
   }
 
-  renderAuxiliary(renderer: THREE.WebGPURenderer, scene: THREE.Scene): void {
+  renderAuxiliary(
+    renderer: THREE.WebGPURenderer,
+    scene: THREE.Scene,
+    hideOthers: (hidden: boolean) => void,
+  ): void {
     this.auxFrame++;
     this.root.updateWorldMatrix(true, true);
     const previous = renderer.getRenderTarget();
+    hideOthers(true);
     this.renderCubeFace(renderer, scene);
+    hideOthers(false);
     if (this.mirrorsShown) this.renderMirror(renderer, scene);
     renderer.setRenderTarget(previous);
   }
 
   update(frame: Float64Array): void {
     this.root.matrix.fromArray(frame, frameIndex.posMat);
+    this.root.matrix.elements[14] += this.lift + this.heave;
+    this.root.matrix.multiply(this.rollMatrix.makeRotationX(this.roll));
     this.root.matrixWorldNeedsUpdate = true;
     const wheel = (i: number, k: number) =>
       frame[frameIndex.wheels + i * 7 + k] ?? 0;
@@ -337,7 +389,9 @@ export class GltfCar {
       w.pivot.rotateY(wheel(i, 5));
       w.pivot.rotateZ(wheel(i, 3));
       w.spin.rotation.set(wheel(i, 4), 0, 0);
+      w.spin.visible = !this.wheelsOff;
     });
+    this.updateTyreShadows();
     this.steeringWheel?.rotation.set(
       0,
       0,
@@ -352,6 +406,11 @@ export class GltfCar {
     const redLine = frame[frameIndex.rpmRedLine] ?? 1;
     const rev = THREE.MathUtils.clamp(rpm / Math.max(redLine, 1), 0, 1);
     this.materials.rev.value = Math.max(0, (rev - 0.6) / 0.4);
+    this.materials.heat.value =
+      [0, 1, 2, 3].reduce(
+        (sum, i) => sum + (frame[frameIndex.brakeTemp + i] ?? 0),
+        0,
+      ) / 4;
     this.materials.screen.update(frame[frameIndex.time] ?? 0, {
       kph: (frame[frameIndex.speed] ?? 0) * 3.6,
       gear: frame[frameIndex.gear] ?? 0,

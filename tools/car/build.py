@@ -1,5 +1,4 @@
 import json
-import math
 import sys
 from pathlib import Path
 
@@ -10,11 +9,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import aero
 import body
 import cockpit
+import design
 import details
 import running
 from cockpit import WHEEL_X, WHEEL_Z
 from shapes import PARTS, material, to_blender
 
+LOD_RATIO = 0.07
+LOD_MATERIALS = ("body", "cockpit", "helmet", "tyre", "rim", "carbon-part")
 ATLAS = 8192
 PADDING = 16
 AO_SAMPLES = 64
@@ -23,19 +25,19 @@ AO_DISTANCE = 0.9
 
 def arguments():
     argv = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
-    out = Path(argv[0] if argv else "content/cars/vanta-26")
-    work = Path(argv[1] if len(argv) > 1 else "build/car")
-    bake = "--no-bake" not in argv
-    return out, work, bake
+    team = argv[0] if argv else "vanta"
+    work = Path(argv[1] if len(argv) > 1 else f"build/car/{team}")
+    size = int(argv[2]) if len(argv) > 2 and argv[2].isdigit() else ATLAS
+    return team, work, size, "--no-bake" not in argv
 
 
-def materials():
+def materials(rim):
     material("body", (0.6, 0.6, 0.6), 0.3)
     material("cockpit", (0.03, 0.03, 0.035), 0.5)
     material("void", (0.004, 0.004, 0.005), 0.9)
     material("headrest", (0.005, 0.005, 0.006), 0.72)
     material("tyre", (0.02, 0.02, 0.021), 0.82)
-    material("rim", (0.035, 0.035, 0.04), 0.32, 1.0)
+    material("rim", rim, 0.32, 1.0)
     material("rim-dark", (0.012, 0.012, 0.014), 0.45, 0.6)
     material("wheel-nut", (0.75, 0.08, 0.04), 0.35, 1.0)
     material("brake", (0.025, 0.025, 0.025), 0.75)
@@ -283,10 +285,36 @@ def assemble():
         keep.location = tuple(centre) if parent is root else (0.0, 0.0, 0.0)
 
 
-def export(out):
-    out.mkdir(parents=True, exist_ok=True)
+def lod():
+    for obj in list(bpy.data.objects):
+        if obj.type == "MESH" and (obj.name == "steering-wheel" or obj.name.startswith("steering-wheel")):
+            bpy.data.objects.remove(obj)
+    meshes = [o for o in bpy.data.objects if o.type == "MESH"]
+    for obj in meshes:
+        modifier = obj.modifiers.new("lod", "DECIMATE")
+        modifier.ratio = LOD_RATIO
+        bpy.context.view_layer.objects.active = obj
+        with bpy.context.temp_override(object=obj, active_object=obj, selected_objects=[obj]):
+            bpy.ops.object.modifier_apply(modifier=modifier.name)
+    keep = meshes[0]
+    with bpy.context.temp_override(active_object=keep, selected_editable_objects=meshes, object=keep):
+        bpy.ops.object.join()
+    keep.name = "car"
+    mesh = keep.data
+    names = [slot.name for slot in mesh.materials]
+    fallback = names.index("carbon-part")
+    indices = [names.index(n) if n in LOD_MATERIALS else fallback for n in names]
+    for polygon in mesh.polygons:
+        polygon.material_index = indices[polygon.material_index]
+    for obj in list(bpy.data.objects):
+        if obj.type == "EMPTY":
+            bpy.data.objects.remove(obj)
+
+
+def export(path):
+    path.parent.mkdir(parents=True, exist_ok=True)
     bpy.ops.export_scene.gltf(
-        filepath=str(out / "car.glb"),
+        filepath=str(path),
         export_format="GLB",
         export_yup=True,
         export_texcoords=True,
@@ -300,10 +328,17 @@ def export(out):
     )
 
 
+def triangles():
+    return sum(sum(len(p.vertices) - 2 for p in o.data.polygons) for o in bpy.data.objects if o.type == "MESH")
+
+
 def main():
-    out, work, should_bake = arguments()
+    global ATLAS
+    team_id, work, ATLAS, should_bake = arguments()
+    team = design.use(team_id)
+    out = Path("content/cars") / team_id
     bpy.ops.wm.read_factory_settings(use_empty=True)
-    materials()
+    materials(tuple(design.linear(team["rim"])))
     body.build_body()
     aero.build_aero()
     running.build_running()
@@ -315,11 +350,11 @@ def main():
     if should_bake:
         bake(atlas, work)
     assemble()
-    if "--save" in sys.argv:
-        bpy.ops.wm.save_as_mainfile(filepath=str((work / "car.blend").resolve()))
-    export(out)
-    faces = sum(sum(len(p.vertices) - 2 for p in o.data.polygons) for o in bpy.data.objects if o.type == "MESH")
-    print(f"car: {faces} triangles -> {out / 'car.glb'} {math.floor((out / 'car.glb').stat().st_size / 1e6)} MB")
+    export(out / "car.glb")
+    full = triangles()
+    lod()
+    export(out / "lod.glb")
+    print(f"car: {team_id} {full} triangles, lod {triangles()}")
 
 
 if __name__ == "__main__":

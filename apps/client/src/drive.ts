@@ -27,7 +27,6 @@ import { sdlKeycode } from "./game/keys.ts";
 import { compoundIndex, wearScale } from "./game/tyres.ts";
 import { LapTrace } from "./game/laptrace.ts";
 import { Menu } from "./game/menu.ts";
-import { SdAssets } from "./game/models.ts";
 import { type PadCommands, PadLink } from "./game/pad.ts";
 import { Atmosphere } from "./game/atmosphere.ts";
 import { Scene } from "./game/scene.ts";
@@ -296,14 +295,7 @@ async function main(): Promise<void> {
     performance.now() / 1000,
     raceSystems(settings),
   );
-  const assets = await SdAssets.open("/wasm/sd/");
-  const scene = await Scene.load(
-    engine,
-    assets,
-    car.body,
-    renderer,
-    settings.racingLine,
-  );
+  const scene = await Scene.load(engine, car.id, renderer, settings.racingLine);
   const draw = drawer(renderer, scene);
 
   const reference = loadReference(settings);

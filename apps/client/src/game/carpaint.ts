@@ -29,13 +29,8 @@ import {
   vec2,
   vec3,
 } from "three/tsl";
-import albedoUrl from "../../../../content/cars/vanta-26/albedo.jpg?url";
-import bumpUrl from "../../../../content/cars/vanta-26/bump.jpg?url";
-import gloveUrl from "../../../../content/cars/vanta-26/glove.jpg?url";
-import ormUrl from "../../../../content/cars/vanta-26/orm.jpg?url";
-import tyreUrl from "../../../../content/cars/vanta-26/tyre.jpg?url";
-import wheelFaceUrl from "../../../../content/cars/vanta-26/wheel-face.jpg?url";
 import { finish } from "./road.ts";
+import { carFile } from "./teams.ts";
 
 const envWidth = 512;
 const envHeight = 256;
@@ -58,6 +53,7 @@ const screenHeight = 644;
 const ledCount = 15;
 const ledPitch = 0.00792;
 const ledOutput = 1.6;
+const brakeColour = new THREE.Color(1.5, 0.3, 0.02);
 const atlasMaterials = new Set(["body", "cockpit", "helmet"]);
 const carbonMaterials = new Set(["carbon-part", "wheel-carbon"]);
 const shadedReflection: Record<string, number> = {
@@ -106,14 +102,14 @@ function loaded(url: string, sRgb: boolean, anisotropy: number): THREE.Texture {
   return map;
 }
 
-export function carTextures(anisotropy: number): CarTextures {
+export function carTextures(team: string, anisotropy: number): CarTextures {
   return {
-    albedo: loaded(albedoUrl, true, anisotropy),
-    orm: loaded(ormUrl, false, anisotropy),
-    bump: loaded(bumpUrl, false, anisotropy),
-    tyre: loaded(tyreUrl, true, anisotropy),
-    wheelFace: loaded(wheelFaceUrl, true, anisotropy),
-    glove: loaded(gloveUrl, true, anisotropy),
+    albedo: loaded(carFile(team, "albedo.jpg"), true, anisotropy),
+    orm: loaded(carFile(team, "orm.jpg"), false, anisotropy),
+    bump: loaded(carFile(team, "bump.jpg"), false, anisotropy),
+    tyre: loaded(carFile("shared", "tyre.jpg"), true, anisotropy),
+    wheelFace: loaded(carFile(team, "wheel-face.jpg"), true, anisotropy),
+    glove: loaded(carFile(team, "glove.jpg"), true, anisotropy),
   };
 }
 
@@ -449,9 +445,15 @@ export interface CarMaterials {
   build(source: THREE.MeshStandardMaterial): THREE.Material;
   screen: WheelScreen;
   rev: { value: number };
+  heat: { value: number };
 }
 
 const rev = uniform(0);
+const brakeHeat = uniform(0);
+
+function brakeGlow(physical: THREE.MeshPhysicalNodeMaterial): void {
+  physical.emissiveNode = color(brakeColour).mul(brakeHeat);
+}
 
 function flatMaterial(paint: (material: THREE.MeshBasicNodeMaterial) => void) {
   const material = new THREE.MeshBasicNodeMaterial();
@@ -475,6 +477,24 @@ function ledGlow(physical: THREE.MeshPhysicalNodeMaterial): void {
     .mul(mix(float(0.015), float(1), lit));
 }
 
+function texturedPart(
+  physical: THREE.MeshPhysicalNodeMaterial,
+  textures: CarTextures,
+): void {
+  if (physical.name === "glove") {
+    const fabric = knit();
+    physical.colorNode = texture(textures.glove, uv()).rgb.mul(fabric);
+    physical.normalNode = bumpMap(fabric, float(knitBump));
+    physical.roughness = 0.98;
+  }
+  if (physical.name === "wheel-face") {
+    const face = texture(textures.wheelFace, uv()).rgb;
+    const bare = float(1).sub(smoothstep(0.02, 0.06, luminance(face)));
+    physical.colorNode = face.mul(mix(float(1), weave().mul(1.15), bare));
+    physical.roughness = 0.82;
+  }
+}
+
 function partMaterial(
   source: THREE.MeshStandardMaterial,
   textures: CarTextures,
@@ -483,22 +503,12 @@ function partMaterial(
   const physical = copied(source, env);
   const name = source.name;
   physical.envMapIntensity *= shadedReflection[name] ?? 1;
+  if (name === "brake") brakeGlow(physical);
   if (name === "tyre") {
     physical.map = textures.tyre;
     physical.color.set(1, 1, 1);
   }
-  if (name === "glove") {
-    const fabric = knit();
-    physical.colorNode = texture(textures.glove, uv()).rgb.mul(fabric);
-    physical.normalNode = bumpMap(fabric, float(knitBump));
-    physical.roughness = 0.98;
-  }
-  if (name === "wheel-face") {
-    const face = texture(textures.wheelFace, uv()).rgb;
-    const bare = float(1).sub(smoothstep(0.02, 0.06, luminance(face)));
-    physical.colorNode = face.mul(mix(float(1), weave().mul(1.15), bare));
-    physical.roughness = 0.82;
-  }
+  texturedPart(physical, textures);
   if (carbonMaterials.has(name))
     physical.colorNode = color(physical.color).mul(weave().mul(1.6));
   if (name === "carbon-part") {
@@ -541,5 +551,5 @@ export function carMaterials(
     made.set(source.name, material);
     return material;
   };
-  return { build, screen, rev };
+  return { build, screen, rev, heat: brakeHeat };
 }

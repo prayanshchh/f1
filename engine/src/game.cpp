@@ -375,7 +375,7 @@ EMSCRIPTEN_KEEPALIVE int sdInit(const char *trackCategory, const char *trackName
         GfParmSetStr(robhdle, buf, ROB_ATTR_CAR, carOverride);
         GfParmWriteFile(NULL, robhdle, "human");
     }
-    const char *carName = GfParmGetStr(robhdle, buf, ROB_ATTR_CAR, "sc-cavallo-360");
+    const char *carName = GfParmGetStr(robhdle, buf, ROB_ATTR_CAR, "22mp1-sector-mcl36");
     if (!loadHumanCar(carName))
         return -3;
 

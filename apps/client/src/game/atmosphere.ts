@@ -1,6 +1,5 @@
 import * as THREE from "three/webgpu";
 import { bloom } from "three/examples/jsm/tsl/display/BloomNode.js";
-import { ao } from "three/examples/jsm/tsl/display/GTAONode.js";
 import {
   dot,
   exp,
@@ -37,8 +36,6 @@ const skyHaze = 0.7;
 const skyHazeHeight = 0.32;
 const warmGrade = new THREE.Vector3(1.03, 1.0, 0.95);
 const antialiasSamples = 4;
-const occlusionScale = 0.5;
-const occlusionRadius = 0.6;
 const blurSamples = 8;
 const blurShutter = 0.55;
 const blurLimit = 0.045;
@@ -96,14 +93,6 @@ export class Atmosphere {
       );
       return sum.div(blurSamples);
     })();
-    const occlusion = ao(
-      scenePass.getTextureNode("depth"),
-      null as unknown as THREE.Node,
-      camera,
-    );
-    occlusion.resolutionScale = occlusionScale;
-    occlusion.radius.value = occlusionRadius;
-    const shade = occlusion.getTextureNode().r;
     const direction = normalize(view);
     const toSun = max(dot(direction, this.sunView), 0);
     const ground = float(1).sub(step(0.999999, depth));
@@ -131,7 +120,7 @@ export class Atmosphere {
       .sub(smoothstep(0, skyHazeHeight, up))
       .mul(skyHaze)
       .mul(float(1).sub(ground));
-    const graded = mix(color.mul(shade), tint, max(haze, horizon))
+    const graded = mix(color, tint, max(haze, horizon))
       .add(glare)
       .mul(vec3(warmGrade.x, warmGrade.y, warmGrade.z));
     const glow = bloom(

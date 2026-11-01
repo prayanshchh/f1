@@ -1,0 +1,317 @@
+[
+  {
+    "id": "vanta",
+    "name": "Vanta",
+    "number": "07",
+    "pattern": "deck",
+    "wings": "carbon",
+    "rim": "#0c0c0e",
+    "colours": {
+      "primary": "#851b0f",
+      "deep": "#590f0a",
+      "secondary": "#e7e8e9",
+      "accent": "#f4c43f"
+    },
+    "sponsors": ["NORTHWIND", "VOLTARA", "KESTREL", "AURELIA"],
+    "design": {}
+  },
+  {
+    "id": "meridian",
+    "name": "Meridian",
+    "number": "14",
+    "pattern": "flank",
+    "wings": "primary",
+    "rim": "#16181c",
+    "colours": {
+      "primary": "#c2570f",
+      "deep": "#8a3c0b",
+      "secondary": "#1c1e22",
+      "accent": "#3fb6ef"
+    },
+    "sponsors": ["TESSERA", "LUMORA", "IRONBARK", "VIREO"],
+    "design": {
+      "noseWidth": 0.9,
+      "noseDrop": 0.018,
+      "podWidth": 0.96,
+      "downwash": 0.05,
+      "undercut": 0.05,
+      "wingSweep": 0.34,
+      "wingRise": 1.15,
+      "endplate": 1,
+      "rearEndplate": 1,
+      "airbox": 0.92,
+      "finHeight": 0.9,
+      "neck": "twin"
+    }
+  },
+  {
+    "id": "corvus",
+    "name": "Corvus",
+    "number": "22",
+    "pattern": "spear",
+    "wings": "carbon",
+    "rim": "#23262b",
+    "colours": {
+      "primary": "#17191d",
+      "deep": "#0e0f12",
+      "secondary": "#8e979f",
+      "accent": "#12b5a6"
+    },
+    "sponsors": ["ORBIS", "PALLAS", "SABLE", "FATHOM"],
+    "design": {
+      "noseWidth": 0.82,
+      "noseDrop": -0.012,
+      "podWidth": 0.9,
+      "podTop": 0.03,
+      "downwash": -0.03,
+      "undercut": 0.09,
+      "wingSweep": 0.27,
+      "wingRise": 0.85,
+      "endplate": 2,
+      "rearEndplate": 2,
+      "airbox": 0.82,
+      "finHeight": 1.2,
+      "neck": "single"
+    }
+  },
+  {
+    "id": "halden",
+    "name": "Halden",
+    "number": "33",
+    "pattern": "halfway",
+    "wings": "primary",
+    "rim": "#0e1228",
+    "colours": {
+      "primary": "#16204d",
+      "deep": "#0d1330",
+      "secondary": "#a81820",
+      "accent": "#e8b923"
+    },
+    "sponsors": ["ARKWRIGHT", "COBALTO", "MERIT", "TIDEWAY"],
+    "design": {
+      "noseWidth": 1.14,
+      "noseDrop": 0.01,
+      "podWidth": 1.02,
+      "podTop": -0.03,
+      "downwash": 0.09,
+      "undercut": 0.1,
+      "wingSweep": 0.31,
+      "wingRise": 1.0,
+      "endplate": 2,
+      "rearEndplate": 0,
+      "airbox": 1.12,
+      "finHeight": 0.85,
+      "neck": "twin"
+    }
+  },
+  {
+    "id": "sylvan",
+    "name": "Sylvan",
+    "number": "41",
+    "pattern": "wedge",
+    "wings": "carbon",
+    "rim": "#b7d12f",
+    "colours": {
+      "primary": "#0f4a3c",
+      "deep": "#08302a",
+      "secondary": "#a8c42a",
+      "accent": "#e5e7e0"
+    },
+    "sponsors": ["GROVELAND", "ALDER", "PINEMARK", "RIVERLY"],
+    "design": {
+      "noseWidth": 1.05,
+      "noseDrop": 0.0,
+      "podWidth": 1.0,
+      "podTop": 0.02,
+      "downwash": 0.02,
+      "undercut": 0.02,
+      "wingSweep": 0.36,
+      "wingRise": 1.25,
+      "endplate": 1,
+      "rearEndplate": 2,
+      "airbox": 1.0,
+      "finHeight": 1.1,
+      "neck": "single"
+    }
+  },
+  {
+    "id": "azura",
+    "name": "Azura",
+    "number": "10",
+    "pattern": "deck",
+    "wings": "primary",
+    "rim": "#102a50",
+    "colours": {
+      "primary": "#1763b8",
+      "deep": "#0f3f80",
+      "secondary": "#d05c9f",
+      "accent": "#e8f1fa"
+    },
+    "sponsors": ["SOLVANE", "BRISELY", "MARINO", "OPALINE"],
+    "design": {
+      "noseWidth": 0.86,
+      "noseDrop": 0.014,
+      "podWidth": 0.94,
+      "podTop": -0.02,
+      "downwash": 0.07,
+      "undercut": 0.03,
+      "wingSweep": 0.29,
+      "wingRise": 0.92,
+      "endplate": 0,
+      "rearEndplate": 1,
+      "airbox": 0.88,
+      "finHeight": 1.0,
+      "neck": "twin"
+    }
+  },
+  {
+    "id": "orion",
+    "name": "Orion",
+    "number": "28",
+    "pattern": "flank",
+    "wings": "primary",
+    "rim": "#e2e6ec",
+    "colours": {
+      "primary": "#12235e",
+      "deep": "#0b1740",
+      "secondary": "#dfe3ea",
+      "accent": "#22a7e0"
+    },
+    "sponsors": ["STELLAN", "HARBORLINE", "QUILLON", "BRAEMOOR"],
+    "design": {
+      "noseWidth": 1.1,
+      "noseDrop": -0.008,
+      "podWidth": 1.03,
+      "podTop": 0.01,
+      "downwash": 0.0,
+      "undercut": 0.0,
+      "wingSweep": 0.32,
+      "wingRise": 1.05,
+      "endplate": 0,
+      "rearEndplate": 2,
+      "airbox": 1.06,
+      "finHeight": 0.95,
+      "neck": "single"
+    }
+  },
+  {
+    "id": "strato",
+    "name": "Strato",
+    "number": "55",
+    "pattern": "wedge",
+    "wings": "carbon",
+    "rim": "#b3131c",
+    "colours": {
+      "primary": "#d9dbdf",
+      "deep": "#b7babf",
+      "secondary": "#a8121a",
+      "accent": "#1a1b1e"
+    },
+    "sponsors": ["CIRRUS PEAK", "VANTOR", "HALYARD", "OAKWELL"],
+    "design": {
+      "noseWidth": 0.96,
+      "noseDrop": 0.02,
+      "podWidth": 0.98,
+      "podTop": 0.015,
+      "downwash": 0.04,
+      "undercut": 0.07,
+      "wingSweep": 0.3,
+      "wingRise": 1.1,
+      "endplate": 1,
+      "rearEndplate": 0,
+      "airbox": 0.96,
+      "finHeight": 1.15,
+      "neck": "twin"
+    }
+  },
+  {
+    "id": "novara",
+    "name": "Novara",
+    "number": "61",
+    "pattern": "spear",
+    "wings": "primary",
+    "rim": "#e9eaf0",
+    "colours": {
+      "primary": "#2c2f8f",
+      "deep": "#1b1d60",
+      "secondary": "#e6e7ee",
+      "accent": "#d9354a"
+    },
+    "sponsors": ["LUMEN ROW", "ASTERLY", "KOVA", "SPARROWHAWK"],
+    "design": {
+      "noseWidth": 0.88,
+      "noseDrop": -0.015,
+      "podWidth": 0.92,
+      "podTop": 0.025,
+      "downwash": 0.06,
+      "undercut": 0.11,
+      "wingSweep": 0.26,
+      "wingRise": 0.9,
+      "endplate": 2,
+      "rearEndplate": 1,
+      "airbox": 0.86,
+      "finHeight": 1.05,
+      "neck": "single"
+    }
+  },
+  {
+    "id": "krona",
+    "name": "Krona",
+    "number": "77",
+    "pattern": "halfway",
+    "wings": "carbon",
+    "rim": "#101114",
+    "colours": {
+      "primary": "#7e868e",
+      "deep": "#4a5057",
+      "secondary": "#c2300d",
+      "accent": "#101114"
+    },
+    "sponsors": ["FORGEHAUS", "TITANO", "NORDVIK", "EMBERLY"],
+    "design": {
+      "noseWidth": 1.08,
+      "noseDrop": 0.006,
+      "podWidth": 1.04,
+      "podTop": -0.015,
+      "downwash": 0.1,
+      "undercut": 0.04,
+      "wingSweep": 0.35,
+      "wingRise": 1.2,
+      "endplate": 2,
+      "rearEndplate": 2,
+      "airbox": 1.15,
+      "finHeight": 0.8,
+      "neck": "twin"
+    }
+  },
+  {
+    "id": "ardent",
+    "name": "Ardent",
+    "number": "88",
+    "pattern": "deck",
+    "wings": "carbon",
+    "rim": "#a8852e",
+    "colours": {
+      "primary": "#0f1013",
+      "deep": "#08090b",
+      "secondary": "#a8852e",
+      "accent": "#e9e3cf"
+    },
+    "sponsors": ["GILDHALL", "SOVEREN", "BLACKWATER RIDGE", "CAMBRAY"],
+    "design": {
+      "noseWidth": 0.92,
+      "noseDrop": 0.008,
+      "podWidth": 0.97,
+      "podTop": 0.0,
+      "downwash": 0.03,
+      "undercut": 0.06,
+      "wingSweep": 0.28,
+      "wingRise": 1.0,
+      "endplate": 1,
+      "rearEndplate": 1,
+      "airbox": 0.94,
+      "finHeight": 1.25,
+      "neck": "single"
+    }
+  }
+]

@@ -376,24 +376,3 @@ copyFileSync(
   path.join(root, "content/tracks/cota/sd-frame.json"),
   path.join(out, "sd-frame.json"),
 );
-
-const sdData = path.join(sd, "speed-dreams-data/data");
-const renderOut = path.join(out, "sd");
-rmSync(renderOut, { recursive: true, force: true });
-const manifest = [];
-for (const [dir, pattern] of [
-  ["cars/models/sc-cavallo-360", /\.(acc|png)$/],
-  ["cars/models/22mp1-sector-mcl36", /\.(acc|png)$/],
-  ["data/objects", /\.(ac|acc|png)$/],
-  ["data/textures", /\.png$/],
-]) {
-  mkdirSync(path.join(renderOut, dir), { recursive: true });
-  for (const file of readdirSync(path.join(sdData, dir)).filter((f) =>
-    pattern.test(f),
-  )) {
-    copyFileSync(path.join(sdData, dir, file), path.join(renderOut, dir, file));
-    manifest.push(`${dir}/${file}`);
-  }
-}
-writeFileSync(path.join(renderOut, "manifest.json"), JSON.stringify(manifest));
-process.stdout.write(`render data: ${manifest.length} files\n`);

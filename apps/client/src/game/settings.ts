@@ -1,5 +1,8 @@
 import { nominalFuelPerLap } from "./energy.ts";
 import { ParamDoc, type ParamFs } from "./params.ts";
+import { teams } from "./teams.ts";
+
+const physicsCar = "22mp1-sector-mcl36";
 
 export const tracks = [
   {
@@ -11,29 +14,12 @@ export const tracks = [
   },
 ] as const;
 
-export const cars = [
-  {
-    id: "f1",
-    label: "Vanta V26",
-    detail: "2026 regulations",
-    car: "22mp1-sector-mcl36",
-    body: "vanta",
-  },
-  {
-    id: "f1-2022",
-    label: "F1 2022",
-    detail: "Speed Dreams 22MP1",
-    car: "22mp1-sector-mcl36",
-    body: "sd",
-  },
-  {
-    id: "cavallo",
-    label: "Cavallo 360",
-    detail: "Speed Dreams GT",
-    car: "sc-cavallo-360",
-    body: "sd",
-  },
-] as const;
+export const cars = teams.map((team) => ({
+  id: team.id,
+  label: team.name,
+  detail: "2026 regulations",
+  car: physicsCar,
+}));
 
 export const choices = {
   tyreWear: [
@@ -145,7 +131,7 @@ const practiceFuelLaps = 10;
 
 export const defaults: Settings = {
   track: "cota",
-  car: "f1",
+  car: "vanta",
   session: "practice",
   laps: 5,
   fuel: 0,
@@ -213,12 +199,8 @@ export function loadSettings(params: URLSearchParams): Settings {
 function applyUrl(settings: Settings, params: URLSearchParams): void {
   const track = params.get("track");
   if (track && tracks.some((t) => t.id === track)) settings.track = track;
-  const body = params.get("body");
-  const car = params.get("car");
-  if (body === "vanta") settings.car = "f1";
-  else if (car)
-    settings.car =
-      cars.find((c) => c.car === car && c.body === "sd")?.id ?? settings.car;
+  const team = params.get("team");
+  if (team && cars.some((c) => c.id === team)) settings.car = team;
 }
 
 export function autoFuelLaps(settings: Settings): number {
@@ -236,7 +218,9 @@ export function saveSettings(settings: Settings): void {
 }
 
 export function carOf(settings: Settings): (typeof cars)[number] {
-  return cars.find((c) => c.id === settings.car) ?? cars[0];
+  const car = cars.find((c) => c.id === settings.car) ?? cars[0];
+  if (!car) throw new Error("no teams defined");
+  return car;
 }
 
 export function trackOf(settings: Settings): (typeof tracks)[number] {

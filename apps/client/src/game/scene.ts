@@ -1,13 +1,13 @@
 import * as THREE from "three/webgpu";
-import vantaUrl from "../../../../content/cars/vanta-26/car.glb?url";
 import crewUrl from "../../../../content/tracks/cota/crew.glb?url";
 import racingLineUrl from "../../../../content/tracks/cota/racing-line.json?url";
+import trackUrl from "../../../../content/tracks/cota/track.json?url";
 import roadUrl from "../../../../content/tracks/cota/road.glb?url";
-import { SdCar } from "./car.ts";
+import { carEnvironment } from "./carpaint.ts";
 import { frameIndex, type Engine, type HudInfo } from "./engine.ts";
 import { GltfCar, placeOnTrack, type TrackFrame } from "./gltf.ts";
-import { SdLighting } from "./materials.ts";
-import type { SdAssets } from "./models.ts";
+import { GridCars, type GridSlot } from "./grid.ts";
+import { domeMaterial } from "./materials.ts";
 import {
   castShadows,
   loadRoad,
@@ -59,9 +59,9 @@ export class Scene {
   };
 
   private constructor(
-    private readonly lighting: SdLighting,
     private readonly sky: SdSky,
-    private readonly car: SdCar | GltfCar,
+    private readonly car: GltfCar,
+    private readonly grid: GridCars,
     track: THREE.Object3D,
     private readonly racingLine: RacingLineView,
     readonly crew: PitCrew,
@@ -80,10 +80,10 @@ export class Scene {
     );
     geometry.setAttribute("color", this.domeColors);
     geometry.setIndex(SdSky.domeIndices());
-    this.dome = new THREE.Mesh(geometry, this.lighting.dome());
+    this.dome = new THREE.Mesh(geometry, domeMaterial());
     this.dome.renderOrder = -10;
     this.dome.frustumCulled = false;
-    this.scene.add(this.dome, track, car.root, this.smoke.root);
+    this.scene.add(this.dome, track, car.root, grid.root, this.smoke.root);
     this.sunlight = new Sunlight(this.scene);
     this.scene.add(this.marks.mesh, this.crew.root, this.gate.mesh);
     castShadows(car.root);
@@ -91,23 +91,32 @@ export class Scene {
 
   static async load(
     engine: Engine,
-    assets: SdAssets,
-    body: string,
+    team: string,
     renderer: THREE.WebGPURenderer,
     lineMode: RacingLineMode,
   ): Promise<Scene> {
     const anisotropy = renderer.getMaxAnisotropy();
-    const lighting = new SdLighting();
     const local = engine.trackLocal();
-    const [frame, road, data, crew, car] = await Promise.all([
+    const env = carEnvironment(renderer);
+    const point = engine.trackPoint.bind(engine);
+    const [frame, road, data, crew, car, gridData] = await Promise.all([
       fetchJson<TrackFrame>("/wasm/sd-frame.json"),
       loadRoad(roadUrl, anisotropy),
       fetchJson<RacingLineData>(racingLineUrl),
       PitCrew.load(crewUrl, anisotropy),
-      body === "vanta"
-        ? GltfCar.load(vantaUrl, renderer, lighting)
-        : SdCar.load(assets, lighting, engine.carInfo()),
+      GltfCar.load(team, renderer, env),
+      fetchJson<{ length: number; grid: GridSlot[] }>(trackUrl),
     ]);
+    const lengthScale = engine.trackLength() / gridData.length;
+    const grid = await GridCars.load(
+      team,
+      gridData.grid.map((slot) => ({
+        distance: slot.distance * lengthScale,
+        offset: slot.offset,
+      })),
+      point,
+      env,
+    );
     const racingLine = new RacingLineView(data, data.profile, lineMode);
     const start = engine.trackPoint(0, 0);
     const track = new THREE.Group();
@@ -116,9 +125,9 @@ export class Scene {
       placeOnTrack(racingLine.root, frame, start),
     );
     return new Scene(
-      lighting,
       new SdSky(local),
       car,
+      grid,
       track,
       racingLine,
       crew,
@@ -129,8 +138,7 @@ export class Scene {
   feel(wheels: RumbleWheel[], speed: number, now: number): number {
     this.shake = this.rumble.update(wheels, speed, now - this.lastFeel, now);
     this.lastFeel = now;
-    if (this.car instanceof SdCar)
-      this.car.setRumble(this.shake.heave, this.shake.roll);
+    this.car.setRumble(this.shake.heave, this.shake.roll);
     return this.shake.amount;
   }
 
@@ -147,7 +155,7 @@ export class Scene {
       eye,
       performance.now() / 1000,
     );
-    if (this.car instanceof SdCar) this.car.setPitService(lift, wheelsOff);
+    this.car.setPitService(lift, wheelsOff);
     this.gate.update(control.countdown);
   }
 
@@ -167,15 +175,15 @@ export class Scene {
   }
 
   renderAuxiliary(renderer: THREE.WebGPURenderer): void {
-    if (!(this.car instanceof GltfCar)) return;
     const shadow = this.sunlight.sun.shadow;
     shadow.autoUpdate = false;
-    this.car.renderAuxiliary(renderer, this.scene);
+    this.car.renderAuxiliary(renderer, this.scene, (hidden) => {
+      this.grid.hide(hidden);
+    });
     shadow.autoUpdate = true;
   }
 
   setDash(info: HudInfo): void {
-    if (!(this.car instanceof GltfCar)) return;
     this.car.setDash({
       fuel: info.tank > 0 ? info.fuel / info.tank : 0,
       tyres: info.tyreTemp.map((kelvin) => kelvin - kelvinOffset),
@@ -238,10 +246,10 @@ export class Scene {
 
     const [, , , , , , , , , , , , eyeX, eyeY, eyeZ] =
       this.camera.matrixWorld.elements;
+    this.grid.update(frame, new THREE.Vector3(eyeX, eyeY, eyeZ));
     const time = frame[frameIndex.time] ?? 0;
     setStartLights(time);
     const sky = this.sky.update(time, time, eyeX, eyeY);
-    this.lighting.update(sky, this.camera);
     this.sunlight.update(sky, eyeX, eyeY, eyeZ);
     this.atmosphere.sunDirection.copy(this.sunlight.direction);
     this.atmosphere.haze.setRGB(...sky.fogColor);

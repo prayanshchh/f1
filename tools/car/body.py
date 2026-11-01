@@ -4,6 +4,7 @@ import bmesh
 import bpy
 import numpy as np
 
+from design import param
 from shapes import (
     both,
     box,
@@ -76,9 +77,16 @@ def half_to_ring(half, count):
     return closed_curve(full, count)
 
 
+def shape_nose(x, points):
+    k = float(np.clip((x - 1.35) / 0.7, 0, 1))
+    width = 1 + (param("noseWidth", 1.0) - 1) * k
+    drop = param("noseDrop", 0.0) * k
+    return [(y * width, z - drop) for y, z in points]
+
+
 def body_rings(sections, rings, around):
     xs = np.array([s[0] for s in sections])
-    profiles = np.array([half_to_ring(s[1], around) for s in sections])
+    profiles = np.array([half_to_ring(shape_nose(s[0], s[1]), around) for s in sections])
     samples = np.linspace(xs[0], xs[-1], rings)
     grid = interpolate(xs, profiles, samples)
     out = np.zeros((rings, around, 3))
@@ -167,9 +175,25 @@ def cockpit_rim(rim):
     loft("cockpit-rim", rings, material_name="body", caps=(False, False))
 
 
+def shape_pod(x, points):
+    width = param("podWidth", 1.0)
+    top = param("podTop", 0.0)
+    rear = float(np.clip((0.3 - x) / 1.4, 0, 1))
+    downwash = param("downwash", 0.0) * rear
+    middle = float(np.clip((0.3 - x) / 0.5, 0, 1)) * float(np.clip((x + 1.35) / 0.5, 0, 1))
+    undercut = param("undercut", 0.0) * middle
+    shaped = []
+    for y, z in points:
+        upper = float(np.clip((z - 0.33) / 0.12, 0, 1))
+        low = 1 - float(np.clip((z - 0.10) / 0.22, 0, 1))
+        outer = float(np.clip((y - 0.22) / 0.2, 0, 1))
+        shaped.append((y + (y - 0.22) * (width - 1) * outer, z + upper * (top - downwash) + low * outer * undercut))
+    return shaped
+
+
 def sidepods():
     xs = np.array([s[0] for s in POD_SECTIONS])
-    profiles = np.array([closed_curve(s[1], 64) for s in POD_SECTIONS])
+    profiles = np.array([closed_curve(shape_pod(s[0], s[1]), 64) for s in POD_SECTIONS])
     samples = np.linspace(xs[0], xs[-1], 110)
     grid = interpolate(xs, profiles, samples)
     rings = np.zeros((len(samples), 64, 3))
@@ -194,7 +218,7 @@ def sidepods():
 
 
 def airbox():
-    path = superellipse(0.098, 0.082, 2.6, 48, (0.0, 0.835))
+    path = superellipse(0.098 * param("airbox", 1.0), 0.082, 2.6, 48, (0.0, 0.835))
     rings = []
     for x, scale in ((-0.205, 1.0), (-0.215, 0.93), (-0.45, 0.72)):
         ring = np.zeros((48, 3))
@@ -215,7 +239,7 @@ def airbox():
     plate("roll-hoop-blade", outline, 0.0, 0.03, side=1, samples=48)
     cap = []
     for x, width, height in ((-0.155, 0.070, 0.012), (-0.18, 0.128, 0.026), (-0.33, 0.132, 0.030), (-0.41, 0.100, 0.018)):
-        ring = superellipse(width, height, 4.0, 28, (0.0, 0.900 + (x + 0.155) * -0.12))
+        ring = superellipse(width * param("airbox", 1.0), height, 4.0, 28, (0.0, 0.900 + (x + 0.155) * -0.12))
         cap.append(np.stack([np.full(28, x), ring[:, 0], ring[:, 1]], axis=-1))
     loft("airbox-cap", cap, material_name="headrest", atlas=False)
     tube("t-bar-stalk", [(-0.335, 0.0, 0.930), (-0.335, 0.0, 1.022)], 0.016, 0.011, power=3.0, samples=6, points=14, material_name="headrest", atlas=False, up=(1, 0, 0))
@@ -223,7 +247,8 @@ def airbox():
     for side in (1, -1):
         lens = superellipse(0.011, 0.011, 2.0, 16, (side * 0.160, 1.030))
         loft(f"t-bar-lens.{side}", [np.stack([np.full(16, x), lens[:, 0], lens[:, 1]], axis=-1) for x in (-0.316, -0.312)], material_name="lens", atlas=False)
-    outline = [(-0.60, 0.80), (-1.25, 0.59), (-1.68, 0.47), (-1.68, 0.42), (-1.25, 0.50), (-0.60, 0.72)]
+    fin = param("finHeight", 1.0)
+    outline = [(-0.60, 0.72 + 0.08 * fin), (-1.25, 0.50 + 0.09 * fin), (-1.68, 0.42 + 0.05 * fin), (-1.68, 0.42), (-1.25, 0.50), (-0.60, 0.72)]
     plate("engine-fin", outline, 0.0, 0.008, side=1, samples=64)
 
 

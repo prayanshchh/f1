@@ -4,6 +4,9 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from design import teams
+
 FONT = Path("apps/client/node_modules/@fontsource-variable/saira/files/saira-latin-wght-normal.woff2")
 FACE = (2048, 1386)
 FACE_WIDTH = 0.17
@@ -38,6 +41,10 @@ DIAL_COLOURS = [
 ]
 
 
+def rgb(colour, gain=1.0):
+    return tuple(min(255, int(int(colour[i : i + 2], 16) * gain)) for i in (1, 3, 5))
+
+
 def font(size, weight=700):
     face = ImageFont.truetype(str(FONT), size)
     face.set_variation_by_axes([weight])
@@ -59,7 +66,7 @@ def centred(draw, x, y, text, face, fill):
     draw.text((x - (box[0] + box[2]) / 2, y - (box[1] + box[3]) / 2), text, font=face, fill=fill)
 
 
-def wheel_face(out):
+def wheel_face(out, team):
     image = Image.new("RGB", FACE, (6, 6, 7))
     draw = ImageDraw.Draw(image)
     small = font(24, 700)
@@ -104,15 +111,15 @@ def wheel_face(out):
     dot = (208, 208, 212)
     for y, z in ((0.112, 0.056), (0.112, 0.048), (0.112, 0.040), (-0.112, 0.056), (-0.112, 0.048), (-0.112, 0.040), (0.0735, 0.040), (0.0735, 0.032), (-0.0735, 0.040), (-0.0735, 0.032)):
         circle(draw, y, z, 0.0018, fill=dot)
-    centred(draw, *to_px(0.0, 0.094), "VANTA", font(40, 900), (230, 230, 232))
+    centred(draw, *to_px(0.0, 0.094), team["name"].upper(), font(40, 900), (230, 230, 232))
     image.save(out / "wheel-face.jpg", quality=92, subsampling=0)
 
 
-def glove(out):
+def glove(out, team):
     width, height = GLOVE
-    image = Image.new("RGB", GLOVE, (128, 30, 20))
+    image = Image.new("RGB", GLOVE, rgb(team["colours"]["primary"], 1.5))
     draw = ImageDraw.Draw(image)
-    accent = (228, 190, 70)
+    accent = rgb(team["colours"]["accent"])
     for edge, toward in ((0, 1), (width, -1)):
         def px(u, v, edge=edge, toward=toward):
             return (edge + toward * u, v)
@@ -126,25 +133,26 @@ def glove(out):
     draw.rectangle((0, height - 118, width, height), fill=INK)
     draw.rectangle((0, height - 124, width, height - 114), fill=(214, 214, 214))
     draw.rectangle((width // 2 - 110, height - 104, width // 2 + 110, height - 40), fill=(38, 38, 42))
-    stitch = (92, 22, 14)
+    stitch = rgb(team["colours"]["deep"])
     for x in range(230, width - 230, 62):
         draw.line((x, 10, x + 10, height - 130), fill=stitch, width=2)
     for x in (180, width - 180):
         for y in range(0, height - 130, 22):
             draw.line((x, y, x + 2, y + 12), fill=(236, 226, 214), width=2)
     layer = Image.new("RGBA", (250, 70), (0, 0, 0, 0))
-    ImageDraw.Draw(layer).text((6, 2), "VANTA", font=font(52, 900), fill=(240, 240, 240, 255))
+    ImageDraw.Draw(layer).text((6, 2), team["name"].upper()[:8], font=font(52, 900), fill=(240, 240, 240, 255))
     layer = layer.rotate(50, expand=True, resample=Image.BICUBIC)
     image.paste(layer, (width // 2 - 110, 210), layer)
     image.save(out / "glove.jpg", quality=92, subsampling=0)
 
 
 def main():
-    out = Path(sys.argv[1] if len(sys.argv) > 1 else "content/cars/vanta-26")
-    wheel_face(out)
-    glove(out)
-    array = np.asarray(Image.open(out / "wheel-face.jpg"))
-    print(f"art: {array.shape} -> {out}")
+    root = Path("content/cars")
+    for team in teams():
+        (root / team["id"]).mkdir(parents=True, exist_ok=True)
+        wheel_face(root / team["id"], team)
+        glove(root / team["id"], team)
+    print("art: wheel faces and gloves")
 
 
 if __name__ == "__main__":

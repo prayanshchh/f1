@@ -1,5 +1,6 @@
 import numpy as np
 
+from design import param
 from shapes import both, box, closed_curve, loft, open_curve, plate, superellipse, sweep, tube, wing
 
 FLAP_SPAN = 0.66
@@ -8,7 +9,7 @@ REAR_SPAN = 0.55
 
 
 def leading(y):
-    return 2.914 - 0.30 * y / FRONT_SPAN
+    return 2.914 - param("wingSweep", 0.30) * y / FRONT_SPAN
 
 
 def trailing(y):
@@ -20,7 +21,19 @@ def inner_rise(y, amount):
 
 
 def outer_rise(y, amount):
-    return amount * np.clip((y - 0.30) / 0.36, 0, 1) ** 1.3
+    return param("wingRise", 1.0) * amount * np.clip((y - 0.30) / 0.36, 0, 1) ** 1.3
+
+
+FRONT_ENDPLATES = (
+    [(2.625, 0.070), (2.645, 0.125), (2.565, 0.205), (2.41, 0.285), (2.23, 0.330), (2.10, 0.322), (2.09, 0.210), (2.14, 0.085), (2.36, 0.050)],
+    [(2.60, 0.070), (2.615, 0.20), (2.56, 0.315), (2.40, 0.355), (2.22, 0.355), (2.11, 0.335), (2.10, 0.20), (2.15, 0.085), (2.36, 0.050)],
+    [(2.65, 0.070), (2.665, 0.11), (2.54, 0.17), (2.38, 0.225), (2.22, 0.265), (2.09, 0.275), (2.08, 0.18), (2.14, 0.08), (2.36, 0.050)],
+)
+REAR_ENDPLATES = (
+    [(-1.895, 0.745), (-1.925, 0.835), (-2.01, 0.900), (-2.20, 0.930), (-2.385, 0.925), (-2.490, 0.895), (-2.470, 0.770), (-2.300, 0.610), (-2.120, 0.500), (-1.985, 0.520), (-1.91, 0.640)],
+    [(-1.895, 0.70), (-1.90, 0.86), (-1.95, 0.925), (-2.20, 0.935), (-2.42, 0.935), (-2.49, 0.92), (-2.49, 0.72), (-2.40, 0.58), (-2.16, 0.50), (-1.98, 0.50), (-1.91, 0.60)],
+    [(-1.90, 0.76), (-1.97, 0.86), (-2.12, 0.915), (-2.30, 0.945), (-2.47, 0.965), (-2.50, 0.90), (-2.44, 0.74), (-2.26, 0.60), (-2.08, 0.51), (-1.97, 0.54), (-1.91, 0.66)],
+)
 
 
 def front_wing():
@@ -53,17 +66,7 @@ def front_wing():
         camber=0.03,
         points=26,
     )
-    outline = [
-        (2.625, 0.070),
-        (2.645, 0.125),
-        (2.565, 0.205),
-        (2.41, 0.285),
-        (2.23, 0.330),
-        (2.10, 0.322),
-        (2.09, 0.210),
-        (2.14, 0.085),
-        (2.36, 0.050),
-    ]
+    outline = FRONT_ENDPLATES[param("endplate", 0)]
     plate("fw-endplate", outline, FRONT_SPAN, 0.010, samples=120, lean=lambda x, z: 0.08 * (z - 0.06))
     plate("fw-inner-plate", outline, FLAP_SPAN, 0.007, samples=80, lean=lambda x, z: -0.03 * (z - 0.06))
     outline = [(2.625, 0.040), (2.655, 0.052), (2.36, 0.056), (2.10, 0.058), (2.10, 0.042), (2.36, 0.036)]
@@ -90,19 +93,7 @@ def rear_wing():
     flap = [(y, -2.180, 0.812 - dip(y) * 0.6, 0.205, 38) for y in ys]
     wing("rw-main", main, samples=48, thickness=0.045, camber=0.06, points=32)
     wing("rw-flap", flap, samples=48, thickness=0.05, camber=0.07, points=32)
-    outline = [
-        (-1.895, 0.745),
-        (-1.925, 0.835),
-        (-2.01, 0.900),
-        (-2.20, 0.930),
-        (-2.385, 0.925),
-        (-2.490, 0.895),
-        (-2.470, 0.770),
-        (-2.300, 0.610),
-        (-2.120, 0.500),
-        (-1.985, 0.520),
-        (-1.91, 0.640),
-    ]
+    outline = REAR_ENDPLATES[param("rearEndplate", 0)]
     plate("rw-endplate", outline, REAR_SPAN, 0.012, samples=140, lean=lambda x, z: 0.03 * np.clip(0.65 - z, 0, 1))
     outline = [(-1.91, 0.660), (-2.08, 0.470), (-2.03, 0.29), (-1.97, 0.27), (-1.88, 0.50)]
     plate("rw-endplate-lower", outline, REAR_SPAN - 0.02, 0.008, samples=60, lean=lambda x, z: 0.05 * np.clip(0.60 - z, 0, 1))
@@ -129,12 +120,12 @@ def rear_wing():
             z = 0.302 + (row - 2) * 0.0098
             dot = superellipse(0.0032, 0.0032, 2.0, 10, (y, z))
             loft(f"rain-led-{row}-{column}", [np.stack([np.full(10, x), dot[:, 0], dot[:, 1]], axis=-1) for x in (-2.507, -2.5095)], material_name="led-red", atlas=False)
-    for side in (1, -1):
+    for side in (1, -1) if param("neck", "twin") == "twin" else (0,):
         tube(
             f"rw-neck.{side}",
             [(-1.93, side * 0.022, 0.390), (-1.97, side * 0.024, 0.520), (-2.01, side * 0.026, 0.660), (-2.05, side * 0.028, 0.745)],
-            0.0065,
-            0.030,
+            0.0065 if side else 0.011,
+            0.030 if side else 0.038,
             samples=26,
             power=3.0,
             up=(1, 0, 0.3),

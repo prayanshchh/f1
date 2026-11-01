@@ -56,7 +56,6 @@ TOWER_POST = 0.11
 TOWER_BRACE = 0.05
 SEED = 25
 
-SKIN = ("skin light", "skin mid", "skin dark")
 
 
 class Frame:
@@ -131,43 +130,33 @@ def limb(batch, start, end, r0, r1, uv, segments=8):
     batch.add([start + a * r0 for a in ring], [uv[0]] * segments)
 
 
-def head(batch, centre, radius, uv, stretch=1.15):
-    for lat0, lat1 in zip(np.linspace(-np.pi / 2, np.pi / 2, 6)[:-1], np.linspace(-np.pi / 2, np.pi / 2, 6)[1:]):
-        for lon0, lon1 in zip(np.linspace(0, 2 * np.pi, 10)[:-1], np.linspace(0, 2 * np.pi, 10)[1:]):
-            point = lambda la, lo: centre + radius * np.array([np.cos(la) * np.cos(lo), np.cos(la) * np.sin(lo), np.sin(la) * stretch])
-            batch.add([point(lat0, lon0), point(lat0, lon1), point(lat1, lon1), point(lat1, lon0)], uv)
+class Figures:
+    def __init__(self, path):
+        self.data = np.load(path)
+
+    def add(self, parts, origin, heading, tile, tone, pose):
+        gender = "Female" if tone % 3 == 2 else "Male"
+        forward = np.array([np.cos(heading), np.sin(heading)])
+        left = np.array([-forward[1], forward[0]])
+        columns, rows = 4, 3
+        tile_u, tile_v = tile % columns, rows - 1 - tile // columns
+        for tag in ("cloth", "skin", "hair", "eyes"):
+            key = f"{gender}_{pose}_{tag}"
+            batch = parts[f"people {tag}"] if tag != "skin" else parts[f"people skin {gender} {tone % 2}"]
+            for corners, coords in zip(self.data[f"{key}_tri"], self.data[f"{key}_uv"]):
+                world = [
+                    (origin[0] + c[0] * left[0] - c[1] * forward[0], origin[1] + c[0] * left[1] - c[1] * forward[1], origin[2] + c[2])
+                    for c in corners
+                ]
+                if tag == "cloth":
+                    mapped = [((tile_u + c[0]) / columns, (tile_v + c[1]) / rows) for c in coords]
+                else:
+                    mapped = [tuple(c) for c in coords]
+                batch.add(world, mapped)
 
 
-def person(batch, origin, heading, shirt, trousers, skin, lean=0.0, arms_out=0.0, headset=True):
-    forward = np.array([np.cos(heading), np.sin(heading), 0.0])
-    side = np.array([-forward[1], forward[0], 0.0])
-    up = np.array([0.0, 0.0, 1.0])
-    shirt_uv, trouser_uv, skin_uv = flat(shirt), flat(trousers), flat(skin)
-    black = flat("black")
-    hip = origin + up * 0.92
-    chest = hip + up * (0.52 * np.cos(lean)) + forward * (0.52 * np.sin(lean))
-    neck = chest + up * (0.08 * np.cos(lean)) + forward * (0.08 * np.sin(lean))
-    centre = neck + up * 0.14 + forward * (0.12 * np.sin(lean))
-    for sign in (1, -1):
-        foot = origin + side * sign * 0.13
-        knee = origin + up * 0.48 + side * sign * 0.12 + forward * (0.03 + 0.05 * np.sin(lean))
-        limb(batch, foot + up * 0.06, knee, 0.075, 0.085, trouser_uv)
-        limb(batch, knee, hip + side * sign * 0.1, 0.085, 0.11, trouser_uv)
-        limb(batch, foot, foot + forward * 0.22 + up * 0.05, 0.06, 0.05, black)
-        shoulder = chest + side * sign * 0.22 - up * 0.04
-        elbow = shoulder - up * (0.28 * np.cos(arms_out)) + forward * (0.28 * np.sin(arms_out)) + side * sign * 0.03
-        hand = elbow - up * (0.26 * np.cos(arms_out * 1.3)) + forward * (0.26 * np.sin(arms_out * 1.3))
-        limb(batch, shoulder, elbow, 0.058, 0.05, shirt_uv)
-        limb(batch, elbow, hand, 0.044, 0.036, skin_uv)
-    limb(batch, hip, chest, 0.145, 0.19, shirt_uv)
-    limb(batch, chest, neck, 0.19, 0.06, shirt_uv)
-    limb(batch, neck, centre, 0.055, 0.055, skin_uv)
-    head(batch, centre, 0.105, skin_uv)
-    head(batch, centre + up * 0.035 - forward * 0.02, 0.1, flat("hair"), 0.95)
-    if headset:
-        limb(batch, centre + side * 0.112, centre - side * 0.112, 0.022, 0.022, black, 6)
-        for sign in (1, -1):
-            head(batch, centre + side * sign * 0.112, 0.05, black, 1.0)
+POSES = ("ready", "talking", "interact", "arms_folded", "hands_hips")
+MARSHAL_TILE = 10
 
 
 def bays(track):
@@ -277,13 +266,13 @@ def equipment(frame, pit, parts):
         box(team_parts, frame, cart_s, cart_s + CART_SIZE[1], front - 1.21, front - 1.19 + CART_SIZE[0], CART_SIZE[2], CART_SIZE[2] + 0.06, flat(colour))
 
 
-def crew(frame, pit, batch, rng):
+def crew(frame, pit, parts, rng, figures):
     front = pit["garageFront"]
     all_bays = bays(frame.track)
     lane_heading = np.arctan2(*frame.basis(all_bays[0][0])[1][::-1]) + np.pi
     for index, (s, spacing) in enumerate(all_bays):
         team = team_of(index, len(all_bays))
-        if team is None:
+        if team is None or index == pit["playerBay"]:
             continue
         shirt = f"team {team}"
         count = 4 if index % 2 == 0 else 2
@@ -291,22 +280,20 @@ def crew(frame, pit, batch, rng):
             place_s = s + spacing * (0.2 + 0.6 * (member + rng.random()) / count)
             place_lat = front - rng.uniform(2.0, 5.6)
             heading = lane_heading + rng.uniform(-0.7, 0.7)
-            lean = rng.choice([0.0, 0.0, 0.0, 0.55])
-            person(batch, frame.at(place_s, place_lat, 0.02), heading, shirt, "dark", SKIN[int(rng.integers(0, 3))], lean=lean, arms_out=0.25 if lean else rng.uniform(0, 0.15))
+            figures.add(parts, frame.at(place_s, place_lat, 0.02), heading, team, int(rng.integers(0, 6)), str(rng.choice(POSES)))
 
 
-def marshals(frame, pit, batch, rng):
+def marshals(frame, pit, parts, rng, figures):
     length = frame.track.length
     deck = pit["pitWall"] + pit["pitWallDeck"] / 2
     span = (pit["garageEnd"] - pit["garageStart"]) % length
     tangent_heading = np.arctan2(*frame.basis(pit["garageStart"])[0][::-1])
     for _ in range(MARSHAL_COUNT):
         s = pit["garageStart"] + rng.uniform(5.0, span - 5.0)
-        shirt = "marshal" if rng.random() < 0.8 else "hi vis"
-        person(batch, frame.at(s, deck + rng.uniform(-0.6, 0.6), 1.02), tangent_heading - np.pi / 2 + rng.uniform(-0.8, 0.8), shirt, "marshal" if shirt == "marshal" else "dark", SKIN[int(rng.integers(0, 3))], headset=False)
+        figures.add(parts, frame.at(s, deck + rng.uniform(-0.6, 0.6), 1.02), tangent_heading - np.pi / 2 + rng.uniform(-0.8, 0.8), MARSHAL_TILE, int(rng.integers(0, 6)), str(rng.choice(POSES)))
 
 
-def pit_wall(frame, pit, parts, rng):
+def pit_wall(frame, pit, parts, rng, figures):
     length = frame.track.length
     front = pit["pitWall"]
     deck = pit["pitWallDeck"]
@@ -344,7 +331,7 @@ def pit_wall(frame, pit, parts, rng):
         station_roof.add([frame.at(s0 - 0.3, l0 - 0.3, 3.5), frame.at(s1 + 0.3, l0 - 0.3, 3.5), frame.at(s1 + 0.3, l1 + 0.3, 3.5 + STATION_ROOF), frame.at(s0 - 0.3, l1 + 0.3, 3.5 + STATION_ROOF)], UNIT)
         box(team_parts, frame, s0 - 0.3, s1 + 0.3, l1 + 0.28, l1 + 0.32, 3.2, 3.5 + STATION_ROOF, colour)
         for seat in (0.25, 0.5, 0.75):
-            person(parts["people"], frame.at(s0 + STATION_LENGTH * seat, l1 - 0.15, 1.02), np.arctan2(*frame.basis(s0)[1][::-1]) + np.pi, f"team {team}", "dark", SKIN[int(rng.integers(0, 3))])
+            figures.add(parts, frame.at(s0 + STATION_LENGTH * seat, l1 - 0.15, 1.02), np.arctan2(*frame.basis(s0)[1][::-1]) + np.pi, team, int(rng.integers(0, 6)), str(rng.choice(POSES)))
     for stairs in (0.2, 0.5, 0.8):
         s = start + span * stairs
         step_depth = 0.2
@@ -404,17 +391,18 @@ def entry_signs(frame, pit, parts):
     signs.add([frame.at(arrow_s, wall + 0.85, 2.0), frame.at(arrow_s, wall - 0.45, 2.0), frame.at(arrow_s, wall - 0.45, 3.3), frame.at(arrow_s, wall + 0.85, 3.3)], [(0, 0), (1, 0), (1, 0.5), (0, 0.5)])
 
 
-def build(track):
+def build(track, figure_path):
     frame = Frame(track)
+    figures = Figures(figure_path)
     pit = track.pit
-    names = ("panels", "fascia", "banner", "canopy", "floor", "inner", "back", "lights", "steel", "team", "tyres", "metal", "screens", "people", "white", "signs", "concrete", "tower")
+    names = ("panels", "fascia", "banner", "canopy", "floor", "inner", "back", "lights", "steel", "team", "tyres", "metal", "screens", "people cloth", "people hair", "people eyes", "people skin Male 0", "people skin Male 1", "people skin Female 0", "people skin Female 1", "white", "signs", "concrete", "tower")
     parts = {name: Batch() for name in names}
     rng = np.random.default_rng(SEED)
     garage_front(frame, pit, parts)
     equipment(frame, pit, parts)
-    crew(frame, pit, parts["people"], rng)
-    marshals(frame, pit, parts["people"], rng)
-    pit_wall(frame, pit, parts, rng)
+    crew(frame, pit, parts, rng, figures)
+    marshals(frame, pit, parts, rng, figures)
+    pit_wall(frame, pit, parts, rng, figures)
     start = pit["garageStart"]
     span = (pit["garageEnd"] - start) % track.length
     for position, reach in ((0.25, float(track.walls[0, 1]) + 2.0), (0.68, None)):

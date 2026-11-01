@@ -1,3 +1,9 @@
+import {
+  PitStop,
+  steerCommand,
+  type PitDrive,
+  type PitLayout,
+} from "./game/pitstop.ts";
 import "@fontsource-variable/saira/wdth.css";
 import "./drive.css";
 import * as THREE from "three/webgpu";
@@ -242,6 +248,7 @@ async function main(): Promise<void> {
   window.addEventListener("resize", resize);
   resize();
 
+  let pitPressed = false;
   let paused = false;
   let finished = false;
   const pause = () => {
@@ -258,6 +265,7 @@ async function main(): Promise<void> {
   };
 
   const drive = (down: boolean, event: KeyboardEvent) => {
+    if (down && event.code === "Space") pitPressed = true;
     const code = sdlKeycode(event);
     if (code === null) return;
     event.preventDefault();
@@ -281,20 +289,66 @@ async function main(): Promise<void> {
   setStatus("");
   document.body.dataset["driveStatus"] = "running";
 
+  const layout = (
+    (await (await fetch("/wasm/sd-frame.json")).json()) as { pit: PitLayout }
+  ).pit;
+  const pit = new PitStop(layout, settings.pitExperience === "broadcast");
+  scene.placePit(layout, (d, l) => engine.trackPoint(d, l));
+  const startFuel = engine.hudInfo().fuel;
+  let padBrakeWas = false;
+  const steerToward = (frame: Float64Array, drive: PitDrive) => {
+    const ahead = (frame[frameIndex.distFromStart] ?? 0) + drive.lookahead;
+    const posMat = frameIndex.posMat;
+    return steerCommand(
+      {
+        x: frame[posMat + 12] ?? 0,
+        y: frame[posMat + 13] ?? 0,
+        heading: Math.atan2(frame[posMat + 1] ?? 0, frame[posMat] ?? 1),
+        speed: Math.abs(frame[frameIndex.speed] ?? 0),
+      },
+      engine.trackPoint(ahead, drive.lateral - pit.shiftAt(ahead)),
+      drive.speed,
+    );
+  };
+
   let savedBest = reference
     ? reference.sectors.reduce((a, b) => a + b, 0)
     : Infinity;
+  const applyPit = (frame: Float64Array, now: number) => {
+    const padInput = pad.current(now);
+    const brakeDown = (padInput?.brake ?? 0) > 0.5;
+    const pressed = pitPressed || (brakeDown && !padBrakeWas);
+    padBrakeWas = brakeDown;
+    pitPressed = false;
+    const distance = frame[frameIndex.distFromStart] ?? 0;
+    const control = pit.update(
+      {
+        distance,
+        toMiddle: frame[frameIndex.toMiddle] ?? 0,
+        speed: Math.abs(frame[frameIndex.speed] ?? 0),
+      },
+      now,
+      pressed,
+    );
+    engine.speedLimit(control.limit);
+    engine.pitHold(control.hold);
+    engine.analog(control.drive ? steerToward(frame, control.drive) : padInput);
+    if (control.serviceNow) engine.pitService(startFuel);
+    return control;
+  };
   const step = (now: number) => {
-    engine.analog(pad.current(now));
     const frame = engine.update(now);
+    const control = applyPit(frame, now);
     pad.feedback(
       now,
       Math.abs(frame[frameIndex.speed] ?? 0) * 3.6,
       frame[frameIndex.gear] ?? 0,
     );
     scene.update(frame);
+    scene.updatePit(control, frame);
     scene.marks.update(frame, engine.wheelGrip());
     hud.update(frame, engine.hudInfo(), now);
+    hud.updatePit(control);
     const bestTime = trace.bestTime ?? Infinity;
     if (bestTime < savedBest) {
       savedBest = bestTime;

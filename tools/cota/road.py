@@ -8,6 +8,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import billboards
+from materials import flat_material, material
 import pitlane
 import trackside
 import vegetation
@@ -216,45 +217,6 @@ def grid_faces(rows, columns, closed):
         for j in range(columns - 1):
             faces.append((a + j, b + j, b + j + 1, a + j + 1))
     return faces
-
-
-def flat_material(name, rgb, metallic, roughness):
-    mat = bpy.data.materials.new(name)
-    bsdf = mat.node_tree.nodes["Principled BSDF"]
-    bsdf.inputs["Base Color"].default_value = (*rgb, 1.0)
-    bsdf.inputs["Metallic"].default_value = metallic
-    bsdf.inputs["Roughness"].default_value = roughness
-    return mat
-
-
-def material(name, color, roughness=None, normal=None, metallic=0.0, alpha=False):
-    mat = bpy.data.materials.new(name)
-    nodes = mat.node_tree.nodes
-    links = mat.node_tree.links
-    bsdf = nodes["Principled BSDF"]
-    bsdf.inputs["Metallic"].default_value = metallic
-    image = nodes.new("ShaderNodeTexImage")
-    image.image = bpy.data.images.load(str(color))
-    links.new(image.outputs["Color"], bsdf.inputs["Base Color"])
-    if alpha:
-        links.new(image.outputs["Alpha"], bsdf.inputs["Alpha"])
-    if roughness is not None:
-        rough = nodes.new("ShaderNodeTexImage")
-        rough.image = bpy.data.images.load(str(roughness))
-        rough.image.colorspace_settings.name = "Non-Color"
-        split = nodes.new("ShaderNodeSeparateColor")
-        links.new(rough.outputs["Color"], split.inputs["Color"])
-        links.new(split.outputs["Green"], bsdf.inputs["Roughness"])
-    else:
-        bsdf.inputs["Roughness"].default_value = 0.9
-    if normal is not None:
-        nor = nodes.new("ShaderNodeTexImage")
-        nor.image = bpy.data.images.load(str(normal))
-        nor.image.colorspace_settings.name = "Non-Color"
-        map_node = nodes.new("ShaderNodeNormalMap")
-        links.new(nor.outputs["Color"], map_node.inputs["Color"])
-        links.new(map_node.outputs["Normal"], bsdf.inputs["Normal"])
-    return mat
 
 
 def mesh(name, vertices, faces, uvs, mat, smooth=True):
@@ -487,8 +449,8 @@ def pit_markings(track, paint):
         parts.append(rectangle(track, s0, s0 + LINE_WIDTH / 2, work_near, front - 1.0, lift))
         middle = s0 + spacing / 2
         for axle in (-1.75, 1.75):
-            parts.append(rectangle(track, middle + axle - PIT_BOX_EDGE / 2, middle + axle + PIT_BOX_EDGE / 2, front - 6.0, front - 5.85, lift))
-            parts.append(rectangle(track, middle + axle - 0.08, middle + axle + 0.08, front - 6.0, front - 4.8, lift))
+            parts.append(rectangle(track, middle + axle - PIT_BOX_EDGE / 2, middle + axle + PIT_BOX_EDGE / 2, pit["boxLateral"] - 1.0, pit["boxLateral"] - 0.85, lift))
+            parts.append(rectangle(track, middle + axle - 0.08, middle + axle + 0.08, pit["boxLateral"] - 1.0, pit["boxLateral"] + 1.0, lift))
     combine("pit lines", parts, paint)
 
 
@@ -626,8 +588,8 @@ def glow_material(name, rgb, strength):
     return mat
 
 
-def paddock_meshes(track, source, derived):
-    parts = pitlane.build(track)
+def paddock_meshes(track, source, derived, build):
+    parts = pitlane.build(track, build / "crew_static.npz")
     palette = material("cota paddock team", derived / "palette_base_color.png")
     materials = {
         "panels": flat_material("cota paddock panels", (0.035, 0.045, 0.07), 0.2, 0.55),
@@ -648,11 +610,24 @@ def paddock_meshes(track, source, derived):
         "concrete": material("cota paddock concrete", source / "rough_concrete_base_color.jpg", normal=source / "rough_concrete_normal.jpg"),
         "tower": flat_material("cota paddock tower", (0.05, 0.22, 0.13), 0.5, 0.5),
     }
+    crew_source = source.parent.parent / "source" / "crew"
+    people = {
+        "people cloth": material("cota paddock people", derived / "crew_static_base_color.png"),
+        "people hair": flat_material("cota paddock hair", (0.03, 0.02, 0.014), 0.0, 0.6),
+        "people eyes": material("cota paddock eyes", crew_source / "T_Eye_Brown.png"),
+        "people skin Male 0": material("cota skin male light", crew_source / "T_Superhero_Male_Ligh.png"),
+        "people skin Male 1": material("cota skin male dark", crew_source / "T_Superhero_Male_Dark.png"),
+        "people skin Female 0": material("cota skin female light", crew_source / "T_Superhero_Female_Light_BaseColor.png"),
+        "people skin Female 1": material("cota skin female dark", crew_source / "T_Superhero_Female_Dark_BaseColor.png"),
+    }
     for name, batch in parts.items():
-        if name != "people" and batch.faces:
+        if name in people:
+            if batch.faces:
+                smoothed_mesh(f"paddock {name}", batch, people[name])
+            continue
+        if batch.faces:
             vertices, faces, uv = batch.arrays()
             mesh(f"paddock {name}", vertices, faces, {"UVMap": uv}, materials[name], smooth=name in ("team", "tyres", "metal"))
-    smoothed_mesh("paddock people", parts["people"], palette)
 
 
 def glow_textured(name, path, strength):
@@ -788,7 +763,7 @@ def main():
         material("cota pit strip", derived / "boards_base_color.png"),
         flat_material("cota pit red", (0.55, 0.03, 0.04), 0.0, 0.6),
     )
-    paddock_meshes(track, source, derived)
+    paddock_meshes(track, source, derived, build)
     billboard_meshes(track, derived)
     verges(track, grass)
     trackside_meshes(track, source, derived)

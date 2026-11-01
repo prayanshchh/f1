@@ -4,7 +4,7 @@ import { float, smoothstep, uv, vec3 } from "three/tsl";
 import { frameIndex } from "./engine.ts";
 import type { SdLighting } from "./materials.ts";
 
-const gltfToSdWorld = new THREE.Matrix4().set(
+export const gltfToSdWorld = new THREE.Matrix4().set(
   1,
   0,
   0,

@@ -92,7 +92,9 @@ const depthOffsets: Record<string, number> = {
   "cota terrain": 2,
 };
 
-function finish(material: THREE.MeshStandardNodeMaterial): void {
+export function finish(
+  material: THREE.MeshStandardNodeMaterial | THREE.MeshBasicNodeMaterial,
+): void {
   material.outputNode = renderOutput(
     output,
     THREE.ACESFilmicToneMapping,
@@ -179,7 +181,7 @@ function shadeCanopy(
   );
 }
 
-function surface(
+export function surface(
   source: THREE.MeshStandardMaterial,
   anisotropy: number,
 ): THREE.MeshStandardNodeMaterial {

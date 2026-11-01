@@ -324,6 +324,7 @@ export class Menu {
             autoReverse: defaults.autoReverse,
             assist: defaults.assist,
             antiLock: defaults.antiLock,
+            pitExperience: defaults.pitExperience,
             abs: defaults.abs,
             tc: defaults.tc,
             steerSensitivity: defaults.steerSensitivity,
@@ -809,6 +810,15 @@ export class Menu {
         () => s.autoReverse,
         (v) => {
           s.autoReverse = v;
+        },
+      ),
+      this.choice(
+        "Pit Stop Experience",
+        "Immersive tests your timing: press Space, or the brake on your phone, as the turn-in countdown reaches zero. Broadcast turns in for you with a perfect stop.",
+        choices.pitExperience,
+        () => s.pitExperience,
+        (id) => {
+          s.pitExperience = id as Settings["pitExperience"];
         },
       ),
       this.toggle(

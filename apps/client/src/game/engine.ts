@@ -117,6 +117,18 @@ export class Engine {
     return new Engine(module);
   }
 
+  speedLimit(metresPerSecond: number): void {
+    this.module._sdInputSpeedLimit(metresPerSecond);
+  }
+
+  pitHold(on: boolean): void {
+    this.module._sdInputPitHold(on ? 1 : 0);
+  }
+
+  pitService(fuel: number): void {
+    this.module._sdPitService(fuel);
+  }
+
   viewKey(code: number, ctrl: boolean): boolean {
     return this.module._sdViewKey(code, ctrl ? 1 : 0) !== 0;
   }

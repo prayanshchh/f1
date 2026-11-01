@@ -1,5 +1,6 @@
 import * as THREE from "three/webgpu";
 import vantaUrl from "../../../../content/cars/vanta-26/lod0.glb?url";
+import crewUrl from "../../../../content/tracks/cota/crew.glb?url";
 import racingLineUrl from "../../../../content/tracks/cota/racing-line.json?url";
 import roadUrl from "../../../../content/tracks/cota/road.glb?url";
 import { SdCar } from "./car.ts";
@@ -11,9 +12,13 @@ import { castShadows, loadRoad, setStartLights, Sunlight } from "./road.ts";
 import type { AtmosphereState } from "./atmosphere.ts";
 import type { RacingLineData, RacingLineMode } from "./racing-line.ts";
 import { RacingLineView } from "./racing-line-view.ts";
+import { PitCrew } from "./pit-crew.ts";
+import { PitGate } from "./pit-gate.ts";
+import type { PitControl, PitLayout } from "./pitstop.ts";
 import { SkidMarks } from "./skidmarks.ts";
 import { SdSky } from "./sky.ts";
 
+const gateLead = 30;
 const flipX = new THREE.Matrix4().makeScale(-1, 1, 1);
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -31,6 +36,7 @@ export class Scene {
   private readonly dome: THREE.Mesh;
   private readonly sunlight: Sunlight;
   readonly marks = new SkidMarks();
+  readonly gate = new PitGate();
   readonly atmosphere: AtmosphereState = {
     sunDirection: new THREE.Vector3(),
     haze: new THREE.Color(),
@@ -43,6 +49,7 @@ export class Scene {
     private readonly car: SdCar | GltfCar,
     track: THREE.Object3D,
     private readonly racingLine: RacingLineView,
+    readonly crew: PitCrew,
     private readonly lapScale: number,
   ) {
     this.camera.matrixAutoUpdate = false;
@@ -63,7 +70,7 @@ export class Scene {
     this.dome.frustumCulled = false;
     this.scene.add(this.dome, track, car.root);
     this.sunlight = new Sunlight(this.scene);
-    this.scene.add(this.marks.mesh);
+    this.scene.add(this.marks.mesh, this.crew.root, this.gate.mesh);
     castShadows(car.root);
   }
 
@@ -76,10 +83,11 @@ export class Scene {
   ): Promise<Scene> {
     const lighting = new SdLighting();
     const local = engine.trackLocal();
-    const [frame, road, data, car] = await Promise.all([
+    const [frame, road, data, crew, car] = await Promise.all([
       fetchJson<TrackFrame>("/wasm/sd-frame.json"),
       loadRoad(roadUrl, anisotropy),
       fetchJson<RacingLineData>(racingLineUrl),
+      PitCrew.load(crewUrl, anisotropy),
       body === "vanta"
         ? GltfCar.load(vantaUrl, lighting, new THREE.Color("#d8471c"))
         : SdCar.load(assets, lighting, engine.carInfo()),
@@ -99,8 +107,41 @@ export class Scene {
       car,
       track,
       racingLine,
+      crew,
       data.length / engine.trackLength(),
     );
+  }
+
+  updatePit(control: PitControl, frame: Float64Array): void {
+    const active = control.phase === "service";
+    const eye = new THREE.Vector3().setFromMatrixPosition(
+      this.camera.matrixWorld,
+    );
+    const carMatrix = new THREE.Matrix4().fromArray(frame, frameIndex.posMat);
+    const { lift, wheelsOff } = this.crew.update(
+      control.serviceProgress,
+      active,
+      active ? carMatrix : null,
+      eye,
+      performance.now() / 1000,
+    );
+    if (this.car instanceof SdCar) this.car.setPitService(lift, wheelsOff);
+    this.gate.update(control.countdown);
+  }
+
+  placePit(
+    layout: PitLayout,
+    point: (distance: number, lateral: number) => [number, number, number],
+  ): void {
+    const lateral = layout.boxLateral - layout.shift;
+    const [x, y, z] = point(layout.boxDistance, lateral);
+    const [x2, y2] = point(layout.boxDistance + 2, lateral);
+    this.crew.setAnchor(x, y, z, Math.atan2(y2 - y, x2 - x));
+    const turn = layout.boxDistance - gateLead;
+    const gateLateral = layout.fastLane - layout.shift;
+    const [gx, gy, gz] = point(turn, gateLateral);
+    const [hx, hy] = point(turn + 2, gateLateral);
+    this.gate.place(gx, gy, gz, Math.atan2(hy - gy, hx - gx));
   }
 
   get mirrored(): boolean {

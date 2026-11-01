@@ -20,6 +20,7 @@ void sdCameraUpdate(tCarElt *car, tSituation *s, double *out);
 void sdKeyEvent(int key, int state);
 void sdInputConfigure();
 void sdInputKey(int key, int state);
+void sdInputApplyHold(tCarElt *car);
 void sdInputUpdate(tCarElt *car, double dt);
 void sdInputState(double *out);
 

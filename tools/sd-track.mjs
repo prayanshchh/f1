@@ -435,6 +435,20 @@ const frame = {
   heading: Math.atan2(start.ty, start.tx),
   width,
   segments: segments.length,
+  pit: {
+    length: segments.reduce((sum, s) => sum + s.length, 0),
+    entry: pit.entry,
+    wallStart: pit.wallStart,
+    wallEnd: pit.wallEnd,
+    exit: pit.exit,
+    pitWall: pit.pitWall,
+    shift: pitShift,
+    ramp: pitWallRamp,
+    fastLane: pit.fastLane,
+    speedLimit: pit.speedLimit,
+    boxDistance: pit.boxDistance,
+    boxLateral: pit.boxLateral,
+  },
 };
 writeFileSync(
   path.join(directory, "sd-frame.json"),

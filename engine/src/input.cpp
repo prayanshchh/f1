@@ -39,6 +39,9 @@ static const double steerCurveEnd = 50.0;
 static const double steerCurveMax = 2.0;
 static const double steerFullLockCurve = 6.0;
 static const double trailBrakeSteer = 0.1;
+static const double limiterGain = 0.5;
+static const double limiterMargin = 0.3;
+static const double limiterBrake = 0.15;
 
 static bool assist = true;
 static bool antiLock = false;
@@ -46,6 +49,8 @@ static bool analog;
 static double analogSteer, analogThrottle, analogBrake;
 static bool left, right, up, down;
 static double steer, throttle, brake, traction = 1.0, braking = 1.0;
+static double speedLimit;
+static bool pitHold;
 
 static double approach(double value, double target, double rate, double dt)
 {
@@ -168,6 +173,26 @@ static void updateBraking(tCarElt *car, double dt)
     braking = antiLock || turning ? limiter(braking, excess, wheelLockLimit, absCut, absRecover, dt) : 1.0;
 }
 
+static void applySpeedLimit(tCarElt *car)
+{
+    if (speedLimit <= 0)
+        return;
+    double speed = fabs(car->_speed_x);
+    double room = speedLimit - speed;
+    throttle = std::min(throttle, std::max(0.0, std::min(1.0, room * limiterGain)));
+    if (room < -limiterMargin)
+        brake = std::max(brake, std::min(1.0, -room * limiterBrake));
+}
+
+void sdInputApplyHold(tCarElt *car)
+{
+    if (!pitHold)
+        return;
+    car->_brakeCmd = 1.0f;
+    car->_accelCmd = 0.0f;
+    car->_gearCmd = 1;
+}
+
 void sdInputConfigure()
 {
     if (!assist)
@@ -234,6 +259,9 @@ void sdInputUpdate(tCarElt *car, double dt)
         updateKeys(car, dt);
     updateTraction(car, dt);
     throttle = std::min(throttle, traction);
+    applySpeedLimit(car);
+    if (pitHold)
+        steer = throttle = brake = 0;
     double accel = std::max(throttle, engineBrakeBlip(car));
     updateBraking(car, dt);
     int sw, sh, vw, vh;
@@ -261,6 +289,16 @@ EMSCRIPTEN_KEEPALIVE void sdInputAssist(int on)
 EMSCRIPTEN_KEEPALIVE void sdInputAntiLock(int on)
 {
     antiLock = on != 0;
+}
+
+EMSCRIPTEN_KEEPALIVE void sdInputSpeedLimit(double metresPerSecond)
+{
+    speedLimit = metresPerSecond;
+}
+
+EMSCRIPTEN_KEEPALIVE void sdInputPitHold(int on)
+{
+    pitHold = on != 0;
 }
 
 }

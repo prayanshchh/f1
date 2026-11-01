@@ -1,16 +1,9 @@
 import { existsSync } from "node:fs";
-import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { describe, expect, test } from "vitest";
-import { repoRoot } from "../support/repo.ts";
+import { startCota, wasm } from "../support/engine.ts";
 
 interface Module {
   HEAPF64: Float64Array;
-  cwrap: (
-    name: string,
-    result: string,
-    args: string[],
-  ) => (...values: (string | number)[]) => number;
   _malloc: (size: number) => number;
   _sdStep: (count: number) => void;
   _sdTelemetry: (pointer: number) => void;
@@ -23,7 +16,6 @@ interface Module {
   ) => void;
 }
 
-const wasm = path.join(repoRoot, "apps/client/wasm/speed-dreams.js");
 const speedIndex = 45;
 const wheelIndex = 17;
 const spinOffset = 6;
@@ -33,27 +25,7 @@ const settleTicks = 200;
 const sampleTicks = 300;
 
 async function brakeAt(steer: number) {
-  const url = pathToFileURL(wasm).href;
-  const loaded = (await import(url)) as {
-    default: (options: object) => Promise<Module>;
-  };
-  const m = await loaded.default({
-    print: () => undefined,
-    printErr: () => undefined,
-  });
-  m.cwrap("sdInit", "number", [
-    "string",
-    "string",
-    "string",
-    "string",
-    "number",
-  ])(
-    "circuit",
-    "cota",
-    "config/raceman/quickrace.xml",
-    "22mp1-sector-mcl36",
-    0,
-  );
+  const m = await startCota<Module>();
   const memory = m._malloc(320);
   const frame = () => new Float64Array(m.HEAPF64.buffer, m._sdFrame(), 88);
   const lateral = () => {

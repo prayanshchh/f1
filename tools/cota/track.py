@@ -32,7 +32,11 @@ PIT_GARAGE_SEARCH = 40.0
 PIT_GARAGE_GAP = 0.2
 PIT_WALL_DECK = 2.6
 PIT_LANE_SIGN = 16.0
-PIT_BARRIER = 22.5
+PIT_BARRIER = 23.5
+PLAYER_BAY = 7
+BAY_SPACING = 14.0
+BOX_LATERAL = 22.0
+FAST_LANE_CENTRE = 14.5
 GARAGE_CARVE = 14.0
 GARAGE_FLOOR_SINK = 0.3
 PIT_ENTRY_MOUTH = 65.0
@@ -290,6 +294,13 @@ def pit_reach(osm, points, tangents, zone):
     hits = np.array([ray(front, points[i], n[i], PIT_GARAGE_SEARCH) for i in zone]) - PIT_GARAGE_GAP
     out[zone] = np.where(np.isfinite(hits), np.clip(hits, PIT_MIN_REACH, PIT_GARAGE_SEARCH), PIT_MIN_REACH)
     return out, zone[np.isfinite(hits)], float(np.median(hits[np.isfinite(hits)]))
+
+
+def player_box(garage_rows, step, length):
+    start = float(garage_rows[0]) * step
+    span = (float(garage_rows[-1]) * step - start) % length
+    spacing = span / int(span // BAY_SPACING)
+    return (start + (PLAYER_BAY + 0.5) * spacing) % length
 
 
 def walls(osm, points, tangents, width, rings, k, step, reach):
@@ -604,6 +615,10 @@ def main():
             "pitWallDeck": PIT_WALL_DECK,
             "pitLaneSign": PIT_LANE_SIGN,
             "pitBarrier": PIT_BARRIER,
+            "playerBay": PLAYER_BAY,
+            "boxDistance": round(player_box(garage_rows, step, length), 3),
+            "boxLateral": BOX_LATERAL,
+            "fastLane": FAST_LANE_CENTRE,
         },
         "sectors": sorted(sectors),
         "grid": [

@@ -239,6 +239,128 @@ def pit_signs():
     return atlas
 
 
+CREW_ATLAS = (2048, 1408)
+CREW_WIDTH = 2.0
+CREW_HEIGHT = 2.2
+CREW_SUIT = "#1b4fa8"
+CREW_DARK = "#0d2a66"
+CREW_TRIM = "#f28a12"
+CREW_WHITE = "#eef0f2"
+CREW_BLACK = "#0c0d10"
+
+
+def crew_suit():
+    width, height = CREW_ATLAS
+    half = width // 2
+    image = Image.new("RGB", CREW_ATLAS, CREW_SUIT)
+    draw = ImageDraw.Draw(image)
+
+    def to(side, x, z):
+        return (side * half + half / 2 + x / CREW_WIDTH * half, height - z / CREW_HEIGHT * height)
+
+    def band(side, x0, x1, z0, z1, colour):
+        (ax, ay), (bx, by) = to(side, x0, z1), to(side, x1, z0)
+        draw.rectangle([min(ax, bx), ay, max(ax, bx), by], fill=colour)
+
+    def label(side, x, z, text, size, colour):
+        face = font(size, 800)
+        cx, cy = to(side, x, z)
+        box = draw.textbbox((0, 0), text, font=face)
+        draw.text((cx - (box[2] + box[0]) / 2, cy - (box[3] + box[1]) / 2), text, font=face, fill=colour)
+
+    for side in (0, 1):
+        band(side, -1.0, 1.0, 0.0, 0.14, CREW_BLACK)
+        band(side, -1.0, 1.0, 0.14, 0.165, CREW_DARK)
+        for sign in (1, -1):
+            band(side, sign * 0.69, sign * 1.0, 1.2, 1.7, CREW_BLACK)
+            band(side, sign * 0.65, sign * 0.69, 1.2, 1.7, CREW_DARK)
+            band(side, sign * 0.46, sign * 0.5, 1.2, 1.7, CREW_WHITE)
+            band(side, sign * 0.27, sign * 0.33, 1.2, 1.7, CREW_DARK)
+            band(side, sign * 0.03, sign * 0.21, 0.46, 0.6, CREW_DARK)
+            band(side, sign * 0.03, sign * 0.21, 0.595, 0.605, CREW_WHITE)
+        band(side, -0.22, 0.22, 0.98, 1.03, CREW_BLACK)
+        band(side, -0.028, 0.028, 0.98, 1.03, CREW_WHITE)
+        band(side, -0.11, 0.11, 1.5, 1.62, CREW_DARK)
+        for sign in (1, -1):
+            band(side, sign * 0.15, sign * 0.165, 1.03, 1.42, CREW_DARK)
+    label(0, 0, 1.35, "NORTHWIND", 26, CREW_WHITE)
+    for z in (1.22, 1.15):
+        draw.polygon([to(0, -0.1, z + 0.04), to(0, 0, z - 0.02), to(0, 0.1, z + 0.04), to(0, 0.1, z + 0.012), to(0, 0, z - 0.048), to(0, -0.1, z + 0.012)], fill=CREW_TRIM)
+    for z in (1.38, 1.3, 1.22):
+        draw.polygon([to(1, -0.12, z + 0.05), to(1, 0, z - 0.02), to(1, 0.12, z + 0.05), to(1, 0.12, z + 0.015), to(1, 0, z - 0.055), to(1, -0.12, z + 0.015)], fill=CREW_TRIM)
+    label(1, 0, 1.11, "STEALTH", 34, CREW_WHITE)
+    for sign in (1, -1):
+        label(0, sign * 0.12, 0.76, "VOLTARA", 13, CREW_WHITE)
+    top = round(height * 0.14)
+    draw.rectangle([0, 0, width, top], fill=CREW_WHITE)
+    draw.rectangle([0, top * 0.42, width, top], fill=CREW_SUIT)
+    draw.rectangle([0, top * 0.42, width, top * 0.47], fill=CREW_DARK)
+    draw.rectangle([0, top * 0.82, width, top * 0.9], fill=CREW_TRIM)
+    return image
+
+
+STATIC_TILE = (512, 352)
+STATIC_GRID = (4, 3)
+
+
+def crew_polo(team_colour, overalls=False):
+    width, height = CREW_ATLAS
+    half = width // 2
+    shirt = team_colour if overalls else "#f1f1ee"
+    trousers = team_colour if overalls else "#17191f"
+    image = Image.new("RGB", CREW_ATLAS, trousers)
+    draw = ImageDraw.Draw(image)
+
+    def box(side, x0, x1, z0, z1, colour):
+        y0, y1 = height - z1 / CREW_HEIGHT * height, height - z0 / CREW_HEIGHT * height
+        ax = side * half + half / 2 + x0 / CREW_WIDTH * half
+        bx = side * half + half / 2 + x1 / CREW_WIDTH * half
+        draw.rectangle([min(ax, bx), y0, max(ax, bx), y1], fill=colour)
+
+    for side in (0, 1):
+        box(side, -1.0, 1.0, 0.0, 0.14, "#0c0d10")
+        box(side, -1.0, 1.0, 1.02, 1.7, shirt)
+        if not overalls:
+            box(side, -0.08, 0.08, 1.42, 1.56, "#17191f")
+            box(side, -0.24, 0.24, 0.98, 1.03, "#0c0d10")
+            for sign in (1, -1):
+                box(side, sign * 0.3, sign * 0.46, 1.2, 1.7, team_colour)
+                box(side, sign * 0.13, sign * 0.17, 1.03, 1.4, team_colour)
+        else:
+            for sign in (1, -1):
+                box(side, sign * 0.03, sign * 0.21, 0.72, 0.76, "#d9dcde")
+                box(side, sign * 0.03, sign * 0.17, 1.22, 1.26, "#d9dcde")
+    return image
+
+
+def crew_static_atlas():
+    tile_w, tile_h = STATIC_TILE
+    columns, rows = STATIC_GRID
+    atlas = Image.new("RGB", (tile_w * columns, tile_h * rows))
+    teams = list(PALETTE.values())[:10]
+    tiles = [crew_polo(colour) for colour in teams] + [crew_polo("#e8701a", overalls=True)]
+    for index, tile in enumerate(tiles):
+        atlas.paste(tile.resize(STATIC_TILE), (index % columns * tile_w, index // columns * tile_h))
+    return atlas
+
+
+def crew_normal():
+    width, height = CREW_ATLAS[0] // 2, CREW_ATLAS[1] // 2
+    rng = np.random.default_rng(31)
+    fine = rng.normal(0, 1, (height, width))
+    blur = lambda values, sx, sy: np.real(np.fft.ifft2(np.fft.fft2(values) * np.exp(-2 * np.pi**2 * ((np.fft.fftfreq(height)[:, None] * sy) ** 2 + (np.fft.fftfreq(width)[None, :] * sx) ** 2))))
+    folds = blur(rng.normal(0, 1, (height, width)), 2.4, 7)
+    folds = folds / folds.std()
+    weave = blur(fine, 0.8, 0.8)
+    weave = weave / weave.std()
+    relief = folds * 1.4 + weave * 0.18
+    dx = np.roll(relief, -1, 1) - np.roll(relief, 1, 1)
+    dy = np.roll(relief, -1, 0) - np.roll(relief, 1, 0)
+    normal = np.stack([-dx * 0.14, dy * 0.14, np.ones_like(relief)], -1)
+    normal /= np.linalg.norm(normal, axis=-1, keepdims=True)
+    return Image.fromarray(np.round((normal * 0.5 + 0.5) * 255).astype(np.uint8), "RGB")
+
+
 def distance_boards():
     size = DISTANCE_BOARD
     atlas = Image.new("RGB", (size, size * len(DISTANCES)))
@@ -292,6 +414,9 @@ def main():
     fascia().save(out / "fascia_base_color.png")
     garage_back().save(out / "garage_back_base_color.png")
     pit_signs().save(out / "pit_signs_base_color.png")
+    crew_suit().save(out / "crew_suit_base_color.png")
+    crew_normal().save(out / "crew_suit_normal.png")
+    crew_static_atlas().save(out / "crew_static_base_color.png")
 
 
 if __name__ == "__main__":

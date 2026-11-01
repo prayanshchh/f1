@@ -45,3 +45,7 @@ simulates; beyond it the lidar terrain is blended in smoothly. Building
 heights come from OSM tags where present. The observation tower position
 follows the COTA site plan; its form is an approximation. Grandstand seating,
 roofs and the pit building facade are generated, not surveyed.
+
+## Pit crew
+
+- Character models, hair and animations in `source/crew/` are the Standard versions of [Universal Base Characters](https://quaternius.itch.io/universal-base-characters) and [Universal Animation Library](https://quaternius.itch.io/universal-animation-library) by Quaternius, CC0 1.0. The licence files are alongside them.

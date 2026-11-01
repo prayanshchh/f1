@@ -156,6 +156,8 @@ export class SdCar {
   private readonly speedometerRot = matrix();
   private readonly tachometerRot = matrix();
   private readonly scratch = new THREE.Matrix4();
+  private lift = 0;
+  private wheelsOff = false;
 
   private constructor(private readonly info: CarInfo) {}
 
@@ -285,9 +287,15 @@ export class SdCar {
     for (const loc of this.driverLocs) loc.visible = driver;
   }
 
+  setPitService(lift: number, wheelsOff: boolean): void {
+    this.lift = lift;
+    this.wheelsOff = wheelsOff;
+  }
+
   update(frame: Float64Array): void {
     const at = (index: number) => frame[index] ?? 0;
     this.root.matrix.fromArray(frame, frameIndex.posMat);
+    this.root.matrix.elements[14] += this.lift;
     this.root.matrixWorldNeedsUpdate = true;
 
     const steerangle = Math.fround(at(frameIndex.steer));
@@ -315,7 +323,9 @@ export class SdCar {
         .multiply(this.scratch.makeRotationZ(w(5)))
         .multiply(this.scratch.clone().makeRotationX(w(3)));
       const variant = wheelVariant(w(6));
-      wheel.variants.forEach((v, j) => (v.visible = j === variant));
+      wheel.variants.forEach(
+        (v, j) => (v.visible = j === variant && !this.wheelsOff),
+      );
       const temp = at(frameIndex.brakeTemp + i);
       wheel.discColor.setRGB(
         0.1 + temp * 1.5,

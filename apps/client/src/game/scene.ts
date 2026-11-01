@@ -1,11 +1,13 @@
 import * as THREE from "three/webgpu";
 import vantaUrl from "../../../../content/cars/vanta-26/lod0.glb?url";
-import cotaUrl from "../../../../content/tracks/cota/cota.glb?url";
+import roadUrl from "../../../../content/tracks/cota/road.glb?url";
 import { SdCar } from "./car.ts";
 import { frameIndex, type Engine } from "./engine.ts";
-import { GltfCar, loadGltfTrack, type TrackFrame } from "./gltf.ts";
+import { GltfCar, placeOnTrack, type TrackFrame } from "./gltf.ts";
 import { SdLighting } from "./materials.ts";
 import type { SdAssets } from "./models.ts";
+import { castShadows, loadRoad, setStartLights, Sunlight } from "./road.ts";
+import type { AtmosphereState } from "./atmosphere.ts";
 import { SdSky, type TrackLocal } from "./sky.ts";
 
 const flipX = new THREE.Matrix4().makeScale(-1, 1, 1);
@@ -18,6 +20,12 @@ export class Scene {
   private readonly domeColors: THREE.BufferAttribute;
   private readonly dome: THREE.Mesh;
   private readonly background = new THREE.Group();
+  private readonly sunlight: Sunlight;
+  readonly atmosphere: AtmosphereState = {
+    sunDirection: new THREE.Vector3(),
+    haze: new THREE.Color(),
+    sun: new THREE.Color(),
+  };
 
   private constructor(
     private readonly lighting: SdLighting,
@@ -51,6 +59,8 @@ export class Scene {
       object.frustumCulled = false;
     });
     this.scene.add(this.dome, this.background, track, car.root);
+    this.sunlight = new Sunlight(this.scene);
+    castShadows(car.root);
   }
 
   static async load(
@@ -59,17 +69,20 @@ export class Scene {
     category: string,
     name: string,
     body: string,
+    anisotropy: number,
   ): Promise<Scene> {
     const lighting = new SdLighting();
     const trackDir = `tracks/${category}/${name}/`;
     const local = engine.trackLocal();
     const [track, background, car] = await Promise.all([
-      Scene.loadTrack(engine, assets, lighting, trackDir, name),
-      assets.model("data/objects/background-sky.ac", {
-        car: false,
-        searchPath: [trackDir, "data/textures/", "data/objects/"],
-        material: (options) => lighting.fixedFunction(options),
-      }),
+      Scene.loadTrack(engine, assets, lighting, trackDir, name, anisotropy),
+      name === "cota"
+        ? Promise.resolve(new THREE.Group())
+        : assets.model("data/objects/background-sky.ac", {
+            car: false,
+            searchPath: [trackDir, "data/textures/", "data/objects/"],
+            material: (options) => lighting.fixedFunction(options),
+          }),
       body === "vanta"
         ? GltfCar.load(vantaUrl, lighting, new THREE.Color("#d8471c"))
         : SdCar.load(assets, lighting, engine.carInfo()),
@@ -83,6 +96,7 @@ export class Scene {
     lighting: SdLighting,
     trackDir: string,
     name: string,
+    anisotropy: number,
   ): Promise<THREE.Object3D> {
     if (assets.exists(`${trackDir}${name}.acc`)) {
       return assets.model(`${trackDir}${name}.acc`, {
@@ -95,16 +109,10 @@ export class Scene {
     const frame = (await (
       await fetch("/wasm/sd-frame.json")
     ).json()) as TrackFrame;
-    const [venue, road] = await Promise.all([
-      loadGltfTrack(cotaUrl, lighting, frame, engine.trackPoint(0, 0)),
-      assets.model(`${trackDir}cota-road.ac`, {
-        car: false,
-        searchPath: [trackDir, "data/textures/"],
-        material: (options) => lighting.shadowMapped(options),
-      }),
-    ]);
+    const start = engine.trackPoint(0, 0);
+    const road = await loadRoad(roadUrl, anisotropy);
     const group = new THREE.Group();
-    group.add(venue, road);
+    group.add(placeOnTrack(road, frame, start));
     return group;
   }
 
@@ -137,11 +145,20 @@ export class Scene {
       this.camera.updateProjectionMatrix();
     }
 
-    const [, , , , , , , , , , , , eyeX, eyeY] =
+    const [, , , , , , , , , , , , eyeX, eyeY, eyeZ] =
       this.camera.matrixWorld.elements;
     const time = frame[frameIndex.time] ?? 0;
+    setStartLights(time);
     const sky = this.sky.update(time, time, eyeX, eyeY);
     this.lighting.update(sky, this.camera);
+    this.sunlight.update(sky, eyeX, eyeY, eyeZ);
+    this.atmosphere.sunDirection.copy(this.sunlight.direction);
+    this.atmosphere.haze.setRGB(...sky.fogColor);
+    this.atmosphere.sun.setRGB(
+      sky.sunColor[0],
+      sky.sunColor[1],
+      sky.sunColor[2],
+    );
     (this.domeColors.array as Float32Array).set(sky.domeColors);
     this.domeColors.needsUpdate = true;
     this.dome.position.set(eyeX, eyeY, 0);

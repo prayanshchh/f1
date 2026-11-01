@@ -41,9 +41,6 @@ const gltfToSdCar = new THREE.Matrix4().set(
 );
 const wheelNames = ["wheel-fr", "wheel-fl", "wheel-rr", "wheel-rl"] as const;
 const steeringWheelRotation = 2.0;
-const replacedTrackSurfaces =
-  /^(R02 PBR \| asphalt|R02 PBR \| paint (white|red|blue)|R02 \| Rubber racing line pigment|R02 \| Drain recess and expansion joints|R02 \| Roadside grass \d)$/;
-const groundSurfaces = /dry grass macro/;
 
 export interface TrackFrame {
   origin: number[];
@@ -71,34 +68,11 @@ function useSdLighting(
   });
 }
 
-function hideReplacedSurfaces(root: THREE.Object3D): THREE.Mesh[] {
-  const ground: THREE.Mesh[] = [];
-  root.traverse((object) => {
-    if (!(object instanceof THREE.Mesh)) return;
-    const name = (object.material as THREE.Material).name;
-    if (replacedTrackSurfaces.test(name)) object.visible = false;
-    if (groundSurfaces.test(name)) ground.push(object as THREE.Mesh);
-  });
-  return ground;
-}
-
-function pushBehind(meshes: THREE.Mesh[]): void {
-  for (const mesh of meshes) {
-    const material = mesh.material as THREE.Material;
-    material.polygonOffset = true;
-    material.polygonOffsetFactor = 2;
-    material.polygonOffsetUnits = 8;
-  }
-}
-
-export async function loadGltfTrack(
-  url: string,
-  lighting: SdLighting,
+export function placeOnTrack(
+  object: THREE.Object3D,
   frame: TrackFrame,
   sdStart: [number, number, number],
-): Promise<THREE.Object3D> {
-  const gltf = await new GLTFLoader().loadAsync(url);
-  const ground = hideReplacedSurfaces(gltf.scene);
+): THREE.Object3D {
   const [ox = 0, oy = 0, oz = 0] = frame.origin;
   const root = new THREE.Group();
   root.matrixAutoUpdate = false;
@@ -107,9 +81,7 @@ export async function loadGltfTrack(
     .multiply(new THREE.Matrix4().makeRotationZ(-frame.heading))
     .multiply(new THREE.Matrix4().makeTranslation(-ox, oz, -oy))
     .multiply(gltfToSdWorld);
-  useSdLighting(gltf.scene, lighting);
-  pushBehind(ground);
-  root.add(gltf.scene);
+  root.add(object);
   return root;
 }
 

@@ -10,7 +10,6 @@ import {
   rmSync,
 } from "node:fs";
 import path from "node:path";
-import { buildCotaMesh } from "./cota-sd-mesh.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
 const sd = path.join(root, "engine/speed-dreams");
@@ -375,26 +374,5 @@ for (const [dir, pattern] of [
     manifest.push(`${dir}/${file}`);
   }
 }
-const cotaOut = path.join(renderOut, "tracks/circuit/cota");
-mkdirSync(cotaOut, { recursive: true });
-const cotaMesh = await buildCotaMesh(
-  path.join(out, "speed-dreams.js"),
-  path.join(root, "content/tracks/cota/cota.xml"),
-  path.join(cotaOut, "cota-road.ac"),
-);
-manifest.push("tracks/circuit/cota/cota-road.ac");
-for (const [from, file] of [
-  ...[
-    "ja-asphalt.png",
-    "ja-asphalt-grass.png",
-    "ja-grass.png",
-    "tr-barrier.png",
-  ].map((f) => [path.join(sdData, "tracks/circuit/jarama", f), f]),
-  [path.join(root, "content/tracks/cota/sd/cota-curb.png"), "cota-curb.png"],
-]) {
-  copyFileSync(from, path.join(cotaOut, file));
-  manifest.push(`tracks/circuit/cota/${file}`);
-}
-process.stdout.write(`cota mesh: ${String(cotaMesh.segments)} segments\n`);
 writeFileSync(path.join(renderOut, "manifest.json"), JSON.stringify(manifest));
 process.stdout.write(`render data: ${manifest.length} files\n`);

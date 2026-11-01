@@ -4,3 +4,6 @@ pnpm-lock.yaml
 engine/speed-dreams/
 engine/third_party/
 engine/data/
+content/tracks/cota/track.json
+content/tracks/cota/sd-frame.json
+content/tracks/cota/source/

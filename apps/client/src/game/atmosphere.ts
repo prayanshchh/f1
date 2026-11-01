@@ -1,10 +1,16 @@
 import * as THREE from "three/webgpu";
+import { bloom } from "three/examples/jsm/tsl/display/BloomNode.js";
+import { ao } from "three/examples/jsm/tsl/display/GTAONode.js";
 import {
   dot,
   exp,
   float,
+  Fn,
   getViewPosition,
+  int,
+  Loop,
   max,
+  min,
   mix,
   normalize,
   pass,
@@ -13,6 +19,7 @@ import {
   step,
   uniform,
   uv,
+  vec2,
   vec3,
   vec4,
 } from "three/tsl";
@@ -28,7 +35,18 @@ const veil = 0.09;
 const veilPower = 3;
 const skyHaze = 0.7;
 const skyHazeHeight = 0.32;
-const warmGrade = new THREE.Vector3(1.06, 1.0, 0.9);
+const warmGrade = new THREE.Vector3(1.03, 1.0, 0.95);
+const antialiasSamples = 4;
+const occlusionScale = 0.5;
+const occlusionRadius = 0.6;
+const blurSamples = 8;
+const blurShutter = 0.55;
+const blurLimit = 0.045;
+const blurNear = 5;
+const blurFar = 14;
+const bloomStrength = 0.14;
+const bloomRadius = 0.5;
+const bloomThreshold = 0.92;
 
 export interface AtmosphereState {
   sunDirection: THREE.Vector3;
@@ -41,20 +59,51 @@ export class Atmosphere {
   private readonly sunView = uniform(new THREE.Vector3(0, 0, -1));
   private readonly hazeColor = uniform(new THREE.Color());
   private readonly sunColor = uniform(new THREE.Color());
+  private readonly previousView = uniform(new THREE.Matrix4());
 
   constructor(
     renderer: THREE.WebGPURenderer,
     scene: THREE.Scene,
     private readonly camera: THREE.PerspectiveCamera,
   ) {
-    const scenePass = pass(scene, camera);
-    const color = scenePass.getTextureNode("output");
+    const scenePass = pass(scene, camera, { samples: antialiasSamples });
+    const sharp = scenePass.getTextureNode("output");
     const depth = scenePass.getTextureNode("depth").r;
     const view = getViewPosition(
       uv(),
       depth,
       uniform(camera.projectionMatrixInverse),
     );
+    const world = uniform(camera.matrixWorld).mul(vec4(view, 1));
+    const before = this.previousView.mul(world);
+    const beforeUv = before.xy.div(before.w).mul(vec2(0.5, -0.5)).add(0.5);
+    const rawVelocity = uv().sub(beforeUv).mul(blurShutter);
+    const speed = rawVelocity.length();
+    const velocity = rawVelocity
+      .div(max(speed, 1e-5))
+      .mul(min(speed, blurLimit))
+      .mul(smoothstep(blurNear, blurFar, view.length()));
+    const color = Fn(() => {
+      const sum = sharp.rgb.toVar();
+      Loop(
+        { start: int(1), end: int(blurSamples), type: "int", condition: "<" },
+        ({ i }) => {
+          const along = float(i)
+            .div(blurSamples - 1)
+            .sub(0.5);
+          sum.addAssign(sharp.sample(uv().add(velocity.mul(along))).rgb);
+        },
+      );
+      return sum.div(blurSamples);
+    })();
+    const occlusion = ao(
+      scenePass.getTextureNode("depth"),
+      null as unknown as THREE.Node,
+      camera,
+    );
+    occlusion.resolutionScale = occlusionScale;
+    occlusion.radius.value = occlusionRadius;
+    const shade = occlusion.getTextureNode().r;
     const direction = normalize(view);
     const toSun = max(dot(direction, this.sunView), 0);
     const ground = float(1).sub(step(0.999999, depth));
@@ -82,10 +131,19 @@ export class Atmosphere {
       .sub(smoothstep(0, skyHazeHeight, up))
       .mul(skyHaze)
       .mul(float(1).sub(ground));
-    const graded = mix(color.rgb, tint, max(haze, horizon))
+    const graded = mix(color.mul(shade), tint, max(haze, horizon))
       .add(glare)
       .mul(vec3(warmGrade.x, warmGrade.y, warmGrade.z));
-    this.pipeline = new THREE.RenderPipeline(renderer, vec4(graded, 1));
+    const glow = bloom(
+      vec4(graded, 1),
+      bloomStrength,
+      bloomRadius,
+      bloomThreshold,
+    );
+    this.pipeline = new THREE.RenderPipeline(
+      renderer,
+      vec4(graded, 1).add(glow),
+    );
     this.pipeline.outputColorTransform = false;
   }
 
@@ -99,5 +157,8 @@ export class Atmosphere {
 
   render(): void {
     this.pipeline.render();
+    this.previousView.value
+      .copy(this.camera.projectionMatrix)
+      .multiply(this.camera.matrixWorldInverse);
   }
 }

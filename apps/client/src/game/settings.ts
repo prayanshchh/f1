@@ -14,17 +14,17 @@ export const tracks = [
 export const cars = [
   {
     id: "f1",
+    label: "Vanta V26",
+    detail: "2026 regulations",
+    car: "22mp1-sector-mcl36",
+    body: "vanta",
+  },
+  {
+    id: "f1-2022",
     label: "F1 2022",
     detail: "Speed Dreams 22MP1",
     car: "22mp1-sector-mcl36",
     body: "sd",
-  },
-  {
-    id: "vanta",
-    label: "Vanta V26",
-    detail: "F1 physics · Vanta body",
-    car: "22mp1-sector-mcl36",
-    body: "vanta",
   },
   {
     id: "cavallo",
@@ -215,7 +215,7 @@ function applyUrl(settings: Settings, params: URLSearchParams): void {
   if (track && tracks.some((t) => t.id === track)) settings.track = track;
   const body = params.get("body");
   const car = params.get("car");
-  if (body === "vanta") settings.car = "vanta";
+  if (body === "vanta") settings.car = "f1";
   else if (car)
     settings.car =
       cars.find((c) => c.car === car && c.body === "sd")?.id ?? settings.car;

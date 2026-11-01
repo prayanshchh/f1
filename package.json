@@ -26,7 +26,7 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "verify": "pnpm run check && pnpm run build && pnpm run test && pnpm run test:e2e",
-    "content:cars": "node tools/cars.mjs",
+    "content:car": "blender -b --factory-startup -P tools/car/build.py -- content/cars/vanta-26 build/car && uv run --project tools/cota python tools/car/livery.py build/car content/cars/vanta-26 && uv run --project tools/cota python tools/car/art.py content/cars/vanta-26",
     "assets:build": "node tools/assets.mjs"
   },
   "devDependencies": {

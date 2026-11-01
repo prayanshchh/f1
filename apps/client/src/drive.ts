@@ -174,6 +174,7 @@ function fitStage(): void {
 function drawer(renderer: THREE.WebGPURenderer, scene: Scene): () => void {
   const atmosphere = new Atmosphere(renderer, scene.scene, scene.camera);
   return () => {
+    scene.renderAuxiliary(renderer);
     atmosphere.update(scene.atmosphere);
     atmosphere.render();
   };
@@ -300,7 +301,7 @@ async function main(): Promise<void> {
     engine,
     assets,
     car.body,
-    renderer.getMaxAnisotropy(),
+    renderer,
     settings.racingLine,
   );
   const draw = drawer(renderer, scene);
@@ -455,6 +456,8 @@ async function main(): Promise<void> {
       ersModes[energy.mode]?.label ?? "",
     );
     scene.update(frame);
+    const info = engine.hudInfo();
+    scene.setDash(info);
     scene.updateTyres(frame, tyres);
     scene.updatePit(control, frame);
     scene.marks.update(
@@ -463,7 +466,7 @@ async function main(): Promise<void> {
       audio.wheels.map((w) => w.surface),
     );
     sound.update(audio);
-    hud.update(frame, engine.hudInfo(), tyres, energy, engine.carStatus(), now);
+    hud.update(frame, info, tyres, energy, engine.carStatus(), now);
     hud.updatePit(control);
     const bestTime = trace.bestTime ?? Infinity;
     if (bestTime < savedBest) {

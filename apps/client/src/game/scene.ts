@@ -1,10 +1,10 @@
 import * as THREE from "three/webgpu";
-import vantaUrl from "../../../../content/cars/vanta-26/lod0.glb?url";
+import vantaUrl from "../../../../content/cars/vanta-26/car.glb?url";
 import crewUrl from "../../../../content/tracks/cota/crew.glb?url";
 import racingLineUrl from "../../../../content/tracks/cota/racing-line.json?url";
 import roadUrl from "../../../../content/tracks/cota/road.glb?url";
 import { SdCar } from "./car.ts";
-import { frameIndex, type Engine } from "./engine.ts";
+import { frameIndex, type Engine, type HudInfo } from "./engine.ts";
 import { GltfCar, placeOnTrack, type TrackFrame } from "./gltf.ts";
 import { SdLighting } from "./materials.ts";
 import type { SdAssets } from "./models.ts";
@@ -29,6 +29,7 @@ import type { TyreInfo } from "./tyres.ts";
 
 const gateLead = 30;
 const flipX = new THREE.Matrix4().makeScale(-1, 1, 1);
+const kelvinOffset = 273.15;
 
 async function fetchJson<T>(url: string): Promise<T> {
   const response = await fetch(url);
@@ -92,9 +93,10 @@ export class Scene {
     engine: Engine,
     assets: SdAssets,
     body: string,
-    anisotropy: number,
+    renderer: THREE.WebGPURenderer,
     lineMode: RacingLineMode,
   ): Promise<Scene> {
+    const anisotropy = renderer.getMaxAnisotropy();
     const lighting = new SdLighting();
     const local = engine.trackLocal();
     const [frame, road, data, crew, car] = await Promise.all([
@@ -103,7 +105,7 @@ export class Scene {
       fetchJson<RacingLineData>(racingLineUrl),
       PitCrew.load(crewUrl, anisotropy),
       body === "vanta"
-        ? GltfCar.load(vantaUrl, lighting, new THREE.Color("#d8471c"))
+        ? GltfCar.load(vantaUrl, renderer, lighting)
         : SdCar.load(assets, lighting, engine.carInfo()),
     ]);
     const racingLine = new RacingLineView(data, data.profile, lineMode);
@@ -162,6 +164,22 @@ export class Scene {
     const [gx, gy, gz] = point(turn, gateLateral);
     const [hx, hy] = point(turn + 2, gateLateral);
     this.gate.place(gx, gy, gz, Math.atan2(hy - gy, hx - gx));
+  }
+
+  renderAuxiliary(renderer: THREE.WebGPURenderer): void {
+    if (!(this.car instanceof GltfCar)) return;
+    const shadow = this.sunlight.sun.shadow;
+    shadow.autoUpdate = false;
+    this.car.renderAuxiliary(renderer, this.scene);
+    shadow.autoUpdate = true;
+  }
+
+  setDash(info: HudInfo): void {
+    if (!(this.car instanceof GltfCar)) return;
+    this.car.setDash({
+      fuel: info.tank > 0 ? info.fuel / info.tank : 0,
+      tyres: info.tyreTemp.map((kelvin) => kelvin - kelvinOffset),
+    });
   }
 
   get mirrored(): boolean {

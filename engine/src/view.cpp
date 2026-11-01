@@ -84,16 +84,37 @@ using namespace osggraph;
 
 static SDView *view = nullptr;
 
-static const double chaseDist = 6.6;
-static const double chaseHeight = 1.45;
-static const double chaseAhead = 3.0;
-static const double chaseAim = 0.85;
-static const double chaseFovy = 52.0;
+struct ChaseCam
+{
+    double dist, height, ahead, aim, fovy;
+};
+
+struct Onboard
+{
+    double x, y, z, pitch, fovy;
+    bool driver;
+};
+
+static const ChaseCam chases[] = {
+    {4.7, 1.30, 3.0, 0.72, 52.0},
+    {6.6, 1.45, 3.0, 0.85, 52.0},
+};
+static const int chaseCount = sizeof(chases) / sizeof(chases[0]);
+static const Onboard onboards[] = {
+    {-0.224, 0.0, 1.022, -11.27, 48.6, true},
+    {-0.353, 0.0, 1.108, -7.66, 42.9, false},
+    {0.15, 0.0, 0.755, -5.8, 43.0, false},
+    {0.62, 0.0, 0.96, -6.7, 60.0, true},
+};
+static const int onboardCount = sizeof(onboards) / sizeof(onboards[0]);
 static const double chaseYawTime = 0.06;
 static const double chaseZTime = 0.15;
-static bool chase = true;
+static const double onboardNear = 0.15;
+static int carCamera = 0;
 static bool chaseReady = false;
 static double chaseYaw, chaseZ, chaseTime;
+static bool onboardReady = false;
+static double onboardAxle, onboardGround;
 
 static double relax(double prev, double target, double tau, double dt)
 {
@@ -115,18 +136,55 @@ static void chaseUpdate(tCarElt *car, tSituation *s, double *out)
     chaseYaw += remainder(yaw - chaseYaw, 2 * PI) * (1.0 - exp(-std::max(0.0, dt) / chaseYawTime));
     chaseZ = relax(chaseZ, z, chaseZTime, std::max(0.0, dt));
     double cx = cos(chaseYaw), cy = sin(chaseYaw);
-    osg::Vec3d eye(car->_pos_X - cx * chaseDist, car->_pos_Y - cy * chaseDist, chaseZ + chaseHeight);
-    osg::Vec3d center(car->_pos_X + cx * chaseAhead, car->_pos_Y + cy * chaseAhead, chaseZ + chaseAim);
+    const ChaseCam &cam = chases[carCamera];
+    osg::Vec3d eye(car->_pos_X - cx * cam.dist, car->_pos_Y - cy * cam.dist, chaseZ + cam.height);
+    osg::Vec3d center(car->_pos_X + cx * cam.ahead, car->_pos_Y + cy * cam.ahead, chaseZ + cam.aim);
     osg::Matrixd m;
     m.makeLookAt(eye, center, osg::Vec3d(0, 0, 1));
     for (int r = 0; r < 4; r++)
         for (int c = 0; c < 4; c++)
             out[r * 4 + c] = m(r, c);
-    out[16] = chaseFovy;
+    out[16] = cam.fovy;
     out[17] = 0.3;
     out[18] = view->getOsgCam()->zfar;
     out[19] = 1;
     out[20] = 1;
+    out[21] = -1;
+    out[22] = 0;
+    out[23] = 0;
+}
+
+static void onboardUpdate(tCarElt *car, double *out)
+{
+    const Onboard &cam = onboards[carCamera - chaseCount];
+    if (!onboardReady)
+    {
+        onboardAxle = onboardGround = 0;
+        for (int i = 0; i < 4; i++)
+        {
+            onboardAxle += car->priv.wheel[i].relPos.x / 4;
+            onboardGround += (car->priv.wheel[i].relPos.z - car->_rimRadius(i) - car->_tireHeight(i)) / 4;
+        }
+        onboardReady = true;
+    }
+    const double lx = cam.x + onboardAxle, ly = cam.y, lz = cam.z + onboardGround;
+    osg::Vec3d p(car->_posMat[3][0], car->_posMat[3][1], car->_posMat[3][2]);
+    osg::Vec3d forward(car->_posMat[0][0], car->_posMat[0][1], car->_posMat[0][2]);
+    osg::Vec3d left(car->_posMat[1][0], car->_posMat[1][1], car->_posMat[1][2]);
+    osg::Vec3d up(car->_posMat[2][0], car->_posMat[2][1], car->_posMat[2][2]);
+    osg::Vec3d eye = p + forward * lx + left * ly + up * lz;
+    double pitch = osg::DegreesToRadians(cam.pitch);
+    osg::Vec3d center = eye + forward * cos(pitch) + up * sin(pitch);
+    osg::Matrixd m;
+    m.makeLookAt(eye, center, up);
+    for (int r = 0; r < 4; r++)
+        for (int c = 0; c < 4; c++)
+            out[r * 4 + c] = m(r, c);
+    out[16] = cam.fovy;
+    out[17] = onboardNear;
+    out[18] = view->getOsgCam()->zfar;
+    out[19] = 1;
+    out[20] = cam.driver;
     out[21] = -1;
     out[22] = 0;
     out[23] = 0;
@@ -141,13 +199,19 @@ void sdCameraReset()
     view = new SDView(0, 0, 0, 1280, 720);
     view->Init(ReInfo->s);
     chaseReady = false;
+    onboardReady = false;
 }
 
 void sdCameraUpdate(tCarElt *car, tSituation *s, double *out)
 {
     SDCameras *cameras = view->getCameras();
     cameras->update(car, s);
-    if (chase)
+    if (carCamera >= chaseCount)
+    {
+        onboardUpdate(car, out);
+        return;
+    }
+    if (carCamera >= 0)
     {
         chaseUpdate(car, s, out);
         return;
@@ -176,18 +240,18 @@ EMSCRIPTEN_KEEPALIVE int sdViewKey(int key, int ctrl)
     SDCameras *cameras = view->getCameras();
     if (key == 'c' && !ctrl)
     {
-        chase = true;
+        carCamera = (carCamera + 1) % (chaseCount + onboardCount);
         chaseReady = false;
         return 1;
     }
     if (key >= GFUIK_F2 && key <= GFUIK_F11)
     {
         int list = key - GFUIK_F2;
-        if (chase && list == cameras->getIntSelectedList())
+        if (carCamera >= 0 && list == cameras->getIntSelectedList())
             cameras->selectCamera(list, cameras->getIntSelectedCamera());
         else
             cameras->nextCamera(list);
-        chase = false;
+        carCamera = -1;
         return 1;
     }
     int zoom = -1;
@@ -201,7 +265,7 @@ EMSCRIPTEN_KEEPALIVE int sdViewKey(int key, int ctrl)
         zoom = GR_ZOOM_IN;
     else if (ctrl && key == '-')
         zoom = GR_ZOOM_OUT;
-    if (zoom < 0 || chase)
+    if (zoom < 0 || carCamera >= 0)
         return 0;
     cameras->getSelectedCamera()->setZoom(zoom);
     return 1;

@@ -15,5 +15,5 @@
       "project": ["src/**/*.ts"]
     }
   },
-  "ignoreBinaries": ["em\\+\\+", "openssl", "scutil"]
+  "ignoreBinaries": ["em\\+\\+", "openssl", "scutil", "blender", "uv"]
 }

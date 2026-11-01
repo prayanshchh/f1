@@ -4,3 +4,6 @@ content/tracks/**/textures/**/*.png filter=lfs diff=lfs merge=lfs -text
 content/tracks/**/source/*.png filter=lfs diff=lfs merge=lfs -text
 content/tracks/**/source/crew/*.png filter=lfs diff=lfs merge=lfs -text
 content/tracks/**/source/crew/*.bin filter=lfs diff=lfs merge=lfs -text
+content/cars/**/*.glb filter=lfs diff=lfs merge=lfs -text
+content/cars/**/*.jpg filter=lfs diff=lfs merge=lfs -text
+content/cars/**/*.png filter=lfs diff=lfs merge=lfs -text

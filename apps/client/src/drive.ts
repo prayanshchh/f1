@@ -27,7 +27,6 @@ import { sdlKeycode } from "./game/keys.ts";
 import { compoundIndex, wearScale } from "./game/tyres.ts";
 import { LapTrace } from "./game/laptrace.ts";
 import { Menu } from "./game/menu.ts";
-import { SdAssets } from "./game/models.ts";
 import { type PadCommands, PadLink } from "./game/pad.ts";
 import { Atmosphere } from "./game/atmosphere.ts";
 import { Scene } from "./game/scene.ts";
@@ -174,6 +173,7 @@ function fitStage(): void {
 function drawer(renderer: THREE.WebGPURenderer, scene: Scene): () => void {
   const atmosphere = new Atmosphere(renderer, scene.scene, scene.camera);
   return () => {
+    scene.renderAuxiliary(renderer);
     atmosphere.update(scene.atmosphere);
     atmosphere.render();
   };
@@ -295,14 +295,7 @@ async function main(): Promise<void> {
     performance.now() / 1000,
     raceSystems(settings),
   );
-  const assets = await SdAssets.open("/wasm/sd/");
-  const scene = await Scene.load(
-    engine,
-    assets,
-    car.body,
-    renderer.getMaxAnisotropy(),
-    settings.racingLine,
-  );
+  const scene = await Scene.load(engine, car.id, renderer, settings.racingLine);
   const draw = drawer(renderer, scene);
 
   const reference = loadReference(settings);
@@ -455,6 +448,8 @@ async function main(): Promise<void> {
       ersModes[energy.mode]?.label ?? "",
     );
     scene.update(frame);
+    const info = engine.hudInfo();
+    scene.setDash(info);
     scene.updateTyres(frame, tyres);
     scene.updatePit(control, frame);
     scene.marks.update(
@@ -463,7 +458,7 @@ async function main(): Promise<void> {
       audio.wheels.map((w) => w.surface),
     );
     sound.update(audio);
-    hud.update(frame, engine.hudInfo(), tyres, energy, engine.carStatus(), now);
+    hud.update(frame, info, tyres, energy, engine.carStatus(), now);
     hud.updatePit(control);
     const bestTime = trace.bestTime ?? Infinity;
     if (bestTime < savedBest) {

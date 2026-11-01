@@ -1,5 +1,6 @@
 import * as THREE from "three/webgpu";
 import vantaUrl from "../../../../content/cars/vanta-26/lod0.glb?url";
+import racingLineUrl from "../../../../content/tracks/cota/racing-line.json?url";
 import roadUrl from "../../../../content/tracks/cota/road.glb?url";
 import { SdCar } from "./car.ts";
 import { frameIndex, type Engine } from "./engine.ts";
@@ -8,9 +9,17 @@ import { SdLighting } from "./materials.ts";
 import type { SdAssets } from "./models.ts";
 import { castShadows, loadRoad, setStartLights, Sunlight } from "./road.ts";
 import type { AtmosphereState } from "./atmosphere.ts";
-import { SdSky, type TrackLocal } from "./sky.ts";
+import type { RacingLineData, RacingLineMode } from "./racing-line.ts";
+import { RacingLineView } from "./racing-line-view.ts";
+import { SdSky } from "./sky.ts";
 
 const flipX = new THREE.Matrix4().makeScale(-1, 1, 1);
+
+async function fetchJson<T>(url: string): Promise<T> {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`failed to load ${url}`);
+  return (await response.json()) as T;
+}
 
 export class Scene {
   readonly scene = new THREE.Scene();
@@ -19,7 +28,6 @@ export class Scene {
   private viewMirrored = false;
   private readonly domeColors: THREE.BufferAttribute;
   private readonly dome: THREE.Mesh;
-  private readonly background = new THREE.Group();
   private readonly sunlight: Sunlight;
   readonly atmosphere: AtmosphereState = {
     sunDirection: new THREE.Vector3(),
@@ -30,10 +38,10 @@ export class Scene {
   private constructor(
     private readonly lighting: SdLighting,
     private readonly sky: SdSky,
-    private readonly local: TrackLocal,
     private readonly car: SdCar | GltfCar,
     track: THREE.Object3D,
-    background: THREE.Object3D,
+    private readonly racingLine: RacingLineView,
+    private readonly lapScale: number,
   ) {
     this.camera.matrixAutoUpdate = false;
     this.camera.matrixWorldAutoUpdate = false;
@@ -51,14 +59,7 @@ export class Scene {
     this.dome = new THREE.Mesh(geometry, this.lighting.dome());
     this.dome.renderOrder = -10;
     this.dome.frustumCulled = false;
-    this.background.matrixAutoUpdate = false;
-    this.background.renderOrder = -1;
-    this.background.add(background);
-    background.traverse((object) => {
-      object.renderOrder = -1;
-      object.frustumCulled = false;
-    });
-    this.scene.add(this.dome, this.background, track, car.root);
+    this.scene.add(this.dome, track, car.root);
     this.sunlight = new Sunlight(this.scene);
     castShadows(car.root);
   }
@@ -66,54 +67,37 @@ export class Scene {
   static async load(
     engine: Engine,
     assets: SdAssets,
-    category: string,
-    name: string,
     body: string,
     anisotropy: number,
+    line: { mode: RacingLineMode; skill: string },
   ): Promise<Scene> {
     const lighting = new SdLighting();
-    const trackDir = `tracks/${category}/${name}/`;
     const local = engine.trackLocal();
-    const [track, background, car] = await Promise.all([
-      Scene.loadTrack(engine, assets, lighting, trackDir, name, anisotropy),
-      name === "cota"
-        ? Promise.resolve(new THREE.Group())
-        : assets.model("data/objects/background-sky.ac", {
-            car: false,
-            searchPath: [trackDir, "data/textures/", "data/objects/"],
-            material: (options) => lighting.fixedFunction(options),
-          }),
+    const [frame, road, data, car] = await Promise.all([
+      fetchJson<TrackFrame>("/wasm/sd-frame.json"),
+      loadRoad(roadUrl, anisotropy),
+      fetchJson<RacingLineData>(racingLineUrl),
       body === "vanta"
         ? GltfCar.load(vantaUrl, lighting, new THREE.Color("#d8471c"))
         : SdCar.load(assets, lighting, engine.carInfo()),
     ]);
-    return new Scene(lighting, new SdSky(local), local, car, track, background);
-  }
-
-  private static async loadTrack(
-    engine: Engine,
-    assets: SdAssets,
-    lighting: SdLighting,
-    trackDir: string,
-    name: string,
-    anisotropy: number,
-  ): Promise<THREE.Object3D> {
-    if (assets.exists(`${trackDir}${name}.acc`)) {
-      return assets.model(`${trackDir}${name}.acc`, {
-        car: false,
-        searchPath: [trackDir, "data/textures/"],
-        material: (options) => lighting.shadowMapped(options),
-      });
-    }
-    if (name !== "cota") throw new Error(`no 3D model for track ${name}`);
-    const frame = (await (
-      await fetch("/wasm/sd-frame.json")
-    ).json()) as TrackFrame;
+    const profile = data.profiles[line.skill] ?? data.profiles["rookie"];
+    if (!profile) throw new Error(`no racing line for ${line.skill}`);
+    const racingLine = new RacingLineView(data, profile, line.mode);
     const start = engine.trackPoint(0, 0);
-    const road = await loadRoad(roadUrl, anisotropy);
-    const group = new THREE.Group();
-    group.add(placeOnTrack(road, frame, start));
-    return group;
+    const track = new THREE.Group();
+    track.add(
+      placeOnTrack(road, frame, start),
+      placeOnTrack(racingLine.root, frame, start),
+    );
+    return new Scene(
+      lighting,
+      new SdSky(local),
+      car,
+      track,
+      racingLine,
+      data.length / engine.trackLength(),
+    );
   }
 
   get mirrored(): boolean {
@@ -122,6 +106,10 @@ export class Scene {
 
   update(frame: Float64Array): void {
     this.car.update(frame);
+    this.racingLine.update(
+      (frame[frameIndex.distFromStart] ?? 0) * this.lapScale,
+      Math.abs(frame[frameIndex.speed] ?? 0),
+    );
 
     const c = frameIndex.camera;
     const at = (k: number) => frame[c + k] ?? 0;
@@ -162,12 +150,6 @@ export class Scene {
     (this.domeColors.array as Float32Array).set(sky.domeColors);
     this.domeColors.needsUpdate = true;
     this.dome.position.set(eyeX, eyeY, 0);
-    this.background.matrix.makeTranslation(
-      eyeX,
-      eyeY,
-      Math.trunc(this.local.worldZ) / 2,
-    );
-    this.background.matrixWorldNeedsUpdate = true;
   }
 
   resize(width: number, height: number): void {

@@ -281,7 +281,6 @@ const data = path.join(build, "data");
 const files = [
   [path.join(sd, "speed-dreams-data/data/cars"), "/sd/data/cars"],
   [path.join(sd, "speed-dreams-data/data/data/tracks"), "/sd/data/data/tracks"],
-  [path.join(sd, "speed-dreams-data/data/tracks"), "/sd/data/tracks"],
   [path.join(sd, "speed-dreams-data/data/config"), "/sd/data/config"],
   [path.join(root, "engine/data/local"), "/sd/local"],
   [
@@ -360,7 +359,6 @@ const renderOut = path.join(out, "sd");
 rmSync(renderOut, { recursive: true, force: true });
 const manifest = [];
 for (const [dir, pattern] of [
-  ["tracks/circuit/jarama", /\.(acc|png)$/],
   ["cars/models/sc-cavallo-360", /\.(acc|png)$/],
   ["cars/models/22mp1-sector-mcl36", /\.(acc|png)$/],
   ["data/objects", /\.(ac|acc|png)$/],

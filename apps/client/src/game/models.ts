@@ -42,10 +42,6 @@ export class SdAssets {
     return new SdAssets(base, new Set((await response.json()) as string[]));
   }
 
-  exists(path: string): boolean {
-    return this.files.has(path);
-  }
-
   find(name: string, searchPath: string[]): string | null {
     if (!name) return null;
     for (const dir of searchPath)

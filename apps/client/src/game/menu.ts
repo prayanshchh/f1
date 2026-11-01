@@ -320,6 +320,7 @@ export class Menu {
           Object.assign(this.settings, {
             skill: defaults.skill,
             transmission: defaults.transmission,
+            racingLine: defaults.racingLine,
             autoReverse: defaults.autoReverse,
             assist: defaults.assist,
             abs: defaults.abs,
@@ -790,6 +791,15 @@ export class Menu {
         () => s.transmission,
         (id) => {
           s.transmission = id as Settings["transmission"];
+        },
+      ),
+      this.choice(
+        "Dynamic Racing Line",
+        "With this assist enabled there will be a racing line displayed on the track, coloured to show when to accelerate, lift and brake. This line can be displayed for corners only or all of the time.",
+        choices.racingLine,
+        () => s.racingLine,
+        (id) => {
+          s.racingLine = id as Settings["racingLine"];
         },
       ),
       this.toggle(

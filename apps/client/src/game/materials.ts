@@ -105,20 +105,6 @@ export class SdLighting {
     return material;
   }
 
-  fixedFunction(options: SurfaceOptions): THREE.MeshBasicNodeMaterial {
-    const material = baseMaterial(options);
-    const { map } = options;
-    material.fragmentNode = Fn(() => {
-      const tint = vec4(uniform(options.color ?? new THREE.Color(1, 1, 1)), 1);
-      const base = map ? texture(map, uv()).mul(tint) : tint;
-      const color = vec4(this.litColor(), 1).mul(base).toVar();
-      if (options.alphaClamp)
-        If(color.a.lessThanEqual(alphaClamp), () => Discard());
-      return vec4(this.fog(color.rgb), color.a);
-    })();
-    return material;
-  }
-
   carShader(options: SurfaceOptions): THREE.MeshBasicNodeMaterial {
     const material = baseMaterial(options);
     const { map } = options;

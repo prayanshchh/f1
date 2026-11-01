@@ -111,6 +111,7 @@ export interface Settings {
   transmission: ChoiceId<"transmission">;
   autoReverse: boolean;
   assist: boolean;
+  antiLock: boolean;
   abs: boolean;
   tc: boolean;
   steerSensitivity: number;
@@ -149,6 +150,7 @@ export const defaults: Settings = {
   transmission: "auto",
   autoReverse: true,
   assist: true,
+  antiLock: false,
   abs: true,
   tc: true,
   steerSensitivity: 0.6,

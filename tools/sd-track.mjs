@@ -9,11 +9,20 @@ const track = JSON.parse(
 const width = track.width;
 const half = width / 2;
 const minSideWidth = 0.5;
-const kerbHeight = 0.03;
-const kerbRoughness = 0.006;
+const kerbHeight = 0.02;
+const kerbRoughness = 0.004;
 const kerbWavelength = 1.5;
 const kerbMaxWidening = 0.6;
+const kerbRamp = 16;
+const grassRoughness = 0.006;
+const grassWavelength = 3;
 const timeOfDay = 16.5;
+const pitWallThin = 0.4;
+const pitDeckRamp = 20;
+const pitWallHeight = 1;
+const pitWallRamp = 30;
+const pit = track.pitLane;
+const pitShift = pit.pitWall - half;
 
 const points = track.centerline.map((p) => ({
   x: p.x,
@@ -25,8 +34,6 @@ const points = track.centerline.map((p) => ({
   camber: p.camber,
   wallLeft: p.wallLeft,
   wallRight: p.wallRight,
-  railLeft: p.railLeft === 1,
-  railRight: p.railRight === 1,
 }));
 const n = points.length;
 const at = (i) => points[((i % n) + n) % n];
@@ -82,6 +89,56 @@ const relaxed = Math.max(
   ...points.map((p) => Math.hypot(p.x - p.gx, p.y + p.gz)),
 );
 
+const onArc = (distance, from, to) =>
+  from <= to
+    ? distance >= from && distance <= to
+    : distance >= from || distance <= to;
+const lapDistance = (distance) =>
+  ((distance % track.length) + track.length) % track.length;
+const smooth = (t) => t * t * (3 - 2 * t);
+
+function shiftAt(distance) {
+  if (onArc(distance, pit.wallStart, pit.wallEnd)) return pitShift;
+  const before = lapDistance(pit.wallStart - distance);
+  const after = lapDistance(distance - pit.wallEnd);
+  const ramp = Math.max(1 - before / pitWallRamp, 1 - after / pitWallRamp, 0);
+  return pitShift * smooth(ramp);
+}
+
+function pitWallThickness(distance) {
+  if (!onArc(distance, pit.garageStart, pit.garageEnd)) return pitWallThin;
+  const inside = Math.min(
+    lapDistance(distance - pit.garageStart),
+    lapDistance(pit.garageEnd - distance),
+  );
+  return (
+    pitWallThin +
+    (pit.pitWallDeck - pitWallThin) * smooth(Math.min(inside / pitDeckRamp, 1))
+  );
+}
+
+function pitZoneAt(distance) {
+  if (!onArc(distance, pit.entry, pit.exit)) return null;
+  return onArc(distance, pit.wallStart, pit.wallEnd) ? "wall" : "mouth";
+}
+
+const normals = points.map((_, i) => {
+  const a = at(i - 1);
+  const b = at(i + 1);
+  const length = Math.hypot(b.x - a.x, b.y - a.y);
+  return { x: -(b.y - a.y) / length, y: (b.x - a.x) / length };
+});
+points.forEach((p, i) => {
+  const distance = i * spacing;
+  p.shift = shiftAt(distance);
+  p.pitZone = pitZoneAt(distance);
+  p.pitThickness = pitWallThickness(distance);
+  if (p.pitZone) p.wallLeft = Math.min(p.wallLeft, pit.pitBarrier);
+  p.x += normals[i].x * p.shift;
+  p.y += normals[i].y * p.shift;
+  p.z += p.camber * p.shift;
+});
+
 for (let i = 0; i < n; i++) {
   const prev = at(i - 1);
   const next = at(i + 1);
@@ -97,6 +154,28 @@ points.forEach((p, i) => {
   p.zr = p.z - p.camber * half;
   p.kerbLeft = kerbAt("left", i * spacing);
   p.kerbRight = kerbAt("right", i * spacing);
+});
+
+function kerbLevels(key, widthOf) {
+  const reach = Math.round(kerbRamp / spacing);
+  const levels = points.map((p) =>
+    p[key] && widthOf(p) < kerbMaxWidening ? Infinity : 0,
+  );
+  for (let pass = 0; pass < 2; pass++) {
+    for (let k = 0; k < 2 * n; k++) {
+      const i = pass === 0 ? k % n : (2 * n - 1 - k) % n;
+      const before = levels[(i + (pass === 0 ? n - 1 : 1)) % n];
+      levels[i] = Math.min(levels[i], before + 1);
+    }
+  }
+  return levels.map((level) => Math.min(level / reach, 1));
+}
+const widening = (p) => p.width / 2 - half;
+const levelLeft = kerbLevels("kerbLeft", widening);
+const levelRight = kerbLevels("kerbRight", widening);
+points.forEach((p, i) => {
+  p.kerbLeft = levelLeft[i];
+  p.kerbRight = levelRight[i];
 });
 
 const cross = (ax, ay, bx, by) => ax * by - ay * bx;
@@ -168,10 +247,11 @@ for (let i = 0; i < n; i++) {
       wallLeftEnd: lerp(p0.wallLeft, p1.wallLeft, e),
       wallRightStart: lerp(p0.wallRight, p1.wallRight, s),
       wallRightEnd: lerp(p0.wallRight, p1.wallRight, e),
-      kerbLeft: p0.kerbLeft || p1.kerbLeft,
-      kerbRight: p0.kerbRight || p1.kerbRight,
-      railLeft: p0.railLeft && p1.railLeft,
-      railRight: p0.railRight && p1.railRight,
+      kerbLeft: Math.min(p0.kerbLeft, p1.kerbLeft),
+      kerbRight: Math.min(p0.kerbRight, p1.kerbRight),
+      shift: lerp(p0.shift, p1.shift, (s + e) / 2),
+      pitZone: p0.pitZone === p1.pitZone ? p0.pitZone : "mouth",
+      pitThickness: lerp(p0.pitThickness, p1.pitThickness, (s + e) / 2),
     });
   }
 }
@@ -202,34 +282,61 @@ function kerbSurface(letter) {
   ].join("")}</section>`;
 }
 
+function grassSurface() {
+  return `<section name="cota-grass">${[
+    str("texture name", "tr-grass.png"),
+    str("texture type", "continuous"),
+    num("texture size", 2, "m"),
+    num("friction", 0.4),
+    num("rolling resistance", 0.08),
+    num("roughness", grassRoughness),
+    num("roughness wavelength", grassWavelength),
+  ].join("")}</section>`;
+}
+
 function sideOf(s, isLeft) {
   return isLeft
     ? {
         kerb: s.kerbLeft,
-        rail: s.railLeft,
         wallStart: s.wallLeftStart,
         wallEnd: s.wallLeftEnd,
         letter: "l",
+        extra: s.width / 2 - half - s.shift,
+        reach: s.shift,
+        pitZone: s.pitZone,
+        pitThickness: s.pitThickness,
       }
     : {
         kerb: s.kerbRight,
-        rail: s.railRight,
         wallStart: s.wallRightStart,
         wallEnd: s.wallRightEnd,
         letter: "r",
+        extra: s.width / 2 - half + s.shift,
+        reach: -s.shift,
+        pitZone: null,
       };
 }
 
-function borderOf(s, edge) {
-  const widening = s.width / 2 - half;
-  const kerb = edge.kerb && widening < kerbMaxWidening;
+function borderOf(edge) {
+  if (edge.pitZone === "wall")
+    return {
+      width: edge.pitThickness,
+      xml: [
+        num("width", edge.pitThickness, "m"),
+        num("height", pitWallHeight, "m"),
+        str("surface", "barrier"),
+        str("style", "wall"),
+      ].join(""),
+    };
+  const { extra } = edge;
+  const kerb = edge.kerb > 0;
   const width = Math.min(
-    Math.max(widening, 0) + (kerb ? track.surfaces[0].width : track.runoff),
-    Math.min(edge.wallStart, edge.wallEnd) - half - minSideWidth,
+    Math.max(extra, 0) + (kerb ? track.surfaces[0].width : track.runoff),
+    Math.min(edge.wallStart, edge.wallEnd) - edge.reach - half - minSideWidth,
   );
   const style = kerb
     ? [
-        num("height", kerbHeight, "m"),
+        num("height", kerbHeight * edge.kerb, "m"),
         str("surface", `cota-kerb-${edge.letter}`),
         str("style", "curb"),
       ]
@@ -243,13 +350,14 @@ function borderOf(s, edge) {
 
 function side(name, s, isLeft) {
   const edge = sideOf(s, isLeft);
-  const border = borderOf(s, edge);
+  const border = borderOf(edge);
   const sideWidth = (wall) =>
-    Math.max(wall - half - border.width, minSideWidth);
+    Math.max(wall - edge.reach - half - border.width, minSideWidth);
+  const surface = edge.pitZone ? "asphalt-lines" : "cota-grass";
   return [
     `<section name="${name} Border">${border.xml}</section>`,
-    `<section name="${name} Side">${num("start width", sideWidth(edge.wallStart), "m")}${num("end width", sideWidth(edge.wallEnd), "m")}${str("surface", "grass")}</section>`,
-    `<section name="${name} Barrier">${num("width", 0.5, "m")}${num("height", 1, "m")}${str("surface", "barrier")}${str("style", edge.rail ? "wall" : "no barrier")}</section>`,
+    `<section name="${name} Side">${num("start width", sideWidth(edge.wallStart), "m")}${num("end width", sideWidth(edge.wallEnd), "m")}${str("surface", surface)}</section>`,
+    `<section name="${name} Barrier">${num("width", 0.5, "m")}${num("height", 1, "m")}${str("surface", "barrier")}${str("style", "wall")}</section>`,
   ].join("");
 }
 
@@ -286,6 +394,7 @@ const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <section name="Surfaces">
 &default-surfaces;
 ${["l", "r"].map(kerbSurface).join("\n")}
+${grassSurface()}
 </section>
 <section name="Header">
 ${str("name", track.name)}

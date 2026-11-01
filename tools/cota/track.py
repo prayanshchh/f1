@@ -15,19 +15,31 @@ from geo import Osm, Terrain
 CIRCUIT = 6537729
 STEP = 2.0
 NOMINAL_WIDTH = 14.0
-MIN_INNER_RADIUS_RATIO = 0.15
+MIN_CENTRE_RADIUS = 15.0
+MIN_EDGE_RADIUS = 8.0
+MAX_WIDENING = 0.3
+HAIRPIN_REACH = 6
+HAIRPIN_ITERATIONS = 4000
+SURFACE_TOLERANCE = 2.0
 MAX_CAMBER = 0.035
 WALL_SLOPE = 0.35
 WALL_MIN_FORWARD = 0.15
 RAIL_REACH = 40.0
 SYNTHETIC_OFFSET = 14.0
-PIT_ALONG = 6.0
-PIT_REACH = 60.0
-PIT_LANE_HALF_WIDTH = 3.5
-PIT_WALL_GAP = 1.5
-APEX_OPEN_RATIO = 0.8
-BARRIER_FILTER = 7
-WALL_INNER_RATIO = 0.1
+PIT_WALL = 9.0
+PIT_MIN_REACH = 18.0
+PIT_GARAGE_SEARCH = 40.0
+PIT_GARAGE_GAP = 0.2
+PIT_WALL_DECK = 2.6
+PIT_LANE_SIGN = 16.0
+PIT_BARRIER = 22.5
+GARAGE_CARVE = 14.0
+GARAGE_FLOOR_SINK = 0.3
+PIT_ENTRY_MOUTH = 65.0
+PIT_EXIT_MOUTH = 70.0
+PIT_KERB_GAP = 4.0
+WALL_SMOOTHING = 3
+WALL_INNER_RATIO = 0.2
 KERB_WIDTH = 1.2
 RUNOFF_WIDTH = 3.0
 KERB_RADIUS = 220.0
@@ -185,6 +197,20 @@ def centreline(chain, outer, inner):
     return Spline(tck), left_ring, right_ring
 
 
+def relax_hairpins(spline):
+    points, tangents = spline.sample(STEP)
+    for _ in range(HAIRPIN_ITERATIONS):
+        tangents = np.roll(points, -1, 0) - np.roll(points, 1, 0)
+        tangents /= np.linalg.norm(tangents, axis=1)[:, None]
+        tight = np.abs(curvature(points, tangents)) > 1 / MIN_CENTRE_RADIUS
+        if not tight.any():
+            break
+        reach = np.convolve(np.concatenate([tight[-HAIRPIN_REACH:], tight, tight[:HAIRPIN_REACH]]), np.ones(2 * HAIRPIN_REACH + 1), mode="valid") > 0
+        middle = (np.roll(points, -1, 0) + np.roll(points, 1, 0)) / 2
+        points = points + (middle - points) * reach[:, None] * 0.25
+    return Spline(periodic_fit(points, 0.005))
+
+
 def spans(mask):
     n = len(mask)
     if mask.all():
@@ -224,9 +250,16 @@ def kerbs(k, step):
             exit_from = apex + 0.3 * (end - apex)
             out.append({"side": outside, "from": exit_from, "to": min(end, exit_from + 70.0)})
     length = n * step
+    merged = []
+    for s in sorted(out, key=lambda s: s["from"]):
+        previous = next((m for m in reversed(merged) if m["side"] == s["side"]), None)
+        if previous is not None and s["from"] <= previous["to"]:
+            previous["to"] = max(previous["to"], s["to"])
+        else:
+            merged.append(dict(s))
     return [
         {"kind": "kerb", "side": s["side"], "from": round(s["from"] % length, 3), "to": round(s["to"] % length, 3), "width": KERB_WIDTH}
-        for s in out
+        for s in merged
     ]
 
 
@@ -236,30 +269,33 @@ def crossings(ring, origin, direction, reach):
     return sorted(np.hypot(*(np.array(p.coords[0]) - origin)) for p in points)
 
 
-def pit_points(osm):
-    way = next(w for w in osm.tagged("highway", "raceway") if w["tags"].get("name") == "Pit Lane")
-    raw = osm.way(way["id"])
-    seg = np.linalg.norm(np.diff(raw, axis=0), axis=1)
-    s = np.concatenate([[0], np.cumsum(seg)])
-    tck = splprep([raw[:, 0], raw[:, 1]], u=s / s[-1], s=len(raw) * 0.2)[0]
-    u = np.linspace(0, 1, int(s[-1] / STEP) + 1)
-    return np.stack(splev(u, tck), 1)
+def arc_rows(count, step, start, end):
+    first = int(np.ceil(start / step))
+    last = int(np.floor((end if end >= start else end + count * step) / step))
+    return np.arange(first, last + 1) % count
 
 
-def pit_gap(points, tangents, width, lane, direction):
-    n = normals(tangents) * direction
-    distance, index = cKDTree(lane).query(points)
-    offset = lane[index] - points
-    lateral = np.einsum("ij,ij->i", offset, n)
-    along = np.abs(np.einsum("ij,ij->i", offset, tangents))
-    beside = (lateral > 0) & (along < PIT_ALONG) & (distance < PIT_REACH)
-    return np.where(beside, lateral - PIT_LANE_HALF_WIDTH - width / 2, np.inf)
+def pit_layout(surfaces, length):
+    left = [s for s in surfaces if s["side"] == "left"]
+    entry = max(s["to"] for s in left if s["to"] > length - 400) + PIT_KERB_GAP
+    exit_line = min(s["from"] for s in left if 400 < s["from"] < 800) - PIT_KERB_GAP
+    return {"entry": entry, "wallStart": entry + PIT_ENTRY_MOUTH, "wallEnd": exit_line - PIT_EXIT_MOUTH, "exit": exit_line}
 
 
-def walls(osm, points, tangents, width, rings, k, step, lane):
+def pit_reach(osm, points, tangents, zone):
+    garages = next(w for w in osm.ways.values() if w.get("tags", {}).get("name") == "Pit Garages")
+    front = LinearRing(osm.way(garages["id"]))
+    n = normals(tangents)
+    out = np.full(len(points), np.nan)
+    hits = np.array([ray(front, points[i], n[i], PIT_GARAGE_SEARCH) for i in zone]) - PIT_GARAGE_GAP
+    out[zone] = np.where(np.isfinite(hits), np.clip(hits, PIT_MIN_REACH, PIT_GARAGE_SEARCH), PIT_MIN_REACH)
+    return out, zone[np.isfinite(hits)], float(np.median(hits[np.isfinite(hits)]))
+
+
+def walls(osm, points, tangents, width, rings, k, step, reach):
     rails = unary_union([LineString(osm.way(w["id"])) for w in osm.tagged("barrier", "guard_rail") if len(w["nodes"]) > 1])
     n = normals(tangents)
-    out, present = [], []
+    out = []
     for direction in (1, -1):
         limits, found = [], []
         for p, v, w in zip(points, n, width):
@@ -271,22 +307,15 @@ def walls(osm, points, tangents, width, rings, k, step, lane):
         found = np.array(found)
         synthetic = np.minimum(limits, width / 2 + SYNTHETIC_OFFSET)
         d = np.where(np.isfinite(found), found, synthetic)
-        gap = pit_gap(points, tangents, width, lane, direction)
-        pit_wall = np.isfinite(gap) & (gap > PIT_WALL_GAP)
-        pit_open = np.isfinite(gap) & ~pit_wall
-        d = np.where(pit_wall, width / 2 + gap / 2, d)
-        d = np.where(pit_open, np.minimum(limits, width / 2 + np.maximum(gap, 0) + 2 * PIT_LANE_HALF_WIDTH + 1), d)
+        if direction == 1:
+            d = np.where(np.isfinite(reach), reach, d)
         d = gaussian_filter1d(median_filter(d, 9, mode="wrap"), 2, mode="wrap")
         inside = np.where(direction * k > 0, (1 - WALL_INNER_RATIO) / np.maximum(np.abs(k), 1e-9), np.inf)
-        apex = d > inside * APEX_OPEN_RATIO
         d = np.maximum(np.minimum(np.maximum(d, width / 2 + WALL_CLEARANCE), inside), width / 2 + 0.5)
         forward = np.maximum(1 - direction * k * d, WALL_MIN_FORWARD)
-        d = np.maximum(envelope(d, WALL_SLOPE * step * forward), width / 2 + 0.5)
-        barrier = ~(pit_open | apex)
-        barrier = median_filter(barrier, BARRIER_FILTER, mode="wrap")
-        present.append(barrier)
-        out.append(d)
-    return out, present
+        d = gaussian_filter1d(envelope(d, WALL_SLOPE * step * forward), WALL_SMOOTHING, mode="wrap")
+        out.append(np.maximum(np.minimum(d, inside), width / 2 + 0.5))
+    return out
 
 
 def envelope(values, rise):
@@ -300,17 +329,16 @@ def envelope(values, rise):
     return out
 
 
-def pit_lane(osm, ground_height, spline, origin_height):
-    pts = pit_points(osm)
-    heights = gaussian_filter1d(ground_height(pts), 4, mode="nearest") - origin_height
-    main, tangents = spline.at(np.array([spline.project(pts[len(pts) // 2])]))
-    side = "left" if np.dot(pts[len(pts) // 2] - main[0], normals(tangents)[0]) > 0 else "right"
+def pit_lane(layout, zone, points, n, centre, camber, reach, origin_height):
+    lateral = (PIT_WALL + reach[zone]) / 2
+    world = points[zone] + n[zone] * lateral[:, None]
+    heights = centre[zone] + camber[zone] * lateral - origin_height
     return {
-        "side": side,
-        "entry": float(spline.project(pts[0])),
-        "exit": float(spline.project(pts[-1])),
+        "side": "left",
+        **{key: round(value, 3) for key, value in layout.items()},
+        "pitWall": PIT_WALL,
         "speedLimit": 80,
-        "centerline": [{"x": round(p[0], 4), "y": round(h, 4), "z": round(-p[1], 4)} for p, h in zip(pts, heights)],
+        "centerline": [{"x": round(p[0], 4), "y": round(h, 4), "z": round(-p[1], 4)} for p, h in zip(world, heights)],
     }
 
 
@@ -374,7 +402,7 @@ def verge(points, n, width, camber, centre, extents, ground_height):
     return offsets, heights
 
 
-def ground(ground_height, points, origin_height, pit):
+def ground(ground_height, points, origin_height, pit, garage_rows):
     lo = points.min(axis=0) - TERRAIN_MARGIN
     hi = points.max(axis=0) + TERRAIN_MARGIN
     xs = np.arange(lo[0], hi[0] + TERRAIN_SPACING, TERRAIN_SPACING)
@@ -392,6 +420,9 @@ def ground(ground_height, points, origin_height, pit):
     near, which = cKDTree(lane).query(grid, distance_upper_bound=PIT_CLEARANCE)
     inside = np.isfinite(near)
     heights[inside] = np.minimum(heights[inside], lane_height[which[inside]] - TERRAIN_SINK)
+    plane, _, _ = ground_height.plane(grid)
+    footprint = np.isin(index, garage_rows) & (lateral > pit["garageFront"] - 1) & (lateral < pit["garageFront"] + GARAGE_CARVE)
+    heights[footprint] = np.minimum(heights[footprint], plane[footprint] - origin_height - GARAGE_FLOOR_SINK)
     return xs, ys, heights.reshape(gy.shape)
 
 
@@ -516,23 +547,33 @@ def main():
     chain = circuit_chain(osm)
     surface, outer, inner = track_surface(osm, chain)
     spline, left_ring, right_ring = centreline(chain, outer, inner)
+    spline = relax_hairpins(spline)
     start = spline.project((0.0, 0.0))
     points, tangents = spline.sample(STEP, start)
-    if not all(surface.contains(Point(p)) for p in points):
-        raise RuntimeError("centreline leaves the track surface")
+    outside = max(surface.distance(Point(p)) for p in points)
+    if outside > SURFACE_TOLERANCE:
+        raise RuntimeError(f"centreline leaves the track surface by {outside:.1f} m")
     length = spline.length
     step = length / len(points)
     left, right = edges(points, tangents, left_ring, right_ring)
     width = gaussian_filter1d(left + right, 2, mode="wrap")
     k = gaussian_filter1d(curvature(points, tangents), 2, mode="wrap")
-    width = np.minimum(width, 2 * (1 - MIN_INNER_RADIUS_RATIO) / np.maximum(np.abs(k), 1e-9))
+    limit = 2 * np.maximum(1 / np.maximum(np.abs(k), 1e-9) - MIN_EDGE_RADIUS, 0)
+    surfaces = kerbs(k, step)
+    layout = pit_layout(surfaces, length)
+    zone = arc_rows(len(points), step, layout["entry"] % length, layout["exit"])
+    width[arc_rows(len(points), step, layout["wallStart"] % length, layout["wallEnd"])] = NOMINAL_WIDTH
+    limit[arc_rows(len(points), step, layout["wallStart"] % length, layout["wallEnd"])] = NOMINAL_WIDTH
+    width = gaussian_filter1d(envelope(np.minimum(width, limit), np.full(len(width), MAX_WIDENING * step)), 3, mode="wrap")
+    width = np.minimum(width, limit)
     n = normals(tangents)
     centre = gaussian_filter1d(terrain(points), 8, mode="wrap")
     hl = terrain(points + n * (width / 2 - 1)[:, None])
     hr = terrain(points - n * (width / 2 - 1)[:, None])
     camber = gaussian_filter1d(np.clip((hl - hr) / (width - 2), -MAX_CAMBER, MAX_CAMBER), 12, mode="wrap")
     origin_height = centre[0]
-    (wall_left, wall_right), (rail_left, rail_right) = walls(osm, points, tangents, width, unary_union([left_ring, right_ring]), k, STEP, pit_points(osm))
+    reach, garage_rows, garage_front = pit_reach(osm, points, tangents, zone)
+    wall_left, wall_right = walls(osm, points, tangents, width, unary_union([left_ring, right_ring]), k, STEP, reach)
     sectors = [float(round(spline.project(osm.local([line])[0]) - start, 3) % round(length, 3)) for line in SECTOR_LINES]
     extents = verge_extents(width, wall_left, wall_right)
     ground_height = Ground(Terrain(root / "source" / "dem.png", osm, GROUND_SMOOTHING), points, n, width, camber, centre, extents)
@@ -551,13 +592,19 @@ def main():
                 "camber": round(c, 4),
                 "wallLeft": round(wl, 2),
                 "wallRight": round(wr, 2),
-                "railLeft": int(rl),
-                "railRight": int(rr),
             }
-            for p, h, w, c, wl, wr, rl, rr in zip(points, centre, width, camber, wall_left, wall_right, rail_left, rail_right)
+            for p, h, w, c, wl, wr in zip(points, centre, width, camber, wall_left, wall_right)
         ],
-        "surfaces": kerbs(k, step),
-        "pitLane": pit_lane(osm, ground_height, spline, origin_height),
+        "surfaces": surfaces,
+        "pitLane": {
+            **pit_lane(layout, zone, points, n, centre, camber, wall_left, origin_height),
+            "garageStart": round(float(garage_rows[0]) * step, 3),
+            "garageEnd": round(float(garage_rows[-1]) * step, 3),
+            "garageFront": round(garage_front, 3),
+            "pitWallDeck": PIT_WALL_DECK,
+            "pitLaneSign": PIT_LANE_SIGN,
+            "pitBarrier": PIT_BARRIER,
+        },
         "sectors": sorted(sectors),
         "grid": [
             {"distance": round(length - GRID_BEHIND_LINE - GRID_SPACING * i, 3), "offset": GRID_OFFSET * (-1 if i % 2 == 0 else 1)}
@@ -565,14 +612,14 @@ def main():
         ],
     }
     pit = track["pitLane"]
-    pit["entry"] = round((pit["entry"] - start) % length, 3)
-    pit["exit"] = round((pit["exit"] - start) % length, 3)
+    for key in layout:
+        pit[key] = round(pit[key] % length, 3)
     (root / "track.json").write_text(json.dumps(track, separators=(",", ":")) + "\n")
     build = Path(sys.argv[2] if len(sys.argv) > 2 else "build/cota")
     build.mkdir(parents=True, exist_ok=True)
     offsets, heights = verge(points, n, width, camber, centre, extents, ground_height)
     np.savez(build / "verge.npz", offsets=offsets, heights=heights - origin_height)
-    xs, ys, field = ground(ground_height, points, origin_height, track["pitLane"])
+    xs, ys, field = ground(ground_height, points, origin_height, track["pitLane"], garage_rows)
     np.savez(build / "terrain.npz", x=xs, y=ys, heights=field)
     forest = trees(osm, ground_height, points, offsets, xs, ys, origin_height)
     np.save(build / "trees.npy", forest)

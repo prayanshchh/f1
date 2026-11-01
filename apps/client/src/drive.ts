@@ -209,6 +209,7 @@ async function main(): Promise<void> {
     track.id,
     car.car,
     settings.assist,
+    settings.antiLock,
     performance.now() / 1000,
   );
   const assets = await SdAssets.open("/wasm/sd/");
@@ -301,6 +302,7 @@ async function main(): Promise<void> {
       frame[frameIndex.gear] ?? 0,
     );
     scene.update(frame);
+    scene.marks.update(frame, engine.wheelGrip());
     hud.update(frame, engine.hudInfo(), now);
     const bestTime = trace.bestTime ?? Infinity;
     if (bestTime < savedBest) {

@@ -21,10 +21,9 @@ CABLE_SIZE = 0.025
 RAIL_SIZE = 0.06
 
 
-def wall_line(track, side):
+def wall_line(track, side, offset):
     sign = 1 if side == 0 else -1
     rows = np.arange(track.count)
-    offset = track.walls[:, side]
     xy = track.position[:, :2] + track.normal * (sign * offset)[:, None]
     base = track.surface_height(rows, sign * offset)
     step = np.linalg.norm(np.roll(xy, -1, 0) - xy, axis=1)
@@ -77,18 +76,27 @@ def fence_lines(track, side, xy):
     return middle, lean
 
 
+def wall_runs(track):
+    outer_left = track.walls[:, 0]
+    return [
+        (0, outer_left, ~track.garage_front, np.full(track.count, WALL_THICKNESS)),
+        (1, track.walls[:, 1], np.ones(track.count, bool), np.full(track.count, WALL_THICKNESS)),
+        (0, np.full(track.count, track.pit_wall), track.pit_wall_rows, track.pit_wall_width),
+    ]
+
+
 def walls(track, smooth):
     boards, tecpro, concrete, fence = Batch(), Batch(), Batch(), Batch()
-    for side in (0, 1):
-        sign, xy, base, along = wall_line(track, side)
+    for side, offset, present, thickness in wall_runs(track):
+        sign, xy, base, along = wall_line(track, side, offset)
         reading = 1 if side == 0 else -1
         mask = tecpro_mask(track, side, smooth)
-        back = xy + track.normal * (sign * WALL_THICKNESS)
+        back = xy + track.normal * (sign * thickness)[:, None]
         middle, lean = fence_lines(track, side, xy)
         slant = np.hypot(FENCE_LEAN, FENCE_TOP - FENCE_KNEE)
         for i in range(track.count):
             j = (i + 1) % track.count
-            if not track.rails[i, side]:
+            if not (present[i] and present[j]):
                 continue
             s0, s1 = along[i], along[i] + np.linalg.norm(xy[j] - xy[i])
             ground = (base[i], base[j])
@@ -109,7 +117,7 @@ def walls(track, smooth):
             )
             concrete.add(quad(back[i], back[j], buried, top), [(s0, 0), (s1, 0), (s1, 1), (s0, 1)])
             concrete.add(quad(xy[i], xy[j], buried, ground), [(s0, 0), (s1, 0), (s1, 1), (s0, 1)])
-            for row, open_end in ((i, not track.rails[i - 1, side]), (j, not track.rails[j, side])):
+            for row, open_end in ((i, not present[i - 1]), (j, not present[(j + 1) % track.count])):
                 if open_end:
                     concrete.add(
                         quad(xy[row], back[row], (base[row] - WALL_BURY,) * 2, (base[row] + WALL_HEIGHT,) * 2),
@@ -145,13 +153,14 @@ def beam(batch, bottom, top, size):
 
 def metalwork(track):
     steel = Batch()
-    for side in (0, 1):
-        _, xy, base, along = wall_line(track, side)
+    for side, offset, present, _ in wall_runs(track):
+        _, xy, base, along = wall_line(track, side, offset)
         middle, lean = fence_lines(track, side, xy)
         next_post = 0.0
         previous = None
+        first = None
         for i in range(track.count):
-            if not track.rails[i, side]:
+            if not present[i]:
                 previous = None
                 continue
             if along[i] < next_post:
@@ -167,8 +176,14 @@ def metalwork(track):
                 for height in CABLE_HEIGHTS:
                     beam(steel, np.array([*p_middle, p_base + height]), np.array([*middle[i], base[i] + height]), CABLE_SIZE)
                 beam(steel, np.array([*p_lean, p_base + FENCE_TOP]), tip, RAIL_SIZE)
+            first = first or post
             previous = post
             next_post = along[i] + POST_SPACING
+        if not present.all():
+            continue
+        for height in CABLE_HEIGHTS:
+            beam(steel, np.array([*previous[0], previous[2] + height]), np.array([*first[0], first[2] + height]), CABLE_SIZE)
+        beam(steel, np.array([*previous[1], previous[2] + FENCE_TOP]), np.array([*first[1], first[2] + FENCE_TOP]), RAIL_SIZE)
     return steel
 
 
@@ -205,7 +220,7 @@ def distance_boards(track, smooth):
         side = 0 if sign > 0 else 1
         for index, mark in enumerate(DISTANCE_MARKS):
             row = int(entry - round(mark / step)) % track.count
-            if not track.rails[row, side]:
+            if side == 0 and track.pit_zone[row]:
                 continue
             between = np.arange(row, row + int(round(mark / step))) % track.count
             if corner[between].any():

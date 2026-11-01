@@ -318,6 +318,7 @@ const exported = [
   "_sdCarLimits",
   "_sdTrackSectors",
   "_sdInputAssist",
+  "_sdInputAntiLock",
   "_sdInputAnalog",
   "_sdCarName",
   "_sdCarParamStr",

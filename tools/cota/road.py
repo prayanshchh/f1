@@ -2,10 +2,13 @@ import json
 import sys
 from pathlib import Path
 
+import bmesh
 import bpy
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import billboards
+import pitlane
 import trackside
 import vegetation
 import venue
@@ -19,8 +22,8 @@ START_LINE_WIDTH = 0.4
 GRID_HALF_WIDTH = 1.3
 GRID_LEG = 1.0
 GRID_BAR = 0.15
-KERB_PROFILE = [(0.0, 0.0), (0.1, 0.015), (0.4, 0.035), (1.05, 0.045), (1.2, 0.045)]
-KERB_TAPER = 2.0
+KERB_PROFILE = [(0.0, 0.0), (0.1, 0.007), (0.4, 0.016), (1.05, 0.02), (1.2, 0.02)]
+KERB_TAPER = 16.0
 KERB_LIFT = 0.008
 KERB_TILE = 4.0
 RUNOFF_LIFT = 0.005
@@ -29,19 +32,35 @@ RACING_LINE_LOOKAHEAD = 50.0
 ASPHALT_TILE = 2.0
 GRASS_TILE = 3.0
 TERRAIN_TILE = 4.0
-PIT_TRACK_SIDE = 3.5
-PIT_GARAGE_SIDE = 7.5
-PIT_COLUMNS = 12
-PIT_FILL_GAP = 3.0
-PIT_FILL_OVERLAP = 0.3
+VERGE_BEYOND_WALL = 3
+PIT_COLUMNS = 6
+PIT_WALL_THIN = 0.4
+PIT_DECK_RAMP = 20.0
+PIT_LIFT = 0.012
+PIT_FLARE = 0.3
+PIT_LINE_LIFT = 0.018
+PIT_FAST_LANE = 17.0
+PIT_STRIP_WIDTH = 3.0
+PIT_STRIP_TILE = 12.0
+PIT_RED_LINE = 0.4
+PIT_BOX_EDGE = 1.2
+PIT_CROSS_LINE = 0.6
+PIT_DASH = 3.0
+PIT_GORE = 34.0
+PIT_CHEVRON_STEP = 4.0
+PIT_CHEVRON_WIDTH = 0.5
+PIT_DECAL_LENGTH = 6.0
+PIT_DECAL_WIDTH = 4.0
+PIT_BOX_START = 5.0
+PIT_BOX_LENGTH = 7.0
+PIT_BOX_SPACING = 28.0
+PIT_BOXES = 10
 AD_LENGTH = 14.0
 AD_SPACING = 150.0
 AD_MARGIN = 0.25
 AD_LIFT = 0.008
 AD_STRAIGHT = 1 / 800
 AD_BRANDS = 4
-PIT_LIFT = 0.03
-PIT_SMOOTHING = 6
 
 
 def arguments():
@@ -98,8 +117,6 @@ class Track:
         self.width = linear(np.array([p["width"] for p in points]), factor)
         self.camber = linear(np.array([p["camber"] for p in points]), factor)
         self.walls = linear(np.array([[p["wallLeft"], p["wallRight"]] for p in points]), factor)
-        rails = np.array([[p["railLeft"], p["railRight"]] for p in points], bool)
-        self.rails = np.repeat(rails & np.roll(rails, -1, axis=0), factor, axis=0)
         verge = np.load(build / "verge.npz")
         self.verge_offsets = linear(verge["offsets"], factor)
         self.verge_heights = linear(verge["heights"], factor)
@@ -114,10 +131,25 @@ class Track:
         self.curvature = np.gradient(heading) / (self.length / self.count)
         self.main_half = data["width"] / 2
         self.half = self.width / 2
+        pit = data["pitLane"]
+        self.pit = pit
+        self.pit_wall = pit["pitWall"]
+        self.pit_zone = self.arc_mask(pit["entry"], pit["exit"])
+        self.pit_wall_rows = self.arc_mask(pit["wallStart"], pit["wallEnd"])
+        self.garage_front = self.arc_mask(pit["garageStart"], pit["garageEnd"])
+        inside = np.minimum((self.s - pit["garageStart"]) % self.length, (pit["garageEnd"] - self.s) % self.length)
+        ramp = np.clip(inside / PIT_DECK_RAMP, 0, 1)
+        deck = pit["pitWallDeck"]
+        self.pit_wall_width = np.where(self.garage_front, PIT_WALL_THIN + (deck - PIT_WALL_THIN) * ramp * ramp * (3 - 2 * ramp), PIT_WALL_THIN)
         for side in range(2):
             sign = 1 if side == 0 else -1
             edge = self.road_height(np.arange(self.count), sign * self.half)
             self.verge_heights[:, side] += (edge - self.verge_heights[:, side, 0])[:, None]
+
+    def arc_mask(self, start, end):
+        mask = np.zeros(self.count, bool)
+        mask[self.rows_between(start, end)] = True
+        return mask
 
     def road_height(self, rows, lateral):
         lateral = np.asarray(lateral, float)
@@ -270,8 +302,13 @@ def strip(track, rows, inner, outer, lift, closed):
 def edge_lines(track, mat):
     rows = np.arange(track.count)
     parts = []
+    mouth = track.arc_mask(track.pit["entry"], track.pit["wallStart"])
+    gap = mouth & ((track.s % (2 * PIT_DASH)) >= PIT_DASH)
     for sign in (1, -1):
-        parts.append(strip(track, rows, sign * (track.half - LINE_WIDTH), sign * track.half, PAINT_LIFT, True))
+        vertices, faces, uv = strip(track, rows, sign * (track.half - LINE_WIDTH), sign * track.half, PAINT_LIFT, True)
+        if sign > 0:
+            faces = [f for i, f in enumerate(faces) if not gap[i]]
+        parts.append((vertices, faces, uv))
     return combine("edge lines", parts, mat)
 
 
@@ -340,16 +377,6 @@ def kerb_mask(track):
     return mask
 
 
-def pit_overlap(track, lateral, side_sign):
-    lane = np.array([[p["x"], -p["z"]] for p in track.data["pitLane"]["centerline"]])
-    points = track.position[:, :2] + track.normal * (side_sign * lateral)[:, None]
-    near = np.full(track.count, np.inf)
-    for start in range(0, len(lane), 64):
-        chunk = lane[start : start + 64]
-        near = np.minimum(near, np.linalg.norm(points[:, None, :] - chunk[None, :, :], axis=2).min(axis=1))
-    return near < PIT_GARAGE_SIDE + 0.5
-
-
 def runoff(track, mat):
     mask = kerb_mask(track)
     width = track.data["surfaces"][0]["width"]
@@ -357,9 +384,10 @@ def runoff(track, mat):
     parts = []
     for side, sign in ((0, 1), (1, -1)):
         inner = track.half + np.where(mask[:, side], width, 0.0)
-        outer = np.minimum(inner + track.data["runoff"], track.verge_offsets[:, side, -1])
+        wall = np.where(track.pit_wall_rows, track.pit_wall, track.walls[:, side]) if side == 0 else track.walls[:, side]
+        outer = np.minimum(inner + track.data["runoff"], wall)
         outer = np.maximum(outer, inner + 0.05)
-        clear = ~pit_overlap(track, (inner + outer) / 2, sign)
+        clear = ~(track.pit_zone & ~track.pit_wall_rows) if side == 0 else np.ones(track.count, bool)
         vertices, faces, uv = strip(track, rows, sign * inner, sign * outer, RUNOFF_LIFT, True)
         faces = [f for i, f in enumerate(faces) if clear[i] and clear[(i + 1) % track.count]]
         parts.append((vertices, faces, uv))
@@ -380,80 +408,147 @@ def verges(track, mat):
             lateral = lateral[:, ::-1]
         along = np.broadcast_to(track.s[:, None], lateral.shape)
         uv = np.stack([lateral / GRASS_TILE, along / GRASS_TILE], -1)
-        parts.append((vertices, grid_faces(len(rows), offsets.shape[1], True), uv))
+        columns = offsets.shape[1]
+        faces = grid_faces(len(rows), columns, True)
+        if side == 0:
+            faces = [f for k, f in enumerate(faces) if not (track.garage_front[k // (columns - 1)] and k % (columns - 1) >= columns - 1 - VERGE_BEYOND_WALL)]
+        parts.append((vertices, faces, uv))
     obj = combine("verges", parts, mat)
     obj.data.polygons.foreach_set("use_smooth", np.full(len(obj.data.polygons), True))
     return obj
 
 
-def lift_over_track(track, vertices, lift):
-    flat = vertices.reshape(-1, 3).copy()
-    rows = np.empty(len(flat), int)
-    for start in range(0, len(flat), 256):
-        chunk = flat[start : start + 256, :2]
-        rows[start : start + 256] = np.argmin(np.linalg.norm(chunk[:, None, :] - track.position[None, :, :2], axis=2), axis=1)
-    lateral = np.einsum("ij,ij->i", flat[:, :2] - track.position[rows, :2], track.normal[rows])
-    side = np.where(lateral >= 0, 0, 1)
-    covered = np.abs(lateral) <= track.verge_offsets[rows, side, -1]
-    surface = track.surface_height(rows, lateral)
-    flat[:, 2] = np.where(covered, np.maximum(flat[:, 2], surface + lift), flat[:, 2])
-    return flat.reshape(vertices.shape)
+def pit_edges(track, rows):
+    distance = (track.s[rows] - track.pit["entry"]) % track.length
+    remaining = (track.pit["exit"] - track.s[rows]) % track.length
+    walled = track.pit_wall_rows[rows]
+    near = np.where(walled, track.pit_wall + track.pit_wall_width[rows], track.half[rows])
+    flare = np.minimum(distance, remaining) * PIT_FLARE
+    far = np.minimum(track.half[rows] + flare, track.walls[rows, 0] - 0.05)
+    return near, np.maximum(far, near + 0.05)
 
 
-def pit_lane(track, asphalt, paint):
-    raw = np.array([[p["x"], -p["z"], p["y"]] for p in track.data["pitLane"]["centerline"]])
-    distance = np.linalg.norm(raw[:, None, :2] - track.position[None, :, :2], axis=2)
-    rows = np.argmin(distance, axis=1)
-    lateral = np.einsum("ij,ij->i", raw[:, :2] - track.position[rows, :2], track.normal[rows])
-    overlaps = np.abs(lateral) < track.half[rows] + PIT_TRACK_SIDE
-    road = track.road_height(rows, lateral) - PIT_LIFT
-    target = np.where(overlaps, road, raw[:, 2] + PIT_LIFT)
-    radius = PIT_SMOOTHING * 3
-    kernel = np.exp(-0.5 * (np.arange(-radius, radius + 1) / PIT_SMOOTHING) ** 2)
-    kernel /= kernel.sum()
-    height = target.copy()
-    for _ in range(3):
-        padded = np.concatenate([np.full(radius, height[0]), height, np.full(radius, height[-1])])
-        height = np.where(overlaps, target, np.convolve(padded, kernel, mode="valid"))
-    raw[:, 2] = height
-    delta = np.gradient(raw[:, :2], axis=0)
-    tangent = delta / np.linalg.norm(delta, axis=1)[:, None]
-    normal = np.stack([-tangent[:, 1], tangent[:, 0]], 1)
-    along = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(raw[:, :2], axis=0), axis=1))])
-    side = np.sign(np.median(np.einsum("ij,ij->i", track.position[rows, :2] - raw[:, :2], normal)))
-    toward = np.full(len(raw), side if side != 0 else 1.0)
-    to_edge = np.abs(lateral) - track.half[rows]
-    reach = np.where(to_edge - PIT_TRACK_SIDE < PIT_FILL_GAP, np.maximum(to_edge + PIT_FILL_OVERLAP, PIT_TRACK_SIDE), PIT_TRACK_SIDE)
-    near, far = toward * reach, -toward * PIT_GARAGE_SIDE
+def pit_lane(track, asphalt):
+    rows = np.flatnonzero(track.pit_zone)
+    start = np.searchsorted(rows, track.rows_between(track.pit["entry"], track.pit["exit"])[0])
+    rows = np.roll(rows, -start)
+    near, far = pit_edges(track, rows)
     lateral = near[:, None] + (far - near)[:, None] * np.linspace(0, 1, PIT_COLUMNS)[None, :]
+    vertices = track.place(rows[:, None].repeat(PIT_COLUMNS, 1), lateral, PIT_LIFT)
+    along = np.broadcast_to(track.s[rows][:, None], lateral.shape)
+    uv0 = np.stack([lateral / ASPHALT_TILE, along / ASPHALT_TILE], -1)
+    uv1 = np.stack([np.full(lateral.shape, 100.0), np.zeros(lateral.shape)], -1)
+    mesh("pit lane", vertices, grid_faces(len(rows), PIT_COLUMNS, False), {"UVMap": uv0, "line": uv1}, asphalt)
 
-    def ribbon(columns, lift):
-        xy = raw[:, None, :2] + normal[:, None, :] * columns[..., None]
-        z = np.broadcast_to(raw[:, None, 2:3] + lift, xy.shape[:2] + (1,))
-        return np.concatenate([xy, z], -1)
 
-    vertices = lift_over_track(track, ribbon(lateral, 0.0), PIT_LIFT)
-    grid = lateral
-    uv0 = np.stack([grid / ASPHALT_TILE, np.broadcast_to(along[:, None], grid.shape) / ASPHALT_TILE], -1)
-    uv1 = np.stack([np.full(grid.shape, 100.0), np.zeros(grid.shape)], -1)
-    mesh("pit lane", vertices, grid_faces(len(raw), lateral.shape[1], False), {"UVMap": uv0, "line": uv1}, asphalt)
-    parts = []
-    for edge in (near - toward * LINE_WIDTH, far + toward * LINE_WIDTH):
-        columns = np.stack([edge, edge + toward * LINE_WIDTH], 1)
-        v = lift_over_track(track, ribbon(columns, PAINT_LIFT), PIT_LIFT + PAINT_LIFT)
-        uv = np.stack([columns, np.broadcast_to(along[:, None], v.shape[:2])], -1)
-        line = raw[:, :2] + normal * (edge + toward * LINE_WIDTH / 2)[:, None]
-        reach = np.abs(np.einsum("ij,ij->i", line - track.position[rows, :2], track.normal[rows]))
-        clear = reach > track.half[rows] + track.data["runoff"]
-        faces = [f for i, f in enumerate(grid_faces(len(raw), 2, False)) if clear[i] and clear[i + 1]]
-        parts.append((v, faces, uv))
-    return combine("pit lines", parts, paint)
+def along_line(track, start, end, lateral, width, lift):
+    rows = track.rows_between(start, end)
+    offset = np.full(len(rows), lateral) if np.isscalar(lateral) else lateral(rows)
+    return strip(track, rows, offset - width / 2, offset + width / 2, lift, False)
+
+
+def across_line(track, distance, l0, l1, length, lift):
+    return rectangle(track, distance - length / 2, distance + length / 2, l0, l1, lift)
+
+
+def skew(track, s0, l0, s1, l1, width, lift):
+    corners = [(s0, l0), (s1, l1), (s1 + width, l1), (s0 + width, l0)]
+    vertices = np.array([track.place_at(s, np.array([l]), lift)[0] for s, l in corners])
+    uv = np.array([[l, s] for s, l in corners], float)
+    return vertices, [(0, 1, 2, 3)], uv
+
+
+def pit_markings(track, paint):
+    pit = track.pit
+    wall, lift = track.pit_wall, PIT_LINE_LIFT
+    length = track.length
+    begin, end = pit["wallStart"], pit["wallEnd"]
+    rows = track.rows_between(begin, end)
+    far = lambda r: track.walls[r, 0] - LINE_WIDTH
+    fast = PIT_FAST_LANE
+    garage_start, garage_end, front = pit["garageStart"], pit["garageEnd"], pit["garageFront"]
+    parts = [
+        along_line(track, begin + 10, end - 10, fast, LINE_WIDTH, lift),
+        across_line(track, (begin + 2) % length, wall + 0.6, far(rows[1:2])[0], PIT_CROSS_LINE, lift),
+        across_line(track, (end - 2) % length, wall + 0.6, far(rows[-2:-1])[0], PIT_CROSS_LINE, lift),
+        across_line(track, pit["exit"], track.half[track.rows_between(pit["exit"], pit["exit"] + 1)[0]] - 7.0, track.half[track.rows_between(pit["exit"], pit["exit"] + 1)[0]], PIT_CROSS_LINE, lift),
+        along_line(track, garage_start, garage_end, fast + PIT_STRIP_WIDTH + 0.15, LINE_WIDTH, lift),
+        along_line(track, garage_start, garage_end, fast + PIT_STRIP_WIDTH + 0.7, LINE_WIDTH / 2, lift),
+    ]
+    start_gore = (begin - PIT_GORE) % length
+    edge = float(track.half[track.rows_between(start_gore, start_gore + 1)[0]])
+    parts.append(skew(track, start_gore, edge, begin, wall + LINE_WIDTH, LINE_WIDTH / 2 * 2, lift))
+    for k in range(1, int(PIT_GORE / PIT_CHEVRON_STEP)):
+        s0 = start_gore + k * PIT_CHEVRON_STEP
+        top = edge + (wall - edge) * k * PIT_CHEVRON_STEP / PIT_GORE
+        parts.append(skew(track, s0, edge, s0 + 2.0, top, PIT_CHEVRON_WIDTH, lift))
+    work_near = fast + PIT_STRIP_WIDTH + 1.0
+    for s0, spacing in pitlane.bays(track):
+        parts.append(rectangle(track, s0, s0 + LINE_WIDTH / 2, work_near, front - 1.0, lift))
+        middle = s0 + spacing / 2
+        for axle in (-1.75, 1.75):
+            parts.append(rectangle(track, middle + axle - PIT_BOX_EDGE / 2, middle + axle + PIT_BOX_EDGE / 2, front - 6.0, front - 5.85, lift))
+            parts.append(rectangle(track, middle + axle - 0.08, middle + axle + 0.08, front - 6.0, front - 4.8, lift))
+    combine("pit lines", parts, paint)
+
+
+def pit_apron(track, asphalt, boards, red):
+    pit = track.pit
+    rows = track.rows_between(pit["garageStart"], pit["garageEnd"])
+    front = pit["garageFront"]
+    fast = PIT_FAST_LANE
+    lateral = np.broadcast_to(np.array([fast + PIT_STRIP_WIDTH, front])[None, :], (len(rows), 2))
+    vertices = track.place(rows[:, None].repeat(2, 1), lateral, PIT_LIFT + 0.001)
+    along = np.broadcast_to(track.s[rows][:, None], lateral.shape)
+    uv0 = np.stack([lateral / ASPHALT_TILE, along / ASPHALT_TILE], -1)
+    uv1 = np.stack([np.full(lateral.shape, 100.0), np.zeros(lateral.shape)], -1)
+    mesh("pit apron", vertices, grid_faces(len(rows), 2, False), {"UVMap": uv0, "line": uv1}, asphalt)
+    strip_rows = track.rows_between(pit["garageStart"] + 2, pit["garageEnd"] - 2)
+    lateral = np.broadcast_to(np.array([fast, fast + PIT_STRIP_WIDTH])[None, :], (len(strip_rows), 2))
+    vertices = track.place(strip_rows[:, None].repeat(2, 1), lateral, PIT_LINE_LIFT)
+    travelled = (track.s[strip_rows] - track.s[strip_rows[0]]) % track.length
+    tile = np.floor(travelled / PIT_STRIP_TILE).astype(int)
+    faces, uv = [], []
+    batch = trackside.Batch()
+    for i in range(len(strip_rows) - 1):
+        brand = tile[i] % 4
+        v0, v1 = 1 - (brand + 1) / 4, 1 - brand / 4
+        u0, u1 = travelled[i] / PIT_STRIP_TILE, travelled[i + 1] / PIT_STRIP_TILE
+        batch.add(
+            [vertices[i, 1], vertices[i + 1, 1], vertices[i + 1, 0], vertices[i, 0]],
+            [(u0, v1), (u1, v1), (u1, v0), (u0, v0)],
+        )
+    vertices, faces, uv = batch.arrays()
+    mesh("pit strip", vertices, faces, {"UVMap": uv}, boards, smooth=False)
+    return combine("pit red line", [along_line(track, pit["garageStart"], pit["garageEnd"], front - PIT_RED_LINE, PIT_RED_LINE / 2, PIT_LINE_LIFT)], red)
+
+
+def pit_decals(track, mat):
+    batch = trackside.Batch()
+    wall, lift = track.pit_wall + 1.0, PIT_LINE_LIFT
+    panels = [
+        (track.pit["wallStart"] + 6.0, 0),
+        (track.pit["wallStart"] + 16.0, 1),
+        (track.pit["wallEnd"] - 16.0, 1),
+    ]
+    for distance, index in panels:
+        l0 = wall + 1.0
+        l1 = l0 + PIT_DECAL_WIDTH
+        s0, s1 = distance % track.length, (distance + PIT_DECAL_LENGTH) % track.length
+        v0, v1 = 1 - (index + 1) / 2, 1 - index / 2
+        corners = [(s0, l1), (s1, l1), (s1, l0), (s0, l0)]
+        batch.add(
+            [track.place_at(s, np.array([l]), lift)[0] for s, l in corners],
+            [(0, v0), (0, v1), (1, v1), (1, v0)],
+        )
+    vertices, faces, uv = batch.arrays()
+    return mesh("pit decals", vertices, faces, {"UVMap": uv}, mat, smooth=False)
 
 
 def painted_ads(track, mat):
     mask = kerb_mask(track)
     middle = track.half + track.data["runoff"] / 2
-    near_pit = pit_overlap(track, middle, 1) | pit_overlap(track, middle, -1)
+    near_pit = track.pit_zone
     step = track.length / track.count
     k = np.abs(gaussian(track.curvature, 10.0 / step))
     span = int(round(AD_LENGTH / step))
@@ -511,6 +606,78 @@ def trackside_meshes(track, source, derived):
             mesh(name, vertices, faces, {"UVMap": uv}, mat, smooth=False)
 
 
+def smoothed_mesh(name, batch, mat):
+    vertices, faces, uv = batch.arrays()
+    obj = mesh(name, vertices, faces, {"UVMap": uv}, mat, smooth=True)
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-4)
+    bm.to_mesh(obj.data)
+    bm.free()
+    obj.data.polygons.foreach_set("use_smooth", np.full(len(obj.data.polygons), True))
+    return obj
+
+
+def glow_material(name, rgb, strength):
+    mat = flat_material(name, rgb, 0.0, 0.5)
+    bsdf = mat.node_tree.nodes["Principled BSDF"]
+    bsdf.inputs["Emission Color"].default_value = (*rgb, 1.0)
+    bsdf.inputs["Emission Strength"].default_value = strength
+    return mat
+
+
+def paddock_meshes(track, source, derived):
+    parts = pitlane.build(track)
+    palette = material("cota paddock team", derived / "palette_base_color.png")
+    materials = {
+        "panels": flat_material("cota paddock panels", (0.035, 0.045, 0.07), 0.2, 0.55),
+        "fascia": glow_textured("cota paddock fascia", derived / "fascia_base_color.png", 0.35),
+        "banner": material("cota paddock banner", derived / "boards_base_color.png"),
+        "canopy": flat_material("cota paddock canopy", (0.07, 0.08, 0.1), 0.3, 0.5),
+        "floor": flat_material("cota paddock floor", (0.42, 0.42, 0.4), 0.0, 0.35),
+        "inner": flat_material("cota paddock inner", (0.55, 0.56, 0.58), 0.0, 0.7),
+        "back": glow_textured("cota paddock back", derived / "garage_back_base_color.png", 0.45),
+        "lights": glow_material("cota paddock lights", (1.0, 0.97, 0.9), 6.0),
+        "steel": flat_material("cota paddock steel", (0.1, 0.1, 0.11), 0.7, 0.45),
+        "team": palette,
+        "tyres": palette,
+        "metal": palette,
+        "screens": glow_material("cota paddock screens", (0.12, 0.35, 0.55), 2.5),
+        "white": palette,
+        "signs": material("cota paddock signs", derived / "pit_signs_base_color.png"),
+        "concrete": material("cota paddock concrete", source / "rough_concrete_base_color.jpg", normal=source / "rough_concrete_normal.jpg"),
+        "tower": flat_material("cota paddock tower", (0.05, 0.22, 0.13), 0.5, 0.5),
+    }
+    for name, batch in parts.items():
+        if name != "people" and batch.faces:
+            vertices, faces, uv = batch.arrays()
+            mesh(f"paddock {name}", vertices, faces, {"UVMap": uv}, materials[name], smooth=name in ("team", "tyres", "metal"))
+    smoothed_mesh("paddock people", parts["people"], palette)
+
+
+def glow_textured(name, path, strength):
+    mat = material(name, path)
+    nodes = mat.node_tree.nodes
+    bsdf = nodes["Principled BSDF"]
+    image = next(n for n in nodes if n.type == "TEX_IMAGE")
+    mat.node_tree.links.new(image.outputs["Color"], bsdf.inputs["Emission Color"])
+    bsdf.inputs["Emission Strength"].default_value = strength
+    return mat
+
+
+def billboard_meshes(track, derived):
+    boards, tower, posts = billboards.build(track, gaussian)
+    board_mat = material("cota billboard boards", derived / "boards_base_color.png")
+    for name, batch, mat in (
+        ("billboard boards", boards, board_mat),
+        ("billboard tower", tower, flat_material("cota billboard tower", (0.05, 0.22, 0.13), 0.5, 0.5)),
+        ("billboard posts", posts, flat_material("cota billboard posts", (0.1, 0.1, 0.11), 0.6, 0.5)),
+    ):
+        vertices, faces, uv = batch.arrays()
+        if faces:
+            mesh(name, vertices, faces, {"UVMap": uv}, mat, smooth=False)
+
+
 def venue_meshes(track, build, source, derived):
     layout = json.loads((build / "venue.json").read_text())
     concrete = material("cota venue concrete", source / "rough_concrete_base_color.jpg", normal=source / "rough_concrete_normal.jpg")
@@ -519,7 +686,7 @@ def venue_meshes(track, build, source, derived):
     for data in layout["stands"]:
         venue.stand(batches["seats"], batches["stand concrete"], batches["roofs"], batches["columns"], data)
     if layout["pit"]:
-        venue.pit_building(batches["facade"], batches["stand concrete"], batches["rooftops"], layout["pit"])
+        venue.pit_building(batches["facade"], batches["stand concrete"], batches["rooftops"], layout["pit"], track.position[track.garage_front, :2].mean(axis=0))
     for data in layout["buildings"]:
         venue.extrude(batches["walls"], batches["rooftops"], data)
     batches["veil"] = venue.tower(white, flat_material("cota venue glass", (0.08, 0.1, 0.13), 0.3, 0.15), layout["tower"])
@@ -608,12 +775,26 @@ def main():
             source / "asphalt_track_roughness.png",
             source / "asphalt_track_normal.jpg",
         ),
-        paint,
     )
+    pit_markings(track, paint)
+    pit_apron(
+        track,
+        material(
+            "cota apron asphalt",
+            source / "asphalt_track_base_color.jpg",
+            source / "asphalt_track_roughness.png",
+            source / "asphalt_track_normal.jpg",
+        ),
+        material("cota pit strip", derived / "boards_base_color.png"),
+        flat_material("cota pit red", (0.55, 0.03, 0.04), 0.0, 0.6),
+    )
+    paddock_meshes(track, source, derived)
+    billboard_meshes(track, derived)
     verges(track, grass)
     trackside_meshes(track, source, derived)
     venue_meshes(track, build, source, derived)
     painted_ads(track, material("cota painted ads", derived / "decals_base_color.png", alpha=True))
+    pit_decals(track, material("cota pit decals", derived / "pit_decals_base_color.png", alpha=True))
     vegetation.forest(
         np.load(build / "trees.npy"),
         3,

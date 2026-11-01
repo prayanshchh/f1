@@ -8,6 +8,7 @@ import { SdLighting } from "./materials.ts";
 import type { SdAssets } from "./models.ts";
 import { castShadows, loadRoad, setStartLights, Sunlight } from "./road.ts";
 import type { AtmosphereState } from "./atmosphere.ts";
+import { SkidMarks } from "./skidmarks.ts";
 import { SdSky, type TrackLocal } from "./sky.ts";
 
 const flipX = new THREE.Matrix4().makeScale(-1, 1, 1);
@@ -21,6 +22,7 @@ export class Scene {
   private readonly dome: THREE.Mesh;
   private readonly background = new THREE.Group();
   private readonly sunlight: Sunlight;
+  readonly marks = new SkidMarks();
   readonly atmosphere: AtmosphereState = {
     sunDirection: new THREE.Vector3(),
     haze: new THREE.Color(),
@@ -60,6 +62,7 @@ export class Scene {
     });
     this.scene.add(this.dome, this.background, track, car.root);
     this.sunlight = new Sunlight(this.scene);
+    this.scene.add(this.marks.mesh);
     castShadows(car.root);
   }
 

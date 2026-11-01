@@ -32,16 +32,15 @@ def terrain_at(xy):
 
 for side, sign in ((0, 1), (1, -1)):
     name = "left" if side == 0 else "right"
-    rail = track.rails[:, side]
     W = track.walls[:, side]
     front = P + track.normal * (sign * (W - 1.0))[:, None]
     verge = track.surface_height(idx, sign * (W - 1.0))
-    report[f"{name}: terrain above grass in front of wall"] = int(((terrain_at(front) > verge + 0.02) & rail).sum())
+    report[f"{name}: terrain above grass in front of wall"] = int((terrain_at(front) > verge + 0.02).sum())
     wall = P + track.normal * (sign * W)[:, None]
     seg = np.roll(wall, -1, 0) - wall
     forward = np.einsum("ij,ij->i", seg, track.tangent) / np.maximum(np.linalg.norm(seg, axis=1), 1e-9)
-    report[f"{name}: wall turning back (<60 deg off track direction)"] = int(((forward < 0.5) & rail).sum())
-    report[f"{name}: wall on other asphalt"] = int((on_other_asphalt(wall, idx) & rail).sum())
+    report[f"{name}: wall turning back (<60 deg off track direction)"] = int((forward < 0.5).sum())
+    report[f"{name}: wall on other asphalt"] = int(on_other_asphalt(wall, idx).sum())
     mid_runoff = P + track.normal * (sign * (H + track.data["runoff"] / 2))[:, None]
     report[f"{name}: green band on other asphalt"] = int(on_other_asphalt(mid_runoff, idx).sum())
     for frac in (0.3, 0.6, 1.0):

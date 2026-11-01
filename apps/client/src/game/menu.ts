@@ -322,6 +322,7 @@ export class Menu {
             transmission: defaults.transmission,
             autoReverse: defaults.autoReverse,
             assist: defaults.assist,
+            antiLock: defaults.antiLock,
             abs: defaults.abs,
             tc: defaults.tc,
             steerSensitivity: defaults.steerSensitivity,
@@ -802,7 +803,7 @@ export class Menu {
       ),
       this.toggle(
         "Steering Assist",
-        "Smooths keyboard and phone steering and adds its own traction control and ABS. Turn it off to use Speed Dreams' own ABS, traction control and steering sensitivity.",
+        "Smooths keyboard and phone steering and adds its own traction control. Turn it off to use Speed Dreams' own ABS, traction control and steering sensitivity.",
         () => s.assist,
         (v) => {
           s.assist = v;
@@ -810,7 +811,19 @@ export class Menu {
         true,
       ),
     ];
-    if (s.assist) return rows;
+    if (s.assist) {
+      rows.push(
+        this.toggle(
+          "Anti-Lock Brakes",
+          "Off: braking hard in a straight line can lock the wheels, as on a real F1 car, but the brakes ease off for you as soon as you steer so the car still turns. On: the wheels never lock.",
+          () => s.antiLock,
+          (v) => {
+            s.antiLock = v;
+          },
+        ),
+      );
+      return rows;
+    }
     const slider = (
       label: string,
       info: string,

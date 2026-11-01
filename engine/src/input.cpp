@@ -9,7 +9,7 @@
 
 #include "game.h"
 
-static const double axisScale = 1000.0;
+static const double axisScale = 20000.0;
 static const double frontSlipLimit = 8.0 * PI / 180.0;
 static const double steerInTime = 0.3;
 static const double steerOutTime = 0.15;
@@ -31,8 +31,17 @@ static const double absCut = 30.0;
 static const double absRecover = 3.0;
 static const double analogSteerTime = 0.05;
 static const double analogThrottleTime = 0.08;
+static const double steerHalfSpeed = 33.0;
+static const double steerMinShare = 0.08;
+static const double steerRateSpeed = 25.0;
+static const double steerCurveStart = 28.0;
+static const double steerCurveEnd = 50.0;
+static const double steerCurveMax = 2.0;
+static const double steerFullLockCurve = 6.0;
+static const double trailBrakeSteer = 0.1;
 
 static bool assist = true;
+static bool antiLock = false;
 static bool analog;
 static double analogSteer, analogThrottle, analogBrake;
 static bool left, right, up, down;
@@ -52,13 +61,34 @@ static double frontAxleAngle(tCarElt *car)
     return atan2(car->_speed_y + car->_yaw_rate * xf, vx);
 }
 
+static double speedShare(tCarElt *car)
+{
+    double ratio = fabs(car->_speed_x) / steerHalfSpeed;
+    return std::max(steerMinShare, 1.0 / (1.0 + ratio * ratio));
+}
+
+static double steerSlowdown(tCarElt *car)
+{
+    return 1.0 + fabs(car->_speed_x) / steerRateSpeed;
+}
+
+static double steerCurve(tCarElt *car, double input)
+{
+    double amount = fabs(input);
+    double blend = std::max(0.0, std::min(1.0, (fabs(car->_speed_x) - steerCurveStart) / (steerCurveEnd - steerCurveStart)));
+    double share = speedShare(car);
+    return share * pow(amount, 1.0 + (steerCurveMax - 1.0) * blend) + (1.0 - share) * pow(amount, steerFullLockCurve);
+}
+
 static double steerLimit(tCarElt *car, int dir)
 {
     double lock = car->_steerLock;
+    double share = speedShare(car);
     if (fabs(car->_speed_x) < slipCapMinSpeed)
-        return dir;
+        return dir * share;
     double angle = frontAxleAngle(car) + dir * frontSlipLimit;
-    return std::max(-1.0, std::min(1.0, angle / lock));
+    double limit = std::max(-1.0, std::min(1.0, angle / lock));
+    return dir > 0 ? std::min(limit, share) : std::max(limit, -share);
 }
 
 static double keyTarget(tCarElt *car)
@@ -72,7 +102,7 @@ static void updateKeys(tCarElt *car, double dt)
     double target = keyTarget(car);
     bool turningIn = fabs(target) > fabs(steer) && target * steer >= 0;
     double span = std::max(steerMinStep, turningIn ? fabs(target) : fabs(steer));
-    steer = approach(steer, target, span / (turningIn ? steerInTime : steerOutTime), dt);
+    steer = approach(steer, target, span / ((turningIn ? steerInTime : steerOutTime) * steerSlowdown(car)), dt);
     throttle = approach(throttle, up && !down ? 1.0 : 0.0, 1.0 / (up && !down ? throttleRiseTime : throttleFallTime), dt);
     brake = approach(brake, down ? 1.0 : 0.0, 1.0 / (down ? brakeRiseTime : brakeFallTime), dt);
 }
@@ -80,8 +110,8 @@ static void updateKeys(tCarElt *car, double dt)
 static void updateAnalog(tCarElt *car, double dt)
 {
     int dir = analogSteer >= 0 ? 1 : -1;
-    double target = fabs(analogSteer) * steerLimit(car, dir);
-    steer = approach(steer, target, std::max(steerMinStep, fabs(target - steer)) / analogSteerTime, dt);
+    double target = dir * steerCurve(car, analogSteer);
+    steer = approach(steer, target, std::max(steerMinStep, fabs(target - steer)) / (analogSteerTime * steerSlowdown(car)), dt);
     throttle = approach(throttle, analogThrottle, 1.0 / analogThrottleTime, dt);
     brake = analogBrake;
 }
@@ -134,7 +164,8 @@ static void updateBraking(tCarElt *car, double dt)
         for (int i = FRNT_RGT; i <= FRNT_LFT; i++)
             excess = std::max(excess, longSlip(car, i) - wheelLockLimit);
     }
-    braking = limiter(braking, excess, wheelLockLimit, absCut, absRecover, dt);
+    bool turning = analog ? fabs(analogSteer) > trailBrakeSteer : left || right;
+    braking = antiLock || turning ? limiter(braking, excess, wheelLockLimit, absCut, absRecover, dt) : 1.0;
 }
 
 void sdInputConfigure()
@@ -225,6 +256,11 @@ EMSCRIPTEN_KEEPALIVE void sdInputAnalog(int active, double steerValue, double th
 EMSCRIPTEN_KEEPALIVE void sdInputAssist(int on)
 {
     assist = on != 0;
+}
+
+EMSCRIPTEN_KEEPALIVE void sdInputAntiLock(int on)
+{
+    antiLock = on != 0;
 }
 
 }

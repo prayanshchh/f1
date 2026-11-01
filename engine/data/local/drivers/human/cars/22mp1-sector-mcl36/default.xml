@@ -7,4 +7,7 @@
   <section name="Front Left Wheel">
     <attnum name="toe" unit="deg" min="-5" max="5" val="-0.5"/>
   </section>
+  <section name="Steer">
+    <attnum name="steer lock" unit="deg" min="1" max="45" val="30"/>
+  </section>
 </params>

@@ -26,6 +26,7 @@ const asphaltAlbedo = 5;
 const asphaltMean = 0.0152;
 const asphaltContrast = 1.8;
 const asphaltTint = vec3(0.96, 0.98, 1.03);
+const apronShade = 0.5;
 const grassTint = 0.85;
 const mowStripe = 0.08;
 const grassMacro = 0.18;
@@ -66,23 +67,28 @@ const rubberWidth = 1.3;
 const rubberDarkening = 0.42;
 const rubberSmoothing = 0.3;
 const shadowRadius = 70;
-const shadowDistance = 400;
+const shadowDistance = 200;
 const sunIntensity = 6;
 const skyIntensity = 2;
 const groundColor = new THREE.Color(0.22, 0.24, 0.16);
 const alphaCutoffs: Record<string, number> = {
   "cota debris fence": 0.5,
   "cota painted ads": 0.35,
+  "cota pit decals": 0.35,
 };
 const shadowCasters =
-  /^(wall|fence_steel|seats|stand_concrete|roofs|columns|facade|tower|veil|gantry|light_panel)/;
+  /^(wall|fence_steel|seats|stand_concrete|roofs|columns|facade|tower|veil|gantry|light_panel|paddock|billboard)/;
 const depthOffsets: Record<string, number> = {
   "cota road paint": -1,
   "cota road kerb": -1,
   "cota road runoff": -1,
   "cota painted ads": -2,
+  "cota pit decals": -2,
   "cota road grass": 1,
   "cota pit asphalt": 0.5,
+  "cota apron asphalt": 0.25,
+  "cota pit strip": -1,
+  "cota pit red": -1,
   "cota terrain": 2,
 };
 
@@ -117,8 +123,10 @@ function shadeAsphalt(
     .mul(asphaltContrast)
     .add(asphaltMean)
     .max(0);
+  const apron = source.name.includes("apron") ? apronShade : 1;
   material.colorNode = grain
     .mul(asphaltAlbedo)
+    .mul(apron)
     .mul(asphaltTint)
     .mul(macro)
     .mul(float(1).sub(band.mul(rubberDarkening)));
@@ -186,6 +194,9 @@ function surface(
     roughness: source.roughness,
     metalness: source.metalness,
     color: source.color,
+    emissive: source.emissive,
+    emissiveMap: source.emissiveMap,
+    emissiveIntensity: source.emissiveIntensity,
     side: THREE.DoubleSide,
     alphaTest: alphaCutoffs[source.name] ?? 0,
     alphaToCoverage: source.name.endsWith("fence"),
@@ -284,7 +295,7 @@ export class Sunlight {
     camera.bottom = -shadowRadius;
     camera.near = 1;
     camera.far = shadowDistance * 2;
-    this.sun.shadow.bias = -0.0004;
+    this.sun.shadow.bias = -0.00006;
     this.sun.shadow.normalBias = 0.02;
     scene.add(this.sun, this.sun.target, this.sky);
   }

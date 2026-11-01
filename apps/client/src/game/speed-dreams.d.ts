@@ -55,6 +55,7 @@ declare module "*/wasm/speed-dreams.js" {
     _sdHudInfo(out: number): void;
     _sdTrackSectors(out: number, max: number): number;
     _sdInputAssist(on: number): void;
+    _sdInputAntiLock(on: number): void;
     _sdInputAnalog(
       active: number,
       steer: number,

@@ -344,6 +344,29 @@ def crew_static_atlas():
     return atlas
 
 
+MARKS = (1024, 192)
+MARK_ROWS = (0.32, 0.5, 0.82)
+
+
+def track_marks():
+    width, height = MARKS
+    row_height = height // len(MARK_ROWS)
+    rng = np.random.default_rng(41)
+    alpha = np.zeros((height, width), np.float32)
+    across = np.linspace(-1, 1, row_height)
+    edge = np.clip((1 - np.abs(across)) / 0.35, 0, 1)
+    for row, strength in enumerate(MARK_ROWS):
+        streaks = np.repeat(rng.random((row_height // 4 + 1, width // 16 + 1)), 4, axis=0)[:row_height]
+        streaks = np.repeat(streaks, 16, axis=1)[:, :width]
+        grain = rng.random((row_height, width))
+        along = 0.75 + 0.25 * np.sin(np.linspace(0, 12 * np.pi, width) + row)
+        alpha[row * row_height : (row + 1) * row_height] = strength * edge[:, None] * (0.55 + 0.3 * streaks + 0.15 * grain) * along
+    rgba = np.zeros((height, width, 4), np.float32)
+    rgba[..., :3] = 0.015
+    rgba[..., 3] = np.clip(alpha, 0, 1)
+    return Image.fromarray(np.round(rgba * 255).astype(np.uint8), "RGBA")
+
+
 def crew_normal():
     width, height = CREW_ATLAS[0] // 2, CREW_ATLAS[1] // 2
     rng = np.random.default_rng(31)
@@ -416,6 +439,7 @@ def main():
     pit_signs().save(out / "pit_signs_base_color.png")
     crew_suit().save(out / "crew_suit_base_color.png")
     crew_normal().save(out / "crew_suit_normal.png")
+    track_marks().save(out / "track_marks_base_color.png")
     crew_static_atlas().save(out / "crew_static_base_color.png")
 
 

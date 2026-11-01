@@ -5,8 +5,8 @@
 <params name="cota" type="param" mode="mw">
 <section name="Surfaces">
 &default-surfaces;
-<section name="cota-kerb-l"><attstr name="texture name" val="tr-curb-l.png"/><attstr name="texture type" val="continuous"/><attnum name="texture size" unit="m" val="2"/><attnum name="friction" val="1.1"/><attnum name="rolling resistance" val="0.02"/><attnum name="roughness" val="0.004"/><attnum name="roughness wavelength" val="1.5"/></section>
-<section name="cota-kerb-r"><attstr name="texture name" val="tr-curb-r.png"/><attstr name="texture type" val="continuous"/><attnum name="texture size" unit="m" val="2"/><attnum name="friction" val="1.1"/><attnum name="rolling resistance" val="0.02"/><attnum name="roughness" val="0.004"/><attnum name="roughness wavelength" val="1.5"/></section>
+<section name="cota-kerb-l"><attstr name="texture name" val="tr-curb-l.png"/><attstr name="texture type" val="continuous"/><attnum name="texture size" unit="m" val="2"/><attnum name="friction" val="1.1"/><attnum name="rolling resistance" val="0.02"/><attnum name="roughness" val="0.008"/><attnum name="roughness wavelength" val="1.13"/></section>
+<section name="cota-kerb-r"><attstr name="texture name" val="tr-curb-r.png"/><attstr name="texture type" val="continuous"/><attnum name="texture size" unit="m" val="2"/><attnum name="friction" val="1.1"/><attnum name="rolling resistance" val="0.02"/><attnum name="roughness" val="0.008"/><attnum name="roughness wavelength" val="1.13"/></section>
 <section name="cota-grass"><attstr name="texture name" val="tr-grass.png"/><attstr name="texture type" val="continuous"/><attnum name="texture size" unit="m" val="2"/><attnum name="friction" val="0.4"/><attnum name="rolling resistance" val="0.08"/><attnum name="roughness" val="0.006"/><attnum name="roughness wavelength" val="3"/></section>
 </section>
 <section name="Header">

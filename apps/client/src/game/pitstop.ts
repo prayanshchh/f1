@@ -256,23 +256,6 @@ export class PitStop {
   }
 }
 
-function invertSteer(wheel: number, speed: number): number {
-  const amount = Math.abs(wheel);
-  if (amount >= 1) return Math.sign(wheel);
-  const ratio = Math.abs(speed) / 33;
-  const share = Math.max(0.08, 1 / (1 + ratio * ratio));
-  const blend = Math.max(0, Math.min(1, (Math.abs(speed) - 28) / 22));
-  let low = 0;
-  let high = 1;
-  for (let i = 0; i < 24; i++) {
-    const middle = (low + high) / 2;
-    const value = share * middle ** (1 + blend) + (1 - share) * middle ** 6;
-    if (value < amount) low = middle;
-    else high = middle;
-  }
-  return Math.sign(wheel) * ((low + high) / 2);
-}
-
 export function steerCommand(
   car: { x: number; y: number; heading: number; speed: number },
   target: number[],
@@ -285,7 +268,7 @@ export function steerCommand(
     Math.atan((2 * wheelbase * Math.sin(angle)) / reach) / steerLock;
   const room = speed - car.speed;
   return {
-    steer: invertSteer(Math.max(-1, Math.min(1, wheel)), car.speed),
+    steer: Math.max(-1, Math.min(1, wheel)),
     throttle: Math.max(0, Math.min(1, room * throttleGain)),
     brake:
       car.speed > brakeFloor ? Math.max(0, Math.min(1, -room * brakeGain)) : 0,

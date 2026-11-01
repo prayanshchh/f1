@@ -320,6 +320,7 @@ const exported = [
   "_sdInputAssist",
   "_sdInputAntiLock",
   "_sdInputSpeedLimit",
+  "_sdInputSteerDirect",
   "_sdInputPitHold",
   "_sdPitService",
   "_sdInputAnalog",

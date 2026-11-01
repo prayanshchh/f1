@@ -28,6 +28,16 @@ KERB_TAPER = 16.0
 KERB_LIFT = 0.008
 KERB_TILE = 4.0
 RUNOFF_LIFT = 0.005
+MARK_SEED = 17
+MARK_LIFT = 0.006
+MARK_TILE = 8.0
+MARK_EDGE = 0.1
+MARK_KERB_REACH = 1.1
+MARK_TRACK = 1.48
+MARK_PAIRED = 0.6
+MARK_CORNER = 1 / 200
+MARK_RANDOM = 70
+MARK_ROW_NAMES = ("light", "medium", "dark")
 RACING_LINE_MARGIN = 1.8
 RACING_LINE_LOOKAHEAD = 50.0
 ASPHALT_TILE = 2.0
@@ -329,6 +339,91 @@ def kerbs(track, kerb_mat):
         uv = np.stack([across / width, along / KERB_TILE], -1)
         kerb_parts.append((base, grid_faces(len(rows), len(profile), False), uv))
     return combine("kerbs", kerb_parts, kerb_mat)
+
+
+def kerb_lift(track):
+    taper = np.zeros((track.count, 2))
+    for span in track.data["surfaces"]:
+        if span["kind"] != "kerb":
+            continue
+        rows = track.rows_between(span["from"], span["to"])
+        distance = np.arange(len(rows)) * track.length / track.count
+        side = 0 if span["side"] == "left" else 1
+        taper[rows, side] = np.clip(np.minimum(distance, distance[-1] - distance) / KERB_TAPER, 0, 1)
+    return taper
+
+
+def track_marks(track, mat):
+    rng = np.random.default_rng(MARK_SEED)
+    step = track.length / track.count
+    line, _ = track.racing_line()
+    k = gaussian(track.curvature, 10.0 / step)
+    mask = kerb_mask(track)
+    taper = kerb_lift(track)
+    profile_x = np.array([p for p, _ in KERB_PROFILE])
+    profile_h = np.array([h for _, h in KERB_PROFILE])
+    parts = []
+
+    def stroke(start, metres, lateral, slope, bend, width, row):
+        count = max(4, int(metres / step))
+        rows = (int(start) + np.arange(count)) % track.count
+        t = np.linspace(0, 1, count)
+        centre = lateral + (slope * t + bend * t * t) * metres
+        limit = np.where(centre > 0, mask[rows, 0], mask[rows, 1]) * (MARK_KERB_REACH + MARK_EDGE) - MARK_EDGE + track.half[rows]
+        centre = np.clip(centre, -limit, limit)
+        half = width / 2 * np.minimum(1, np.minimum(t / 0.1, (1 - t) / 0.15))
+        columns = np.stack([centre - half, centre + half], 1)
+        vertices = track.place(rows[:, None].repeat(2, 1), columns, MARK_LIFT)
+        for column in range(2):
+            lat = columns[:, column]
+            outside = np.abs(lat) - track.half[rows]
+            side = np.where(lat > 0, 0, 1)
+            on_kerb = (outside > 0) & mask[rows, side]
+            scaled = np.clip(outside, 0, None) / MARK_KERB_REACH * KERB_PROFILE[-1][0]
+            extra = np.interp(scaled, profile_x, profile_h) * taper[rows, side] + KERB_LIFT
+            vertices[:, column, 2] += np.where(on_kerb, extra, 0.0)
+        along = np.arange(count) * step / MARK_TILE + rng.random()
+        rows_v = np.array([[row + 0.04, row + 0.96]]) / len(MARK_ROW_NAMES)
+        uv = np.stack([np.stack([along, along], 1), np.broadcast_to(1 - rows_v, (count, 2))], -1)
+        parts.append((vertices, grid_faces(count, 2, False), uv))
+
+    def pair(start, metres, lateral, slope, bend, width, row):
+        stroke(start, metres, lateral, slope, bend, width, row)
+        if rng.random() < MARK_PAIRED:
+            stroke(start + rng.integers(-2, 3), metres * rng.uniform(0.75, 1.1), lateral + rng.choice([-1, 1]) * MARK_TRACK, slope, bend, width, row)
+
+    corner = np.abs(k) > MARK_CORNER
+    for i in range(track.count):
+        if not (corner[i] and not corner[i - 1]):
+            continue
+        for _ in range(rng.integers(3, 7)):
+            start = i - rng.uniform(10, 90) / step
+            metres = rng.uniform(18, 70)
+            row = int(start) % track.count
+            pair(start, metres, line[row] + rng.normal(0, 1.0), rng.uniform(-0.025, 0.025), rng.uniform(-0.02, 0.02), rng.uniform(0.1, 0.17), rng.integers(0, 2))
+        for _ in range(rng.integers(4, 9)):
+            start = i + rng.uniform(-10, 50) / step
+            metres = rng.uniform(14, 55)
+            row = int(start) % track.count
+            pair(start, metres, line[row] + rng.normal(0, 1.4), rng.uniform(-0.06, 0.06), rng.uniform(-0.05, 0.05), rng.uniform(0.1, 0.18), rng.integers(0, 2))
+    for span in track.data["surfaces"]:
+        if span["kind"] != "kerb":
+            continue
+        rows = track.rows_between(span["from"], span["to"])
+        sign = 1 if span["side"] == "left" else -1
+        for _ in range(rng.integers(3, 7)):
+            start = rows[rng.integers(0, len(rows))]
+            lateral = sign * (track.half[start] + rng.uniform(0.1, MARK_KERB_REACH - 0.1))
+            stroke(start, rng.uniform(5, 22), lateral, rng.uniform(-0.012, 0.012), 0.0, rng.uniform(0.1, 0.16), 2)
+    for _ in range(MARK_RANDOM):
+        row = rng.integers(0, track.count)
+        lateral = rng.uniform(-1, 1) * track.half[row]
+        stroke(row, rng.uniform(7, 24), lateral, rng.uniform(-0.3, 0.3), rng.uniform(-0.12, 0.12), rng.uniform(0.09, 0.15), 0)
+    for slot in track.data["grid"]:
+        row = int(slot["distance"] / step)
+        for side in (-1, 1):
+            stroke(row, rng.uniform(16, 42), slot["offset"] + side * MARK_TRACK / 2, rng.uniform(-0.005, 0.005), 0.0, rng.uniform(0.13, 0.18), 1)
+    return combine("track marks", parts, mat)
 
 
 def kerb_mask(track):
@@ -741,6 +836,7 @@ def main():
     edge_lines(track, paint)
     markings(track, paint)
     kerbs(track, kerb)
+    track_marks(track, material("cota track marks", derived / "track_marks_base_color.png", alpha=True))
     runoff(track, runoff_paint)
     pit_lane(
         track,

@@ -8,7 +8,14 @@ import { frameIndex, type Engine } from "./engine.ts";
 import { GltfCar, placeOnTrack, type TrackFrame } from "./gltf.ts";
 import { SdLighting } from "./materials.ts";
 import type { SdAssets } from "./models.ts";
-import { castShadows, loadRoad, setStartLights, Sunlight } from "./road.ts";
+import {
+  castShadows,
+  loadRoad,
+  setCarContact,
+  setStartLights,
+  Sunlight,
+} from "./road.ts";
+import { Rumble, type RumbleWheel, type Shake } from "./rumble.ts";
 import type { AtmosphereState } from "./atmosphere.ts";
 import type { RacingLineData, RacingLineMode } from "./racing-line.ts";
 import { RacingLineView } from "./racing-line-view.ts";
@@ -31,6 +38,10 @@ export class Scene {
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(67.5, 1, 1, 41000);
   private readonly view = new THREE.Matrix4();
+  private readonly rumble = new Rumble();
+  private readonly shakeMatrix = new THREE.Matrix4();
+  private shake: Shake | null = null;
+  private lastFeel = 0;
   private viewMirrored = false;
   private readonly domeColors: THREE.BufferAttribute;
   private readonly dome: THREE.Mesh;
@@ -112,6 +123,14 @@ export class Scene {
     );
   }
 
+  feel(wheels: RumbleWheel[], speed: number, now: number): number {
+    this.shake = this.rumble.update(wheels, speed, now - this.lastFeel, now);
+    this.lastFeel = now;
+    if (this.car instanceof SdCar)
+      this.car.setRumble(this.shake.heave, this.shake.roll);
+    return this.shake.amount;
+  }
+
   updatePit(control: PitControl, frame: Float64Array): void {
     const active = control.phase === "service";
     const eye = new THREE.Vector3().setFromMatrixPosition(
@@ -148,8 +167,28 @@ export class Scene {
     return this.viewMirrored;
   }
 
+  private updateContact(frame: Float64Array): void {
+    const pose = frameIndex.posMat;
+    setCarContact(
+      frame[pose + 12] ?? 0,
+      frame[pose + 13] ?? 0,
+      frame[pose] ?? 1,
+      frame[pose + 1] ?? 0,
+    );
+  }
+
+  private applyShake(): void {
+    if (!this.shake) return;
+    this.view.premultiply(
+      this.shakeMatrix
+        .makeRotationZ(this.shake.cameraRoll)
+        .setPosition(this.shake.cameraX, this.shake.cameraY, 0),
+    );
+  }
+
   update(frame: Float64Array): void {
     this.car.update(frame);
+    this.updateContact(frame);
     this.racingLine.update(
       (frame[frameIndex.distFromStart] ?? 0) * this.lapScale,
       Math.abs(frame[frameIndex.speed] ?? 0),
@@ -159,6 +198,7 @@ export class Scene {
     const at = (k: number) => frame[c + k] ?? 0;
     this.car.setDraw(at(19) !== 0, at(20) !== 0);
     this.view.fromArray(frame, c);
+    this.applyShake();
     const det = this.view.determinant();
     if (Math.abs(det) > 1e-6) {
       this.viewMirrored = det < 0;

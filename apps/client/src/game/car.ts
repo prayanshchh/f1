@@ -1,9 +1,11 @@
 import * as THREE from "three/webgpu";
 import { frameIndex } from "./engine.ts";
+import { setTyreShadows } from "./road.ts";
 import type { SdLighting } from "./materials.ts";
 import type { SdAssets } from "./models.ts";
 
 const deg = Math.PI / 180;
+const groundSink = 0.025;
 const wheelMaxVel = [20.0, 40.0, 70.0];
 const driverSteer = [0.03, 0.07, 0.13, 0.21, 0.3, 0.45, 0.7];
 
@@ -156,7 +158,15 @@ export class SdCar {
   private readonly speedometerRot = matrix();
   private readonly tachometerRot = matrix();
   private readonly scratch = new THREE.Matrix4();
+  private readonly basisX = new THREE.Vector3();
+  private readonly basisZ = new THREE.Vector3();
+  private readonly tyreContacts = [0, 1, 2, 3].map(() => ({
+    centre: new THREE.Vector3(),
+    axis: new THREE.Vector3(),
+  }));
   private lift = 0;
+  private heave = 0;
+  private roll = 0;
   private wheelsOff = false;
 
   private constructor(private readonly info: CarInfo) {}
@@ -287,6 +297,11 @@ export class SdCar {
     for (const loc of this.driverLocs) loc.visible = driver;
   }
 
+  setRumble(heave: number, roll: number): void {
+    this.heave = heave;
+    this.roll = roll;
+  }
+
   setPitService(lift: number, wheelsOff: boolean): void {
     this.lift = lift;
     this.wheelsOff = wheelsOff;
@@ -295,7 +310,8 @@ export class SdCar {
   update(frame: Float64Array): void {
     const at = (index: number) => frame[index] ?? 0;
     this.root.matrix.fromArray(frame, frameIndex.posMat);
-    this.root.matrix.elements[14] += this.lift;
+    this.root.matrix.elements[14] += this.lift + this.heave - groundSink;
+    this.root.matrix.multiply(this.scratch.makeRotationX(this.roll));
     this.root.matrixWorldNeedsUpdate = true;
 
     const steerangle = Math.fround(at(frameIndex.steer));
@@ -334,5 +350,21 @@ export class SdCar {
       );
     });
     this.root.updateMatrixWorld(true);
+    this.updateTyreShadows();
+  }
+
+  private updateTyreShadows(): void {
+    this.wheels.forEach((wheel, i) => {
+      const contact = this.tyreContacts[i];
+      if (!contact) return;
+      wheel.transform2.matrixWorld.extractBasis(
+        this.basisX,
+        contact.axis,
+        this.basisZ,
+      );
+      contact.axis.normalize();
+      contact.centre.setFromMatrixPosition(wheel.transform2.matrixWorld);
+    });
+    setTyreShadows(!this.wheelsOff, this.tyreContacts);
   }
 }

@@ -1,16 +1,15 @@
 import * as THREE from "three/webgpu";
 import { attribute, vec3 } from "three/tsl";
 import { frameIndex, type WheelGrip } from "./engine.ts";
+import { markStrength } from "./mark-strength.ts";
 
 const capacity = 40000;
-const minSlip = 2.5;
-const fullSlip = 9;
-const minLoad = 300;
 const segmentLength = 0.3;
-const tyreWidths = [0.32, 0.32, 0.4, 0.4];
+const markWidths = [0.13, 0.13, 0.16, 0.16];
 const tyreRadius = 0.34;
-const lift = 0.025;
+const lift = 0.012;
 const darkness = 0.75;
+const kerbSurface = 1;
 const rubber = vec3(0.012, 0.012, 0.014);
 
 interface Trail {
@@ -59,17 +58,16 @@ export class SkidMarks {
     this.mesh.frustumCulled = false;
   }
 
-  update(frame: Float64Array, grip: WheelGrip[]): void {
+  update(frame: Float64Array, grip: WheelGrip[], surfaces: number[]): void {
     this.body.fromArray(frame, frameIndex.posMat);
+    const speed = frame[frameIndex.speed] ?? 0;
     grip.forEach((wheel, i) => {
-      const strength =
-        wheel.load > minLoad
-          ? THREE.MathUtils.clamp(
-              (wheel.slip - minSlip) / (fullSlip - minSlip),
-              0,
-              1,
-            )
-          : 0;
+      const strength = markStrength(
+        wheel.slip,
+        speed,
+        wheel.load,
+        surfaces[i] === kerbSurface,
+      );
       if (strength <= 0) {
         this.trails[i] = null;
         return;
@@ -83,7 +81,7 @@ export class SkidMarks {
         )
         .applyMatrix4(this.body);
       this.side.set(0, 1, 0).transformDirection(this.body);
-      const half = this.side.multiplyScalar((tyreWidths[i] ?? 0.35) / 2);
+      const half = this.side.multiplyScalar((markWidths[i] ?? 0.14) / 2);
       const left = this.point.clone().add(half);
       const right = this.point.clone().sub(half);
       const trail = this.trails[i];

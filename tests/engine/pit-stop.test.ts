@@ -110,6 +110,7 @@ async function driveStop(): Promise<Lap> {
     return new Float64Array(m.HEAPF64.buffer, hud, 32)[0] ?? 0;
   };
   const pit = new PitStop(layout, false);
+  m._sdInputSteerDirect(1);
   m._sdStep(1000);
   const lap: Lap = {
     phases: new Set(),

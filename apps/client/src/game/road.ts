@@ -14,6 +14,7 @@ import {
   renderOutput,
   smoothstep,
   step,
+  materialColor,
   texture,
   uniform,
   uv,
@@ -71,6 +72,25 @@ const shadowDistance = 200;
 const sunIntensity = 6;
 const skyIntensity = 2;
 const groundColor = new THREE.Color(0.22, 0.24, 0.16);
+const bodyContact = { x: 0.07, hx: 2.3, hy: 0.72, reach: 0.75, strength: 0.62 };
+const tyreContacts = [
+  [1.49, -0.74, 0.2, 0.15],
+  [1.49, 0.74, 0.2, 0.15],
+  [-2.01, -0.74, 0.22, 0.2],
+  [-2.01, 0.74, 0.22, 0.2],
+] as const;
+const tyreSizes = [
+  [0.36, 0.155],
+  [0.36, 0.155],
+  [0.366, 0.205],
+  [0.366, 0.205],
+] as const;
+const tyreShadowSoftness = 0.03;
+const tyreReach = 0.26;
+const tyreStrength = 0.88;
+const groundMaterials =
+  /(asphalt|road paint|road kerb|road runoff|road grass|pit strip|pit red|terrain)$/;
+const blendedMaterials = new Set(["cota track marks"]);
 const alphaCutoffs: Record<string, number> = {
   "cota debris fence": 0.5,
   "cota painted ads": 0.35,
@@ -84,6 +104,7 @@ const depthOffsets: Record<string, number> = {
   "cota road runoff": -1,
   "cota painted ads": -2,
   "cota pit decals": -2,
+  "cota track marks": -1.5,
   "cota road grass": 1,
   "cota pit asphalt": 0.5,
   "cota apron asphalt": 0.25,
@@ -107,6 +128,87 @@ function sharpen(map: THREE.Texture | null, anisotropy: number): void {
   map.anisotropy = anisotropy;
   map.needsUpdate = true;
 }
+
+const contactCentre = uniform(new THREE.Vector2());
+const contactForward = uniform(new THREE.Vector2(1, 0));
+
+export function setCarContact(x: number, y: number, fx: number, fy: number) {
+  contactCentre.value.set(x, y);
+  contactForward.value.set(fx, fy);
+}
+
+const contactShade = Fn(() => {
+  const offset = positionWorld.xy.sub(contactCentre);
+  const along = offset.dot(contactForward);
+  const across = offset.y
+    .mul(contactForward.x)
+    .sub(offset.x.mul(contactForward.y));
+  const box = (x: number, y: number, hx: number, hy: number) => {
+    const dx = along.sub(x).abs().sub(hx).max(0);
+    const dy = across.sub(y).abs().sub(hy).max(0);
+    return dx.mul(dx).add(dy.mul(dy)).sqrt();
+  };
+  const fade = (distance: ReturnType<typeof box>, reach: number) =>
+    float(1).sub(smoothstep(0, reach, distance));
+  let shade = float(1).sub(
+    fade(
+      box(bodyContact.x, 0, bodyContact.hx, bodyContact.hy),
+      bodyContact.reach,
+    ).mul(bodyContact.strength),
+  );
+  for (const [x, y, hx, hy] of tyreContacts)
+    shade = shade.mul(
+      float(1).sub(fade(box(x, y, hx, hy), tyreReach).mul(tyreStrength)),
+    );
+  return shade;
+});
+
+const sunDirection = uniform(new THREE.Vector3(0, 0, 1));
+const tyresPresent = uniform(0);
+const tyres = tyreSizes.map(() => ({
+  centre: uniform(new THREE.Vector3()),
+  axis: uniform(new THREE.Vector3(0, 1, 0)),
+}));
+
+export function setTyreShadows(
+  present: boolean,
+  wheels: { centre: THREE.Vector3; axis: THREE.Vector3 }[],
+): void {
+  tyresPresent.value = present ? 1 : 0;
+  wheels.forEach((wheel, i) => {
+    tyres[i]?.centre.value.copy(wheel.centre);
+    tyres[i]?.axis.value.copy(wheel.axis);
+  });
+}
+
+const tyreSunlight = Fn(() => {
+  const open = tyres.map((tyre, i) => {
+    const [radius, halfWidth] = tyreSizes[i] ?? [0, 0];
+    const offset = positionWorld.sub(tyre.centre);
+    const across = offset.dot(tyre.axis);
+    const sunAcross = sunDirection.dot(tyre.axis);
+    const radial = offset.sub(tyre.axis.mul(across));
+    const sunRadial = sunDirection.sub(tyre.axis.mul(sunAcross));
+    const a = sunRadial.dot(sunRadial).max(1e-4);
+    const b = radial.dot(sunRadial);
+    const c = radial.dot(radial).sub(radius * radius);
+    const root = b.mul(b).sub(a.mul(c)).max(0).sqrt();
+    const safeAcross = sunAcross
+      .abs()
+      .max(1e-4)
+      .mul(step(0, sunAcross).mul(2).sub(1));
+    const enter = float(-halfWidth).sub(across).div(safeAcross);
+    const leave = float(halfWidth).sub(across).div(safeAcross);
+    const from = b.negate().sub(root).div(a).max(enter.min(leave)).max(0);
+    const to = b.negate().add(root).div(a).min(enter.max(leave));
+    const blocked = smoothstep(0, tyreShadowSoftness, to.sub(from));
+    return float(1).sub(blocked.mul(tyresPresent));
+  });
+  return open.reduce((all, one) => all.mul(one));
+});
+
+const withTyreSunlight = ((shadow: ReturnType<typeof tyreSunlight>) =>
+  shadow.mul(tyreSunlight())) as unknown as () => THREE.Node;
 
 function shadeAsphalt(
   material: THREE.MeshStandardNodeMaterial,
@@ -181,6 +283,22 @@ function shadeCanopy(
   );
 }
 
+function applyShading(
+  material: THREE.MeshStandardNodeMaterial,
+  source: THREE.MeshStandardMaterial,
+): void {
+  if (source.name.endsWith("asphalt")) shadeAsphalt(material, source);
+  if (source.name.endsWith("canopy")) shadeCanopy(material, source);
+  if (source.name.endsWith("grass") || source.name.endsWith("terrain"))
+    shadeGrass(material, source);
+  if (groundMaterials.test(source.name)) {
+    material.colorNode = (material.colorNode ?? materialColor).mul(
+      contactShade(),
+    );
+    material.receivedShadowNode = withTyreSunlight;
+  }
+}
+
 export function surface(
   source: THREE.MeshStandardMaterial,
   anisotropy: number,
@@ -202,16 +320,15 @@ export function surface(
     side: THREE.DoubleSide,
     alphaTest: alphaCutoffs[source.name] ?? 0,
     alphaToCoverage: source.name.endsWith("fence"),
+    transparent: blendedMaterials.has(source.name),
+    depthWrite: !blendedMaterials.has(source.name),
     polygonOffset: offset !== 0,
     polygonOffsetFactor: offset,
     polygonOffsetUnits: offset * 4,
   });
   for (const map of [source.map, source.normalMap, source.roughnessMap])
     sharpen(map, anisotropy);
-  if (source.name.endsWith("asphalt")) shadeAsphalt(material, source);
-  if (source.name.endsWith("canopy")) shadeCanopy(material, source);
-  if (source.name.endsWith("grass") || source.name.endsWith("terrain"))
-    shadeGrass(material, source);
+  applyShading(material, source);
   finish(material);
   return material;
 }
@@ -305,6 +422,7 @@ export class Sunlight {
   update(state: SkyState, eyeX: number, eyeY: number, eyeZ: number): void {
     const [sx, sy, sz] = state.sunPosition;
     this.direction.set(sx - eyeX, sy - eyeY, sz).normalize();
+    sunDirection.value.copy(this.direction);
     this.sun.target.position.set(eyeX, eyeY, eyeZ);
     this.sun.position
       .copy(this.direction)

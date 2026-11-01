@@ -336,22 +336,28 @@ async function main(): Promise<void> {
     );
     engine.speedLimit(control.limit);
     engine.pitHold(control.hold);
-    engine.analog(control.drive ? steerToward(frame, control.drive) : padInput);
+    engine.analog(
+      control.drive ? steerToward(frame, control.drive) : padInput,
+      control.drive !== null,
+    );
     if (control.serviceNow) engine.pitService(startFuel);
     return control;
   };
   const step = (now: number) => {
     const frame = engine.update(now);
     const control = applyPit(frame, now);
-    pad.feedback(
-      now,
-      Math.abs(frame[frameIndex.speed] ?? 0) * 3.6,
-      frame[frameIndex.gear] ?? 0,
-    );
+    const speedKph = Math.abs(frame[frameIndex.speed] ?? 0) * 3.6;
+    const audio = engine.carAudio(frame);
+    const rumble = scene.feel(audio.wheels, audio.speed, now);
+    pad.feedback(now, speedKph, frame[frameIndex.gear] ?? 0, rumble);
     scene.update(frame);
     scene.updatePit(control, frame);
-    scene.marks.update(frame, engine.wheelGrip());
-    sound.update(engine.carAudio(frame));
+    scene.marks.update(
+      frame,
+      engine.wheelGrip(),
+      audio.wheels.map((w) => w.surface),
+    );
+    sound.update(audio);
     hud.update(frame, engine.hudInfo(), now);
     hud.updatePit(control);
     const bestTime = trace.bestTime ?? Infinity;

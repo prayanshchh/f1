@@ -140,7 +140,9 @@ export class Engine {
 
   analog(
     input: { steer: number; throttle: number; brake: number } | null,
+    direct = false,
   ): void {
+    this.module._sdInputSteerDirect(direct ? 1 : 0);
     if (input)
       this.module._sdInputAnalog(1, input.steer, input.throttle, input.brake);
     else this.module._sdInputAnalog(0, 0, 0, 0);

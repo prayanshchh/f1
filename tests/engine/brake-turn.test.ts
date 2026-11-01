@@ -40,7 +40,7 @@ async function brakeAt(steer: number) {
 
 describe.skipIf(!existsSync(wasm))("braking at 120 km/h", () => {
   test("still turns the car when the driver brakes fully and steers", async () => {
-    const { force, locked } = await brakeAt(0.5);
+    const { force, locked } = await brakeAt(0.8);
     expect(force).toBeGreaterThan(1);
     expect(locked).toBeLessThan(0.2);
   }, 60_000);

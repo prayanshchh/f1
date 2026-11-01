@@ -19,7 +19,7 @@ static const double throttleFallTime = 0.06;
 static const double brakeRiseTime = 0.1;
 static const double brakeFallTime = 0.05;
 static const double slipCapMinSpeed = 8.0;
-static const double rearSlipLimit = 0.14;
+static const double rearSlipLimit = 0.09;
 static const double tractionCut = 30.0;
 static const double tractionRecover = 1.5;
 static const double tractionMinSpeed = 3.0;
@@ -34,10 +34,14 @@ static const double analogThrottleTime = 0.08;
 static const double steerHalfSpeed = 33.0;
 static const double steerMinShare = 0.08;
 static const double steerRateSpeed = 25.0;
-static const double steerCurveStart = 28.0;
-static const double steerCurveEnd = 50.0;
-static const double steerCurveMax = 2.0;
-static const double steerFullLockCurve = 6.0;
+static const double steerWheelbase = 3.5;
+static const double steerSlipMargin = 1.5 * PI / 180.0;
+static const double steerGripPower = 1.5;
+static const double steerFullLockPower = 10.0;
+static const double steerMinSpeed = 3.0;
+static const double gripSpeeds[] = {16.7, 27.8, 41.7, 55.6, 69.4, 83.3};
+static const double gripAccels[] = {2.2, 3.3, 3.6, 4.4, 5.5, 5.6};
+static const int gripPoints = 6;
 static const double trailBrakeSteer = 0.1;
 static const double limiterGain = 0.5;
 static const double limiterMargin = 0.3;
@@ -45,6 +49,7 @@ static const double limiterBrake = 0.15;
 
 static bool assist = true;
 static bool antiLock = false;
+static bool steerDirect = false;
 static bool analog;
 static double analogSteer, analogThrottle, analogBrake;
 static bool left, right, up, down;
@@ -77,12 +82,33 @@ static double steerSlowdown(tCarElt *car)
     return 1.0 + fabs(car->_speed_x) / steerRateSpeed;
 }
 
+static double gripAt(double speed)
+{
+    if (speed <= gripSpeeds[0])
+        return gripAccels[0];
+    for (int i = 1; i < gripPoints; i++)
+    {
+        if (speed <= gripSpeeds[i])
+        {
+            double t = (speed - gripSpeeds[i - 1]) / (gripSpeeds[i] - gripSpeeds[i - 1]);
+            return gripAccels[i - 1] + (gripAccels[i] - gripAccels[i - 1]) * t;
+        }
+    }
+    return gripAccels[gripPoints - 1];
+}
+
+static double gripSteerShare(tCarElt *car)
+{
+    double speed = std::max(steerMinSpeed, (double)fabs(car->_speed_x));
+    double angle = atan(steerWheelbase * gripAt(speed) * G / (speed * speed)) + steerSlipMargin;
+    return std::min(1.0, angle / car->_steerLock);
+}
+
 static double steerCurve(tCarElt *car, double input)
 {
     double amount = fabs(input);
-    double blend = std::max(0.0, std::min(1.0, (fabs(car->_speed_x) - steerCurveStart) / (steerCurveEnd - steerCurveStart)));
-    double share = speedShare(car);
-    return share * pow(amount, 1.0 + (steerCurveMax - 1.0) * blend) + (1.0 - share) * pow(amount, steerFullLockCurve);
+    double share = gripSteerShare(car);
+    return share * pow(amount, steerGripPower) + (1.0 - share) * pow(amount, steerFullLockPower);
 }
 
 static double steerLimit(tCarElt *car, int dir)
@@ -115,7 +141,7 @@ static void updateKeys(tCarElt *car, double dt)
 static void updateAnalog(tCarElt *car, double dt)
 {
     int dir = analogSteer >= 0 ? 1 : -1;
-    double target = dir * steerCurve(car, analogSteer);
+    double target = steerDirect ? analogSteer : dir * steerCurve(car, analogSteer);
     steer = approach(steer, target, std::max(steerMinStep, fabs(target - steer)) / (analogSteerTime * steerSlowdown(car)), dt);
     throttle = approach(throttle, analogThrottle, 1.0 / analogThrottleTime, dt);
     brake = analogBrake;
@@ -289,6 +315,11 @@ EMSCRIPTEN_KEEPALIVE void sdInputAssist(int on)
 EMSCRIPTEN_KEEPALIVE void sdInputAntiLock(int on)
 {
     antiLock = on != 0;
+}
+
+EMSCRIPTEN_KEEPALIVE void sdInputSteerDirect(int on)
+{
+    steerDirect = on != 0;
 }
 
 EMSCRIPTEN_KEEPALIVE void sdInputSpeedLimit(double metresPerSecond)

@@ -3,6 +3,7 @@ import createSpeedDreams, {
 } from "../../wasm/speed-dreams.js";
 import type { CarInfo } from "./car.ts";
 import type { SetupSource } from "./settings.ts";
+import type { CarAudio } from "./sound/sound-state.ts";
 import type { TrackLocal } from "./sky.ts";
 
 export const frameIndex = {
@@ -196,6 +197,29 @@ export class Engine {
       const at = (k: number) => v[telemetryWheels + i * 6 + k] ?? 0;
       return { slip: Math.hypot(at(0), at(1)), load: at(4) };
     });
+  }
+
+  carAudio(frame: Float64Array): CarAudio {
+    const v = this.doubles(22, (p) => {
+      this.module._sdAudio(p);
+    });
+    const at = (i: number) => v[i] ?? 0;
+    return {
+      rpm: frame[frameIndex.rpm] ?? 0,
+      redline: frame[frameIndex.rpmRedLine] ?? 1,
+      throttle: frame[frameIndex.accel] ?? 0,
+      brake: frame[frameIndex.brake] ?? 0,
+      gear: frame[frameIndex.gear] ?? 0,
+      damage: frame[frameIndex.dammage] ?? 0,
+      speed: at(20),
+      wheels: [0, 1, 2, 3].map((i) => ({
+        skid: at(i * 5),
+        spin: at(i * 5 + 1),
+        radius: at(i * 5 + 2),
+        surface: at(i * 5 + 3),
+        load: at(i * 5 + 4),
+      })),
+    };
   }
 
   carInfo(): CarInfo {

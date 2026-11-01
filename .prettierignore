@@ -8,4 +8,5 @@ content/tracks/cota/track.json
 content/tracks/cota/racing-line.json
 content/tracks/cota/sd-frame.json
 content/tracks/cota/source/
-content/tracks/cota/source/crew/
+apps/client/src/game/sound/tables.json
+tests/sound/f1-25-chase-fingerprint.json

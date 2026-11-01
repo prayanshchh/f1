@@ -10,22 +10,8 @@ import {
   type PitDrive,
   type PitLayout,
 } from "../../apps/client/src/game/pitstop.ts";
-import { startCota, wasm } from "../support/engine.ts";
+import { type SpeedDreams, startCota, wasm } from "../support/speed-dreams.ts";
 import { repoRoot } from "../support/repo.ts";
-
-interface Module {
-  HEAPF64: Float64Array;
-  HEAPF32: Float32Array;
-  _malloc: (size: number) => number;
-  _sdStep: (count: number) => void;
-  _sdFrame: () => number;
-  _sdHudInfo: (pointer: number) => void;
-  _sdTrackLocal2Global: (d: number, l: number, out: number) => number;
-  _sdInputAnalog: (a: number, s: number, t: number, b: number) => void;
-  _sdInputSpeedLimit: (limit: number) => void;
-  _sdInputPitHold: (on: number) => void;
-  _sdPitService: (fuel: number) => void;
-}
 
 const layout = (
   JSON.parse(
@@ -75,7 +61,7 @@ function approach(armed: boolean, distance: number, look: number): PitDrive {
   };
 }
 
-function sample(m: Module) {
+function sample(m: SpeedDreams) {
   const frame = new Float64Array(m.HEAPF64.buffer, m._sdFrame(), 88);
   const [time, cos, sin] = [frame[0], frame[1], frame[2]].map((v) => v ?? 0);
   const [x, y] = [frame[13], frame[14]].map((v) => v ?? 0);
@@ -112,7 +98,7 @@ function record(
 }
 
 async function driveStop(): Promise<Lap> {
-  const m = await startCota<Module>();
+  const m = await startCota();
   const out = m._malloc(12);
   const hud = m._malloc(8 * 32);
   const point = (d: number, l: number) => {

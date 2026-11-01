@@ -53,6 +53,7 @@ declare module "*/wasm/speed-dreams.js" {
     _sdCarInfo(out: number): void;
     _sdTelemetry(out: number): void;
     _sdHudInfo(out: number): void;
+    _sdAudio(out: number): void;
     _sdTrackSectors(out: number, max: number): number;
     _sdInputAssist(on: number): void;
     _sdInputAntiLock(on: number): void;

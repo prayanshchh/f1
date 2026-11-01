@@ -1,20 +1,6 @@
 import { existsSync } from "node:fs";
 import { describe, expect, test } from "vitest";
-import { startCota, wasm } from "../support/engine.ts";
-
-interface Module {
-  HEAPF64: Float64Array;
-  _malloc: (size: number) => number;
-  _sdStep: (count: number) => void;
-  _sdTelemetry: (pointer: number) => void;
-  _sdFrame: () => number;
-  _sdInputAnalog: (
-    active: number,
-    steer: number,
-    throttle: number,
-    brake: number,
-  ) => void;
-}
+import { startCota, wasm } from "../support/speed-dreams.ts";
 
 const speedIndex = 45;
 const wheelIndex = 17;
@@ -25,7 +11,7 @@ const settleTicks = 200;
 const sampleTicks = 300;
 
 async function brakeAt(steer: number) {
-  const m = await startCota<Module>();
+  const m = await startCota();
   const memory = m._malloc(320);
   const frame = () => new Float64Array(m.HEAPF64.buffer, m._sdFrame(), 88);
   const lateral = () => {

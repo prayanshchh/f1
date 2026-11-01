@@ -466,6 +466,36 @@ EMSCRIPTEN_KEEPALIVE void sdPitService(double fuel)
     car->pitcmd.tireChange = tCarPitCmd::NONE;
 }
 
+static int surfaceClass(const tTrackSeg *seg)
+{
+    const char *material = seg && seg->surface ? seg->surface->material : nullptr;
+    if (!material)
+        return 0;
+    if (strstr(material, "kerb") || strstr(material, "curb"))
+        return 1;
+    if (strstr(material, "grass"))
+        return 2;
+    if (strstr(material, "sand") || strstr(material, "gravel") || strstr(material, "dirt"))
+        return 3;
+    return 0;
+}
+
+EMSCRIPTEN_KEEPALIVE void sdAudio(double *out)
+{
+    tCarElt *car = ReInfo->s->cars[0];
+    for (int i = 0; i < 4; i++)
+    {
+        double *w = &out[i * 5];
+        w[0] = car->_skid[i];
+        w[1] = car->_wheelSpinVel(i);
+        w[2] = car->_wheelRadius(i);
+        w[3] = surfaceClass(car->_wheelSeg(i));
+        w[4] = car->_wheelFz(i);
+    }
+    out[20] = car->_speed_xy;
+    out[21] = car->priv.simcollision;
+}
+
 EMSCRIPTEN_KEEPALIVE double sdTrackLength()
 {
     return ReInfo->track->length;

@@ -49,7 +49,7 @@ describe.runIf(existsSync(wasm))("audio telemetry from the engine", () => {
     const read = reader(m);
     let found = false;
     for (let tick = 0; tick < 12000 && !found; tick++) {
-      m._sdInputAnalog(1, tick > 1500 ? 0.25 : 0, 0.5, 0);
+      m._sdInputAnalog(1, tick > 1500 ? -0.25 : 0, 0.5, 0);
       m._sdStep(1);
       const audio = read();
       found = [0, 1, 2, 3].some((i) => audio[i * fields + 3] === grass);

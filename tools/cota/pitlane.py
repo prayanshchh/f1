@@ -1,6 +1,6 @@
 import numpy as np
 
-from palette import palette_uv
+from palette import BRAND_ROWS, palette_uv
 from trackside import UNIT, Batch
 
 BAY_SPACING = 14.0
@@ -11,14 +11,18 @@ FASCIA_HEIGHT = 5.8
 CANOPY_HEIGHT = 6.0
 CANOPY_REACH = 3.2
 CANOPY_THICKNESS = 0.35
-BANNER_LOW = 7.0
-BANNER_HIGH = 11.6
-BANNER_TILE = 18.4
-BANNER_BRAND = 1
-BRAND_ROWS = 4
+BANNER_TILE = 9.6
+BANNER_STRIP = 1.2
+BANNER_BRAND = 5
+BALCONIES = (7.2, 10.7)
+BALCONY_REACH = 1.2
+BALCONY_RECESS = 1.6
+BALCONY_THICKNESS = 0.4
+BUILDING_DEPTH = 24.0
 ROOF_HEIGHT = 14.0
-ROOF_LIP_REACH = 5.0
-ROOF_LIP_RISE = 1.4
+ROOF_LIP_REACH = 9.0
+ROOF_LIP_RISE = 2.6
+ROOF_EDGE = 0.45
 STRUT_SPACING = 28.0
 STRUT_SIZE = 0.22
 LIGHT_STRIP = 0.5
@@ -214,18 +218,33 @@ def garage_front(frame, pit, parts):
     v0, v1 = 1 - (BANNER_BRAND + 1) / BRAND_ROWS, 1 - BANNER_BRAND / BRAND_ROWS
     for a, b in pairs:
         sa, sb = start + a, start + b
-        panels.add([frame.at(sa, front, FASCIA_HEIGHT), frame.at(sb, front, FASCIA_HEIGHT), frame.at(sb, front, ROOF_HEIGHT), frame.at(sa, front, ROOF_HEIGHT)], UNIT)
+        glass = front + BALCONY_RECESS
+        panels.add([frame.at(sa, glass, FASCIA_HEIGHT), frame.at(sb, glass, FASCIA_HEIGHT), frame.at(sb, glass, ROOF_HEIGHT), frame.at(sa, glass, ROOF_HEIGHT)], UNIT)
+        canopy.add([frame.at(sa, front, FASCIA_HEIGHT), frame.at(sb, front, FASCIA_HEIGHT), frame.at(sb, glass, FASCIA_HEIGHT), frame.at(sa, glass, FASCIA_HEIGHT)], UNIT)
         canopy.add([frame.at(sa, front, CANOPY_HEIGHT), frame.at(sb, front, CANOPY_HEIGHT), frame.at(sb, front - CANOPY_REACH, CANOPY_HEIGHT - 0.3), frame.at(sa, front - CANOPY_REACH, CANOPY_HEIGHT - 0.3)], UNIT)
         canopy.add([frame.at(sa, front - CANOPY_REACH, CANOPY_HEIGHT - 0.3), frame.at(sb, front - CANOPY_REACH, CANOPY_HEIGHT - 0.3), frame.at(sb, front - CANOPY_REACH, CANOPY_HEIGHT - 0.3 + CANOPY_THICKNESS), frame.at(sa, front - CANOPY_REACH, CANOPY_HEIGHT - 0.3 + CANOPY_THICKNESS)], UNIT)
-        canopy.add([frame.at(sa, front, ROOF_HEIGHT), frame.at(sb, front, ROOF_HEIGHT), frame.at(sb, front - ROOF_LIP_REACH, ROOF_HEIGHT + ROOF_LIP_RISE), frame.at(sa, front - ROOF_LIP_REACH, ROOF_HEIGHT + ROOF_LIP_RISE)], UNIT)
+        for level in BALCONIES:
+            lip = front - BALCONY_REACH
+            canopy.add([frame.at(sa, lip, level), frame.at(sb, lip, level), frame.at(sb, glass, level), frame.at(sa, glass, level)], UNIT)
+            canopy.add([frame.at(sa, lip, level - BALCONY_THICKNESS), frame.at(sb, lip, level - BALCONY_THICKNESS), frame.at(sb, lip, level), frame.at(sa, lip, level)], UNIT)
+            limb(steel, frame.at(sa, lip + 0.1, level + RAIL_HEIGHT), frame.at(sb, lip + 0.1, level + RAIL_HEIGHT), RAIL_SIZE, RAIL_SIZE, UNIT, 4)
+        roof_lip = front - ROOF_LIP_REACH
+        canopy.add([frame.at(sa, glass, ROOF_HEIGHT), frame.at(sb, glass, ROOF_HEIGHT), frame.at(sb, roof_lip, ROOF_HEIGHT + ROOF_LIP_RISE), frame.at(sa, roof_lip, ROOF_HEIGHT + ROOF_LIP_RISE)], UNIT)
+        canopy.add([frame.at(sa, roof_lip, ROOF_HEIGHT + ROOF_LIP_RISE - ROOF_EDGE), frame.at(sb, roof_lip, ROOF_HEIGHT + ROOF_LIP_RISE - ROOF_EDGE), frame.at(sb, roof_lip, ROOF_HEIGHT + ROOF_LIP_RISE), frame.at(sa, roof_lip, ROOF_HEIGHT + ROOF_LIP_RISE)], UNIT)
+        canopy.add([frame.at(sa, glass, ROOF_HEIGHT), frame.at(sb, glass, ROOF_HEIGHT), frame.at(sb, front + BUILDING_DEPTH, ROOF_HEIGHT), frame.at(sa, front + BUILDING_DEPTH, ROOF_HEIGHT)], UNIT)
+        panels.add([frame.at(sa, front + BUILDING_DEPTH, -0.5), frame.at(sb, front + BUILDING_DEPTH, -0.5), frame.at(sb, front + BUILDING_DEPTH, ROOF_HEIGHT), frame.at(sa, front + BUILDING_DEPTH, ROOF_HEIGHT)], UNIT)
         ua, ub = a / BANNER_TILE, b / BANNER_TILE
-        banner.add([frame.at(sa, front - 0.08, BANNER_LOW), frame.at(sb, front - 0.08, BANNER_LOW), frame.at(sb, front - 0.08, BANNER_HIGH), frame.at(sa, front - 0.08, BANNER_HIGH)], [(ua, v0), (ub, v0), (ub, v1), (ua, v1)])
+        level = BALCONIES[0]
+        banner.add([frame.at(sa, front - BALCONY_REACH - 0.04, level - BANNER_STRIP), frame.at(sb, front - BALCONY_REACH - 0.04, level - BANNER_STRIP), frame.at(sb, front - BALCONY_REACH - 0.04, level), frame.at(sa, front - BALCONY_REACH - 0.04, level)], [(ua, v0), (ub, v0), (ub, v1), (ua, v1)])
+    for s, inward in ((start, 1), (start + span, -1)):
+        for lateral in (front + BUILDING_DEPTH,):
+            canopy.add([frame.at(s, front, -0.5), frame.at(s, lateral, -0.5), frame.at(s, lateral, ROOF_HEIGHT), frame.at(s, front, ROOF_HEIGHT)], UNIT)
     strut = 0.0
     while strut < span:
         s = start + strut
-        foot = frame.at(s, front - 0.1, BANNER_HIGH + 0.2)
+        foot = frame.at(s, front + BALCONY_RECESS - 0.2, BALCONIES[-1] + 0.2)
         for offset in (-2.2, 2.2):
-            tip = frame.at(s + offset, front - ROOF_LIP_REACH + 0.2, ROOF_HEIGHT + ROOF_LIP_RISE - 0.1)
+            tip = frame.at(s + offset, front - ROOF_LIP_REACH + 0.3, ROOF_HEIGHT + ROOF_LIP_RISE - 0.2)
             limb(steel, foot, tip, STRUT_SIZE / 2, STRUT_SIZE / 2, UNIT, 6)
         strut += STRUT_SPACING
 

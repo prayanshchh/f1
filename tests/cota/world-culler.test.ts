@@ -4,7 +4,6 @@ import {
   CulledForest,
   CulledMesh,
   type SphereTest,
-  WorldCuller,
 } from "../../apps/client/src/game/world-culler.ts";
 
 const cellSize = 200;
@@ -161,98 +160,5 @@ describe("world culler forest", () => {
     culled.update({ intersectsSphere: () => true });
     expect(Array.from(mesh.instanceMatrix.array)).toEqual(original);
     expect(mesh.count).toBe(columns);
-  });
-});
-
-describe("world culler auxiliary views", () => {
-  function world(): { root: THREE.Group; mesh: THREE.Mesh } {
-    const positions: number[] = [];
-    const indices: number[] = [];
-    const span = 40;
-    for (let i = 0; i < span; i++)
-      for (let j = 0; j < span * 4; j++) {
-        const base = positions.length / 3;
-        const x = i * 100;
-        const z = j * 25;
-        positions.push(x, 0, z, x + 90, 0, z, x, 0, z + 20, x + 90, 0, z + 20);
-        indices.push(base, base + 1, base + 2, base + 1, base + 3, base + 2);
-      }
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute(
-      "position",
-      new THREE.Float32BufferAttribute(positions, 3),
-    );
-    geometry.setIndex(new THREE.Uint32BufferAttribute(indices, 1));
-    geometry.computeBoundingSphere();
-    const mesh = new THREE.Mesh(geometry);
-    const root = new THREE.Group();
-    root.add(mesh);
-    return { root, mesh };
-  }
-
-  function pieces(root: THREE.Object3D, mesh: THREE.Mesh): THREE.Mesh[] {
-    const found: THREE.Mesh[] = [];
-    root.traverse((object) => {
-      if (object instanceof THREE.Mesh && object !== mesh)
-        found.push(object as THREE.Mesh);
-    });
-    return found;
-  }
-
-  test("tiled copies draw every triangle exactly once", () => {
-    const { root, mesh } = world();
-    const original = indexOf(mesh);
-    new WorldCuller(root);
-    const triangle = (a: number[], i: number) =>
-      `${String(a[i])},${String(a[i + 1])},${String(a[i + 2])}`;
-    const expected = new Set<string>();
-    for (let i = 0; i < original.length; i += 3)
-      expected.add(triangle(original, i));
-    const seen = new Set<string>();
-    let total = 0;
-    for (const piece of pieces(root, mesh)) {
-      const corners = indexOf(piece);
-      total += corners.length;
-      for (let i = 0; i < corners.length; i += 3)
-        seen.add(triangle(corners, i));
-    }
-    expect(total).toBe(original.length);
-    expect(seen).toEqual(expected);
-  });
-
-  test("each tile is culled by bounds that contain all of its triangles", () => {
-    const { root, mesh } = world();
-    new WorldCuller(root);
-    const position = mesh.geometry.getAttribute(
-      "position",
-    ) as THREE.BufferAttribute;
-    const point = new THREE.Vector3();
-    const tiles = pieces(root, mesh);
-    expect(tiles.length).toBeGreaterThan(1);
-    for (const piece of tiles) {
-      const { boundingSphere } = piece as unknown as {
-        boundingSphere: THREE.Sphere;
-      };
-      for (const corner of indexOf(piece)) {
-        point.fromBufferAttribute(position, corner);
-        expect(boundingSphere.distanceToPoint(point)).toBeLessThan(1e-3);
-      }
-    }
-  });
-
-  test("main and auxiliary views never draw the same surface together", () => {
-    const { root, mesh } = world();
-    const culler = new WorldCuller(root);
-    const shown = (object: THREE.Object3D): boolean =>
-      object.visible && (object.parent ? shown(object.parent) : true);
-    const tile = pieces(root, mesh)[0] as THREE.Mesh;
-    expect(shown(mesh)).toBe(true);
-    expect(shown(tile)).toBe(false);
-    culler.showAuxiliary(true);
-    expect(shown(mesh)).toBe(false);
-    expect(shown(tile)).toBe(true);
-    culler.showAuxiliary(false);
-    expect(shown(mesh)).toBe(true);
-    expect(shown(tile)).toBe(false);
   });
 });

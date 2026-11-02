@@ -3,8 +3,6 @@ import {
   float,
   instancedBufferAttribute,
   length,
-  output,
-  renderOutput,
   smoothstep,
   uv,
   vec3,
@@ -80,11 +78,6 @@ export class TyreSmoke {
     material.scaleNode = centre.w;
     material.colorNode = vec4(1, 1, 1, 1);
     material.opacityNode = fade.mul(soft);
-    material.outputNode = renderOutput(
-      output,
-      THREE.NoToneMapping,
-      THREE.SRGBColorSpace,
-    );
     const geometry = new THREE.PlaneGeometry(1, 1);
     const mesh = new THREE.InstancedMesh(geometry, material, capacity);
     mesh.frustumCulled = false;

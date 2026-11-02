@@ -41,6 +41,7 @@ export const idleState: SynthState = {
 const clipStart = 0.7;
 const stationarySpeed = 3;
 const stationaryGain = 0.56;
+const engineGain = 1.9;
 
 function softClip(value: number): number {
   const magnitude = Math.abs(value);
@@ -110,7 +111,7 @@ export class CarSynth {
     this.engine.render(this.engineBus, startRpm, rpm, load, speed);
     this.turbo.render(this.engineBus, load, rpm);
     const idle = speed < stationarySpeed ? stationaryGain : 1;
-    const dip = this.shift.dip() * idle;
+    const dip = this.shift.dip() * idle * engineGain;
     for (let i = 0; i < this.engineBus.length; i++)
       this.engineBus[i] = (this.engineBus[i] ?? 0) * dip;
   }

@@ -4,6 +4,19 @@ import workletUrl from "./worklet.ts?worker&url";
 
 const fullVolume = 1;
 const suspendDelay = 400;
+const unlockEvents = [
+  "keydown",
+  "keyup",
+  "pointerdown",
+  "pointerup",
+  "mousedown",
+  "click",
+  "touchend",
+];
+
+export function openAudio(): AudioContext {
+  return new AudioContext({ latencyHint: "interactive", sampleRate: 48000 });
+}
 
 export class GameSound {
   private readonly context: AudioContext;
@@ -17,11 +30,7 @@ export class GameSound {
     this.node = node;
   }
 
-  static async start(): Promise<GameSound> {
-    const context = new AudioContext({
-      latencyHint: "interactive",
-      sampleRate: 48000,
-    });
+  static async start(context = openAudio()): Promise<GameSound> {
     await context.audioWorklet.addModule(workletUrl);
     const node = new AudioWorkletNode(context, "f1-car-sound", {
       numberOfInputs: 0,
@@ -39,8 +48,8 @@ export class GameSound {
       if (!this.silent) void this.context.resume();
     };
     resume();
-    for (const event of ["keydown", "pointerdown", "touchend"])
-      window.addEventListener(event, resume);
+    for (const event of unlockEvents)
+      window.addEventListener(event, resume, { capture: true });
     document.addEventListener("visibilitychange", () => {
       this.send();
     });

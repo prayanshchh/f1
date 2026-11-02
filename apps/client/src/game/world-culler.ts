@@ -8,9 +8,6 @@ const forestCell = 200;
 const staleShare = 0.25;
 const casterLayer = 1;
 const instanceStride = 16;
-const auxiliaryCell = 400;
-const auxiliaryForestCell = 800;
-const attributeInstances = 1025;
 
 interface Cell {
   sphere: THREE.Sphere;
@@ -299,131 +296,9 @@ function casterCopy(mesh: THREE.Mesh): THREE.Mesh {
   return copy;
 }
 
-function tileCounts(
-  source: ArrayLike<number>,
-  position: THREE.BufferAttribute,
-  cellSize: number,
-): { keys: Float64Array; sizes: Map<number, number> } {
-  const keys = new Float64Array(source.length / 3);
-  const sizes = new Map<number, number>();
-  for (let i = 0; i < source.length; i += 3) {
-    const a = source[i] ?? 0;
-    const b = source[i + 1] ?? 0;
-    const c = source[i + 2] ?? 0;
-    const key = cellKey(
-      (position.getX(a) + position.getX(b) + position.getX(c)) / 3,
-      (position.getZ(a) + position.getZ(b) + position.getZ(c)) / 3,
-      cellSize,
-    );
-    keys[i / 3] = key;
-    sizes.set(key, (sizes.get(key) ?? 0) + 3);
-  }
-  return { keys, sizes };
-}
-
-function tileTriangles(
-  source: ArrayLike<number>,
-  position: THREE.BufferAttribute,
-  cellSize: number,
-): Uint32Array[] {
-  const { keys, sizes } = tileCounts(source, position, cellSize);
-  const tiles = new Map<number, Uint32Array>();
-  const filled = new Map<number, number>();
-  for (const [key, size] of sizes) tiles.set(key, new Uint32Array(size));
-  for (let i = 0; i < source.length; i += 3) {
-    const key = keys[i / 3] ?? 0;
-    const at = filled.get(key) ?? 0;
-    tiles
-      .get(key)
-      ?.set([source[i] ?? 0, source[i + 1] ?? 0, source[i + 2] ?? 0], at);
-    filled.set(key, at + 3);
-  }
-  return Array.from(tiles.values());
-}
-
-function tiledCopies(
-  mesh: THREE.Mesh,
-  cellSize: number,
-  group: THREE.Group,
-): void {
-  const position = mesh.geometry.getAttribute(
-    "position",
-  ) as THREE.BufferAttribute;
-  const source = (mesh.geometry.index as THREE.BufferAttribute).array;
-  for (const tile of tileTriangles(source, position, cellSize)) {
-    const geometry = new THREE.BufferGeometry();
-    for (const [name, attribute] of Object.entries(mesh.geometry.attributes))
-      geometry.setAttribute(name, attribute);
-    geometry.setIndex(new THREE.BufferAttribute(tile, 1));
-    geometry.boundingSphere = mesh.geometry.boundingSphere;
-    const piece = new THREE.Mesh(geometry, mesh.material);
-    Object.assign(piece, { boundingSphere: cornerSphere(position, tile) });
-    copyPlacement(mesh, piece);
-    group.add(piece);
-  }
-}
-
-function cornerSphere(
-  position: THREE.BufferAttribute,
-  corners: Uint32Array,
-): THREE.Sphere {
-  const box = new THREE.Box3();
-  const point = new THREE.Vector3();
-  for (const corner of corners)
-    box.expandByPoint(point.fromBufferAttribute(position, corner));
-  const sphere = box.getBoundingSphere(new THREE.Sphere());
-  let furthest = 0;
-  for (const corner of corners) {
-    point.fromBufferAttribute(position, corner);
-    furthest = Math.max(furthest, point.distanceToSquared(sphere.center));
-  }
-  sphere.radius = Math.sqrt(furthest);
-  return sphere;
-}
-
-function tiledForest(mesh: THREE.InstancedMesh, group: THREE.Group): void {
-  const groups = new Map<number, number[]>();
-  const matrix = new THREE.Matrix4();
-  for (let i = 0; i < mesh.count; i++) {
-    mesh.getMatrixAt(i, matrix);
-    const key = cellKey(
-      matrix.elements[12],
-      matrix.elements[14],
-      auxiliaryForestCell,
-    );
-    const group = groups.get(key);
-    if (group) group.push(i);
-    else groups.set(key, [i]);
-  }
-  for (const members of groups.values()) {
-    const piece = new THREE.InstancedMesh(
-      mesh.geometry,
-      mesh.material,
-      members.length,
-    );
-    piece.instanceMatrix = new THREE.InstancedBufferAttribute(
-      new Float32Array(16 * Math.max(attributeInstances, members.length)),
-      16,
-    );
-    members.forEach((source, target) => {
-      mesh.getMatrixAt(source, matrix);
-      piece.setMatrixAt(target, matrix);
-    });
-    piece.computeBoundingSphere();
-    copyPlacement(mesh, piece);
-    group.add(piece);
-  }
-}
-
-export function showCasters(camera: THREE.Camera): void {
-  camera.layers.enable(casterLayer);
-}
-
 export class WorldCuller {
   private readonly seen: (CulledMesh | CulledForest)[] = [];
   private readonly cast: CulledMesh[] = [];
-  private readonly mainGroups = new Map<THREE.Object3D, THREE.Group>();
-  private readonly auxiliaryGroups = new Map<THREE.Object3D, THREE.Group>();
 
   constructor(root: THREE.Object3D) {
     const meshes: THREE.Mesh[] = [];
@@ -431,29 +306,10 @@ export class WorldCuller {
       if (object instanceof THREE.Mesh) meshes.push(object as THREE.Mesh);
     });
     for (const mesh of meshes) this.add(mesh);
-    this.showAuxiliary(false);
-  }
-
-  private groupFor(
-    groups: Map<THREE.Object3D, THREE.Group>,
-    mesh: THREE.Mesh,
-  ): THREE.Group {
-    const parent = mesh.parent as THREE.Object3D;
-    let group = groups.get(parent);
-    if (!group) {
-      group = new THREE.Group();
-      parent.add(group);
-      groups.set(parent, group);
-    }
-    return group;
   }
 
   private add(mesh: THREE.Mesh): void {
-    const auxiliary = this.groupFor(this.auxiliaryGroups, mesh);
-    const main = this.groupFor(this.mainGroups, mesh);
     if (mesh instanceof THREE.InstancedMesh) {
-      tiledForest(mesh as THREE.InstancedMesh, auxiliary);
-      main.add(mesh);
       this.seen.push(new CulledForest(mesh as THREE.InstancedMesh));
       return;
     }
@@ -466,18 +322,7 @@ export class WorldCuller {
       this.cast.push(new CulledMesh(casterCopy(mesh), smallCell, false));
       mesh.castShadow = false;
     }
-    tiledCopies(
-      mesh,
-      radius < smallMeshRadius ? smallCell : auxiliaryCell,
-      auxiliary,
-    );
-    main.add(mesh);
     this.seen.push(new CulledMesh(mesh, cell, true));
-  }
-
-  showAuxiliary(on: boolean): void {
-    for (const group of this.auxiliaryGroups.values()) group.visible = on;
-    for (const group of this.mainGroups.values()) group.visible = !on;
   }
 
   bake(): void {

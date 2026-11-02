@@ -2,22 +2,11 @@ import * as THREE from "three/webgpu";
 import {
   Fn,
   If,
-  abs,
-  cos,
   exp,
   float,
-  floor,
-  fract,
-  interleavedGradientNoise,
   mix,
-  mx_cell_noise_float,
-  mx_fractal_noise_float,
-  output,
   positionWorld,
   renderGroup,
-  renderOutput,
-  screenCoordinate,
-  sin,
   smoothstep,
   step,
   materialColor,
@@ -28,60 +17,55 @@ import {
   vec3,
 } from "three/tsl";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { flatNoise } from "./flat-noise.ts";
+import { CSMShadowNode } from "three/examples/jsm/csm/CSMShadowNode.js";
+import { SkyLitMaterial } from "./sky-ambient.ts";
 import type { SkyState } from "./sky.ts";
+import apronAUrl from "../../../../content/tracks/cota/textures/baked/apron_a.png?url";
+import apronBUrl from "../../../../content/tracks/cota/textures/baked/apron_b.png?url";
+import streaksUrl from "../../../../content/tracks/cota/textures/baked/asphalt_streaks.png?url";
+import terrainUrl from "../../../../content/tracks/cota/textures/baked/terrain_albedo.jpg?url";
+import grainUrl from "../../../../content/tracks/cota/textures/source/asphalt_track_base_color.jpg?url";
 
-const asphaltAlbedo = 5;
+const asphaltDark = 0.115;
+const asphaltLight = 0.155;
 const asphaltMean = 0.0152;
-const asphaltContrast = 1.8;
-const asphaltTint = vec3(0.96, 0.98, 1.03);
+const asphaltContrast = 0.55;
+const asphaltTint = vec3(1.0, 0.985, 0.965);
+const streakStrength = 0.2;
+const streakAcross = 1 / 7;
+const streakAlong = 1 / 24;
 const apronShade = 0.5;
-const grassTint = 0.85;
-const mowStripe = 0.08;
-const grassMacro = 0.18;
-const clumpScale = 0.35;
-const clumpStrength = 0.16;
-const patchScale = 1 / 45;
-const vergeDryness = 0.35;
-const hillDryness = 0.65;
-const strawTint = vec3(1.25, 1.08, 0.62);
-const leafScale = 0.9;
-const crowdSpacing = 1 / 0.5;
+const grassMean = 0.315;
+const grassDetail = 0.5;
+const terrainGain = 0.62;
+const maskEdge = 0.07;
+const paintGrain = 0.24;
+const paintRed = vec3(0.44, 0.052, 0.042);
+const paintTeal = vec3(0.075, 0.3, 0.15);
+const paintBlue = vec3(0.035, 0.06, 0.26);
+const paintWhite = vec3(0.72, 0.72, 0.68);
+const concreteColor = vec3(0.3, 0.295, 0.275);
+const runoffAsphalt = vec3(0.14, 0.135, 0.13);
+const paintRoughness = 0.62;
+const grassRoughness = 0.95;
 const startLightCount = 5;
 const startLightLead = 2;
 const startLightInterval = 0.4;
 const startLampRows = 2;
 const startLampRed = vec3(6, 0.15, 0.05);
-const crowdRow = 1 / 0.85;
-const crowdEmpty = 0.12;
-const crowdHead = 0.68;
-const crowdSkin = vec3(0.32, 0.22, 0.16);
-const crowdPalette: [number, THREE.Color][] = [
-  [0, new THREE.Color(0.04, 0.04, 0.05)],
-  [0.24, new THREE.Color(0.62, 0.62, 0.6)],
-  [0.38, new THREE.Color(0.05, 0.07, 0.18)],
-  [0.48, new THREE.Color(0.22, 0.22, 0.23)],
-  [0.58, new THREE.Color(0.45, 0.05, 0.04)],
-  [0.66, new THREE.Color(0.75, 0.32, 0.04)],
-  [0.72, new THREE.Color(0.08, 0.17, 0.48)],
-  [0.8, new THREE.Color(0.04, 0.26, 0.1)],
-  [0.87, new THREE.Color(0.62, 0.52, 0.08)],
-  [0.93, new THREE.Color(0.42, 0.36, 0.28)],
-];
-const crowdSeat = vec3(0.3, 0.04, 0.04);
-const leafContrast = 0.6;
-const macroScale = 0.045;
-const macroStrength = 0.14;
 const rubberWidth = 1.3;
 const rubberDarkening = 0.42;
 const rubberSmoothing = 0.3;
-const shadowRadius = 70;
-const shadowDistance = 200;
+const shadowMapSize = 2048;
+const shadowDistance = 4000;
 const shadowSoftness = 1.5;
-const shadowPixels = 8192;
-const sunIntensity = 6;
-const skyIntensity = 2;
-const groundColor = new THREE.Color(0.22, 0.24, 0.16);
+const cascadeEnds = [24, 90, 340, 1600];
+const cascadePeriods = [1, 2, 4, 8];
+const cascadePixels = [2048, 2048, 1024, 1024];
+const casterMargin = 6;
+export const shadowOnlyLayer = 1;
+export const alphaTestedOrder = 1;
+const shadowMask = (1 << 0) | (1 << shadowOnlyLayer);
 const bodyContact = { x: 0.07, hx: 2.3, hy: 0.72, reach: 0.75, strength: 0.62 };
 const tyreContacts = [
   [1.49, -0.74, 0.2, 0.15],
@@ -99,28 +83,21 @@ const tyreShadowSoftness = 0.03;
 const tyreReach = 0.26;
 const tyreStrength = 0.88;
 const contactRange = 6;
-const goldenAngle = 2.399963229728653;
-const shadowTaps = [0, 1, 2, 3, 4].map((i) => {
-  const reach = Math.sqrt((i + 0.5) / 5);
-  const angle = i * goldenAngle;
-  return [Math.cos(angle) * reach, Math.sin(angle) * reach] as const;
-});
 const tyreHubMargin = 0.5;
 const groundMaterials =
-  /(asphalt|road paint|road kerb|road runoff|road grass|pit strip|pit red|terrain)$/;
+  /(asphalt|road paint|road kerb|road grass|pit strip|pit red)$/;
+const skyReflecting =
+  /(road asphalt|pit asphalt|apron asphalt|road paint|road kerb|pit strip|pit red|track marks|glass)$/;
 const blendedMaterials = new Set(["cota track marks"]);
 const alphaCutoffs: Record<string, number> = {
   "cota debris fence": 0.5,
-  "cota painted ads": 0.35,
   "cota pit decals": 0.35,
 };
 const shadowCasters =
-  /^(wall|fence_steel|seats|stand_concrete|roofs|columns|facade|tower|veil|gantry|light_panel|paddock|billboard)/;
+  /^(wall|fence_steel|stand_seats|stand_concrete|roofs|rooftops|columns|tower_plates|tower_core|veil|gantry|light_panel|paddock|billboard|prop)/;
 const depthOffsets: Record<string, number> = {
   "cota road paint": -1,
   "cota road kerb": -1,
-  "cota road runoff": -1,
-  "cota painted ads": -2,
   "cota pit decals": -2,
   "cota track marks": -1.5,
   "cota road grass": 1,
@@ -131,34 +108,10 @@ const depthOffsets: Record<string, number> = {
   "cota terrain": 2,
 };
 
-export function finish(material: THREE.NodeMaterial): void {
-  material.outputNode = renderOutput(
-    output,
-    THREE.ACESFilmicToneMapping,
-    THREE.SRGBColorSpace,
-  );
-}
-
 function sharpen(map: THREE.Texture | null, anisotropy: number): void {
   if (!map) return;
   map.anisotropy = anisotropy;
   map.needsUpdate = true;
-}
-
-class DirectLighting extends THREE.PhysicalLightingModel {
-  override indirectSpecular(): void {
-    return;
-  }
-
-  override ambientOcclusion(): void {
-    return;
-  }
-}
-
-class RoadMaterial extends THREE.MeshStandardNodeMaterial {
-  override setupLightingModel(): THREE.PhysicalLightingModel {
-    return new DirectLighting();
-  }
 }
 
 const contactCentre = uniform(new THREE.Vector2()).setGroup(renderGroup);
@@ -271,27 +224,47 @@ const tyreSunlight = Fn(() => {
 const withTyreSunlight = ((shadow: ReturnType<typeof tyreSunlight>) =>
   shadow.mul(tyreSunlight())) as unknown as () => THREE.Node;
 
-function shadeAsphalt(
+export interface BakedGround {
+  apronA: THREE.Texture;
+  apronB: THREE.Texture;
+  streaks: THREE.Texture;
+  terrain: THREE.Texture;
+  grain: THREE.Texture;
+}
+
+function rubber() {
+  const line = uv(1);
+  return exp(line.x.div(rubberWidth).pow(2).negate()).mul(line.y);
+}
+
+function asphaltGrain(source: THREE.MeshStandardMaterial) {
+  const grain = texture(source.map as THREE.Texture, uv())
+    .rgb.dot(vec3(1 / 3))
+    .div(asphaltMean);
+  return mix(float(1), grain, asphaltContrast);
+}
+
+function shadeRoad(
   material: THREE.MeshStandardNodeMaterial,
   source: THREE.MeshStandardMaterial,
+  baked: BakedGround,
 ): void {
   if (!source.map) return;
-  const macro = float(1).add(
-    flatNoise(positionWorld.xy.mul(macroScale), 3).mul(macroStrength),
+  const photo = texture(baked.apronB, uv(2)).b;
+  const streak = texture(
+    baked.streaks,
+    vec2(uv().x.mul(streakAcross), uv().y.mul(streakAlong)),
+  ).r;
+  const tone = mix(
+    float(asphaltDark),
+    float(asphaltLight),
+    smoothstep(0.08, 0.42, photo),
   );
-  const line = uv(1);
-  const band = exp(line.x.div(rubberWidth).pow(2).negate()).mul(line.y);
-  const grain = vec3(texture(source.map, uv()).rgb.dot(vec3(1 / 3)))
-    .sub(asphaltMean)
-    .mul(asphaltContrast)
-    .add(asphaltMean)
-    .max(0);
-  const apron = source.name.includes("apron") ? apronShade : 1;
-  material.colorNode = grain
-    .mul(asphaltAlbedo)
-    .mul(apron)
+  const band = rubber();
+  material.colorNode = asphaltGrain(source)
+    .mul(tone)
     .mul(asphaltTint)
-    .mul(macro)
+    .mul(float(1).add(streak.sub(0.5).mul(streakStrength)))
     .mul(float(1).sub(band.mul(rubberDarkening)));
   if (source.roughnessMap)
     material.roughnessNode = texture(source.roughnessMap, uv()).g.mul(
@@ -299,57 +272,130 @@ function shadeAsphalt(
     );
 }
 
-function shadeGrass(
+function shadePaved(
   material: THREE.MeshStandardNodeMaterial,
   source: THREE.MeshStandardMaterial,
 ): void {
   if (!source.map) return;
-  const verge = source.name.endsWith("grass");
-  const ground = positionWorld.xy;
-  const macro = float(1).add(
-    flatNoise(ground.mul(macroScale), 3).mul(grassMacro),
-  );
-  const clumps = float(1).add(
-    flatNoise(ground.mul(clumpScale), 2).mul(clumpStrength),
-  );
-  const stripe = verge
-    ? float(1).add(
-        smoothstep(0.2, 0.3, abs(fract(uv().x.mul(0.5)).sub(0.5)))
-          .sub(0.5)
-          .mul(mowStripe * 2),
-      )
-    : float(1);
-  const patches = smoothstep(
-    0.0,
-    0.55,
-    flatNoise(ground.mul(patchScale), 3),
-  ).mul(verge ? vergeDryness : hillDryness);
-  const green = texture(source.map, uv()).rgb.mul(grassTint);
-  const straw = vec3(green.dot(vec3(0.3, 0.59, 0.11))).mul(strawTint);
-  material.colorNode = mix(green, straw, patches)
-    .mul(macro)
-    .mul(clumps)
-    .mul(stripe);
+  const shade = source.name.includes("apron") ? apronShade : 1;
+  material.colorNode = asphaltGrain(source)
+    .mul(float(asphaltLight * shade))
+    .mul(asphaltTint);
+  if (source.roughnessMap)
+    material.roughnessNode = texture(source.roughnessMap, uv()).g;
 }
 
-function shadeCanopy(
-  material: THREE.MeshStandardNodeMaterial,
-  source: THREE.MeshStandardMaterial,
-): void {
-  const clumps = mx_fractal_noise_float(positionWorld.mul(leafScale), 3);
-  material.colorNode = vec3(source.color.r, source.color.g, source.color.b).mul(
-    float(1).add(clumps.mul(leafContrast)),
+function grassDetailFrom(source: THREE.MeshStandardMaterial) {
+  const detail = texture(source.map as THREE.Texture, uv())
+    .rgb.dot(vec3(1 / 3))
+    .div(grassMean);
+  return mix(float(1), detail, grassDetail);
+}
+
+function crisp(mask: THREE.Node) {
+  return smoothstep(
+    float(0.5 - maskEdge),
+    float(0.5 + maskEdge),
+    mask as ReturnType<typeof float>,
   );
 }
+
+function shadeApron(
+  material: THREE.MeshStandardNodeMaterial,
+  source: THREE.MeshStandardMaterial,
+  baked: BakedGround,
+): void {
+  if (!source.map) return;
+  const a = texture(baked.apronA, uv(1));
+  const b = texture(baked.apronB, uv(1));
+  const detail = grassDetailFrom(source);
+  const concrete = crisp(b.r);
+  const paved = crisp(b.g);
+  const teal = crisp(a.g);
+  const blue = crisp(a.b);
+  const red = crisp(a.r);
+  const white = crisp(a.a);
+  const grass = texture(baked.terrain, uv(2)).rgb.mul(terrainGain).mul(detail);
+  const hard = mix(
+    float(1),
+    texture(baked.grain, uv())
+      .rgb.dot(vec3(1 / 3))
+      .div(asphaltMean),
+    paintGrain,
+  );
+  let color = mix(grass, concreteColor.mul(hard), concrete);
+  color = mix(color, runoffAsphalt.mul(hard), paved);
+  color = mix(color, paintTeal.mul(hard), teal);
+  color = mix(color, paintBlue.mul(hard), blue);
+  color = mix(color, paintRed.mul(hard), red);
+  color = mix(color, paintWhite.mul(hard), white);
+  material.colorNode = color;
+  const sealed = concrete.max(paved).max(teal).max(blue).max(red).max(white);
+  material.roughnessNode = mix(
+    float(grassRoughness),
+    float(paintRoughness),
+    sealed,
+  );
+}
+
+function shadeTerrain(
+  material: THREE.MeshStandardNodeMaterial,
+  source: THREE.MeshStandardMaterial,
+  baked: BakedGround,
+): void {
+  if (!source.map) return;
+  material.colorNode = texture(baked.terrain, uv(1))
+    .rgb.mul(terrainGain)
+    .mul(grassDetailFrom(source));
+  material.roughnessNode = float(grassRoughness);
+}
+
+function shadeAsphaltSurface(
+  material: THREE.MeshStandardNodeMaterial,
+  source: THREE.MeshStandardMaterial,
+  baked: BakedGround | null,
+): void {
+  if (baked && source.name.includes("road")) shadeRoad(material, source, baked);
+  else shadePaved(material, source);
+}
+
+const shadersBySuffix: {
+  suffix: string;
+  shade: (
+    material: THREE.MeshStandardNodeMaterial,
+    source: THREE.MeshStandardMaterial,
+    baked: BakedGround | null,
+  ) => void;
+}[] = [
+  { suffix: "asphalt", shade: shadeAsphaltSurface },
+  {
+    suffix: "road grass",
+    shade: (material, source, baked) => {
+      if (baked) shadeApron(material, source, baked);
+    },
+  },
+  {
+    suffix: "terrain",
+    shade: (material, source, baked) => {
+      if (baked) shadeTerrain(material, source, baked);
+    },
+  },
+  {
+    suffix: "horizon",
+    shade: (material) => {
+      material.roughnessNode = float(1);
+    },
+  },
+];
 
 function applyShading(
   material: THREE.MeshStandardNodeMaterial,
   source: THREE.MeshStandardMaterial,
+  baked: BakedGround | null,
 ): void {
-  if (source.name.endsWith("asphalt")) shadeAsphalt(material, source);
-  if (source.name.endsWith("canopy")) shadeCanopy(material, source);
-  if (source.name.endsWith("grass") || source.name.endsWith("terrain"))
-    shadeGrass(material, source);
+  shadersBySuffix
+    .find(({ suffix }) => source.name.endsWith(suffix))
+    ?.shade(material, source, baked);
   if (groundMaterials.test(source.name)) {
     material.colorNode = (material.colorNode ?? materialColor).mul(
       contactShade(),
@@ -361,11 +407,14 @@ function applyShading(
 export function surface(
   source: THREE.MeshStandardMaterial,
   anisotropy: number,
+  baked: BakedGround | null = null,
 ): THREE.MeshStandardNodeMaterial {
-  if (source.name === "cota crowd") return crowdMaterial();
   if (source.name === "cota start lamps") return startLampMaterial();
   const offset = depthOffsets[source.name] ?? 0;
-  const material = new RoadMaterial({
+  const Material = skyReflecting.test(source.name)
+    ? THREE.MeshStandardNodeMaterial
+    : SkyLitMaterial;
+  const material = new Material({
     name: source.name,
     map: source.map,
     normalMap: source.normalMap,
@@ -382,29 +431,57 @@ export function surface(
     transparent: blendedMaterials.has(source.name),
     depthWrite: !blendedMaterials.has(source.name),
     polygonOffset: offset !== 0,
-    polygonOffsetFactor: offset,
-    polygonOffsetUnits: offset * 4,
+    polygonOffsetFactor: -offset,
+    polygonOffsetUnits: -offset * 4,
   });
   for (const map of [source.map, source.normalMap, source.roughnessMap])
     sharpen(map, anisotropy);
-  applyShading(material, source);
-  finish(material);
+  applyShading(material, source, baked);
   return material;
+}
+
+async function loadBaked(anisotropy: number): Promise<BakedGround> {
+  const loader = new THREE.TextureLoader();
+  const load = async (url: string, colorSpace: string) => {
+    const map = await loader.loadAsync(url);
+    map.flipY = false;
+    map.colorSpace = colorSpace;
+    map.wrapS = THREE.ClampToEdgeWrapping;
+    map.wrapT = THREE.RepeatWrapping;
+    map.anisotropy = anisotropy;
+    return map;
+  };
+  const [apronA, apronB, streaks, terrain, grain] = await Promise.all([
+    load(apronAUrl, THREE.NoColorSpace),
+    load(apronBUrl, THREE.NoColorSpace),
+    load(streaksUrl, THREE.NoColorSpace),
+    load(terrainUrl, THREE.SRGBColorSpace),
+    load(grainUrl, THREE.SRGBColorSpace),
+  ]);
+  streaks.wrapS = THREE.RepeatWrapping;
+  grain.wrapS = THREE.RepeatWrapping;
+  return { apronA, apronB, streaks, terrain, grain };
 }
 
 export async function loadRoad(
   url: string,
   anisotropy: number,
 ): Promise<THREE.Object3D> {
-  const gltf = await new GLTFLoader().loadAsync(url);
+  const [gltf, baked] = await Promise.all([
+    new GLTFLoader().loadAsync(url),
+    loadBaked(anisotropy),
+  ]);
   gltf.scene.traverse((object) => {
     if (!(object instanceof THREE.Mesh)) return;
     object.material = surface(
       object.material as THREE.MeshStandardMaterial,
       anisotropy,
+      baked,
     );
     object.receiveShadow = true;
     object.castShadow = shadowCasters.test(object.name);
+    if ((object.material as THREE.Material).alphaTest > 0)
+      object.renderOrder = alphaTestedOrder;
   });
   return gltf.scene;
 }
@@ -457,7 +534,7 @@ export function setStartLights(raceTime: number): void {
 }
 
 function startLampMaterial(): THREE.MeshStandardNodeMaterial {
-  const material = new RoadMaterial({
+  const material = new THREE.MeshStandardNodeMaterial({
     roughness: 0.3,
     color: new THREE.Color(0.04, 0.01, 0.01),
     side: THREE.DoubleSide,
@@ -465,107 +542,112 @@ function startLampMaterial(): THREE.MeshStandardNodeMaterial {
   const lamp = uv();
   const on = step(lamp.x, startLightsLit).mul(step(startLampRows, lamp.y));
   material.emissiveNode = startLampRed.mul(on);
-  finish(material);
   return material;
 }
-
-function crowdMaterial(): THREE.MeshStandardNodeMaterial {
-  const material = new RoadMaterial({ roughness: 0.9 });
-  material.colorNode = Fn(() => {
-    const seat = positionWorld.mul(vec3(crowdSpacing, crowdSpacing, crowdRow));
-    const cell = floor(seat);
-    const pick = mx_cell_noise_float(cell);
-    const shirt = vec3(0).toVar();
-    for (const [threshold, colour] of crowdPalette)
-      shirt.assign(
-        mix(shirt, vec3(colour.r, colour.g, colour.b), step(threshold, pick)),
-      );
-    const shade = mx_cell_noise_float(cell.add(17.3)).mul(0.5).add(0.75);
-    const occupied = step(crowdEmpty, mx_cell_noise_float(cell.add(91.1)));
-    const head = step(crowdHead, fract(seat.z));
-    const across = fract(seat.x).sub(0.5).abs();
-    const outline = float(1).sub(smoothstep(0.3, 0.5, across).mul(0.55));
-    const person = mix(shirt.mul(shade), crowdSkin, head).mul(outline);
-    return mix(crowdSeat, person, occupied);
-  })();
-  finish(material);
-  return material;
-}
-
-const rotatedShadowFilter = Fn(
-  ({
-    depthTexture,
-    shadowCoord,
-  }: {
-    depthTexture: THREE.DepthTexture;
-    shadowCoord: THREE.Node<"vec3">;
-  }) => {
-    const phi = interleavedGradientNoise(screenCoordinate.xy)
-      .mul(6.28318530718)
-      .toVar();
-    const c = cos(phi).toVar();
-    const s = sin(phi).toVar();
-    const tap = ([x, y]: readonly [number, number]) =>
-      texture(
-        depthTexture,
-        shadowCoord.xy.add(
-          vec2(c.mul(x).sub(s.mul(y)), s.mul(x).add(c.mul(y))).mul(
-            shadowSoftness / shadowPixels,
-          ),
-        ),
-      ).compare(shadowCoord.z) as unknown as THREE.Node<"float">;
-    return shadowTaps
-      .map(tap)
-      .reduce((sum, one) => sum.add(one))
-      .mul(1 / 5);
-  },
-);
 
 export class Sunlight {
-  readonly sun = new THREE.DirectionalLight(0xffffff, sunIntensity);
-  readonly sky = new THREE.HemisphereLight(0xffffff, groundColor, skyIntensity);
+  readonly sun = new THREE.DirectionalLight(0xffffff, 1);
   readonly direction = new THREE.Vector3();
+  private readonly cascades: CSMShadowNode;
+  private tick = 0;
+  private readonly reach = new THREE.Sphere();
 
-  constructor(scene: THREE.Scene) {
-    this.sky.position.set(0, 0, 1);
+  constructor(
+    scene: THREE.Scene,
+    private readonly intensity: number,
+    colour: THREE.Color,
+    private readonly elevation: number,
+  ) {
+    this.sun.color.copy(colour);
     this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(shadowPixels, shadowPixels);
+    this.sun.shadow.mapSize.set(shadowMapSize, shadowMapSize);
     const camera = this.sun.shadow.camera;
-    camera.left = -shadowRadius;
-    camera.right = shadowRadius;
-    camera.top = shadowRadius;
-    camera.bottom = -shadowRadius;
     camera.near = 1;
-    camera.far = shadowDistance * 2;
-    this.sun.shadow.bias = -0.00006;
+    camera.far = shadowDistance;
+    camera.layers.mask = shadowMask;
+    this.sun.shadow.bias = -0.00004;
     this.sun.shadow.normalBias = 0.02;
     this.sun.shadow.radius = shadowSoftness;
-    Object.assign(this.sun.shadow, {
-      filterNode: rotatedShadowFilter,
-      discardColorBuffer: true,
+    const cloneShadow = this.sun.shadow.clone.bind(this.sun.shadow);
+    let cloned = 0;
+    this.sun.shadow.clone = () => {
+      const shadow = Object.assign(cloneShadow(), {
+        discardColorBuffer: true,
+      });
+      const pixels = cascadePixels[cloned++] ?? shadowMapSize;
+      shadow.mapSize.set(pixels, pixels);
+      return shadow;
+    };
+    this.cascades = new CSMShadowNode(this.sun, {
+      cascades: cascadeEnds.length,
+      maxFar: cascadeEnds[cascadeEnds.length - 1],
+      mode: "custom",
+      lightMargin: shadowDistance / 2,
+      customSplitsCallback: (_count, _near, far, target) => {
+        target.length = 0;
+        for (const end of cascadeEnds) target.push(end / far);
+      },
     });
-    scene.add(this.sun, this.sun.target, this.sky);
+    this.cascades.fade = true;
+    this.sun.shadow.shadowNode = this.cascades;
+    scene.add(this.sun, this.sun.target);
+  }
+
+  refit(): void {
+    if (this.cascades.camera) this.cascades.updateFrustums();
+  }
+
+  intersectsSphere(sphere: THREE.Sphere): boolean {
+    this.reach.copy(sphere);
+    this.reach.radius += casterMargin;
+    const lights = this.cascades.lights;
+    return (
+      lights.length === 0 ||
+      lights.some(({ shadow }) =>
+        shadow ? shadow.getFrustum().intersectsSphere(this.reach) : true,
+      )
+    );
+  }
+
+  commit(): void {
+    this.sun.updateMatrixWorld();
+    this.sun.target.updateMatrixWorld();
+    for (const light of this.cascades.lights) {
+      light.updateMatrixWorld();
+      light.target.updateMatrixWorld();
+    }
+  }
+
+  freeze(): void {
+    for (const { shadow } of this.cascades.lights)
+      if (shadow) shadow.autoUpdate = false;
+  }
+
+  private schedule(): void {
+    this.tick++;
+    this.cascades.lights.forEach(({ shadow }, index) => {
+      if (!shadow) return;
+      const period = cascadePeriods[index] ?? 1;
+      shadow.autoUpdate = (this.tick + index) % period === 0;
+    });
   }
 
   update(state: SkyState, eyeX: number, eyeY: number, eyeZ: number): void {
-    const [sx, sy, sz] = state.sunPosition;
-    this.direction.set(sx - eyeX, sy - eyeY, sz).normalize();
+    const [sx, sy] = state.sunPosition;
+    const azimuth = Math.atan2(sy - eyeY, sx - eyeX);
+    const level = Math.cos(this.elevation);
+    this.direction.set(
+      level * Math.cos(azimuth),
+      level * Math.sin(azimuth),
+      Math.sin(this.elevation),
+    );
     sunDirection.value.copy(this.direction);
     this.sun.target.position.set(eyeX, eyeY, eyeZ);
     this.sun.position
       .copy(this.direction)
       .multiplyScalar(shadowDistance)
       .add(this.sun.target.position);
-    const [r, g, b] = state.sunColor;
-    this.sun.color.setRGB(r, g, b);
-    const [fr, fg, fb] = state.fogColor;
-    this.sky.color.setRGB(fr, fg, fb);
-    this.sun.intensity = this.direction.z > 0 ? sunIntensity : 0;
+    this.sun.intensity = this.intensity;
+    this.schedule();
   }
-}
-
-export function castShadows(root: THREE.Object3D): void {
-  root.traverse((object) => {
-    if (object instanceof THREE.Mesh) object.castShadow = true;
-  });
 }

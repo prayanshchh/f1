@@ -220,16 +220,11 @@ const spoolFloor = 4150;
 const spoolCeiling = 5461;
 const spoolSeconds = 2.45;
 const liftSeconds = 1.5;
-const liftJump = 1.23;
 const bladeRatio = 5 / 3;
 const compressorGain = 0.0164;
 const turbineGain = 0.0044;
-const liftFrom = 0.6;
 const liftTo = 0.2;
 const liftHoldSeconds = 0.15;
-const whistleSeconds = 1.5;
-const whistleTurbine = 2.2;
-const whistleCompressor = 0.45;
 const turboStartRpm = 6000;
 const turboFullRpm = 9000;
 
@@ -240,11 +235,8 @@ export class TurboVoice {
   private readonly spoolUp: number;
   private readonly spoolDown: number;
   private readonly liftBlocks: number;
-  private readonly whistleDecay: number;
-  private whistle = 0;
   private lifted = 0;
   private spool = spoolFloor;
-  private primed = false;
   private gain = 0;
   private lowPhase = 0;
   private highPhase = 0;
@@ -257,19 +249,11 @@ export class TurboVoice {
     this.spoolUp = 1 - Math.exp(-1 / (spoolSeconds * rate));
     this.spoolDown = 1 - Math.exp(-1 / (liftSeconds * rate));
     this.liftBlocks = liftHoldSeconds * rate;
-    this.whistleDecay = Math.exp(-1 / (whistleSeconds * rate));
   }
 
   private advance(load: number): void {
-    if (load >= liftFrom) this.primed = true;
     this.lifted = load <= liftTo ? this.lifted + 1 : 0;
     const coasting = this.lifted >= this.liftBlocks;
-    if (coasting && this.primed) {
-      this.primed = false;
-      this.spool *= liftJump;
-      this.whistle = 1;
-    }
-    this.whistle = coasting ? this.whistle * this.whistleDecay : 0;
     const target = coasting
       ? spoolFloor
       : spoolFloor + (spoolCeiling - spoolFloor) * load;
@@ -285,15 +269,12 @@ export class TurboVoice {
     const step = (this.gain - start) / out.length;
     const low = this.glide.step(this.spool) / this.sampleRate;
     const high = low * bladeRatio;
-    const lowGain =
-      compressorGain * (1 + (whistleCompressor - 1) * this.whistle);
-    const highGain = turbineGain * (1 + (whistleTurbine - 1) * this.whistle);
     for (let i = 0; i < out.length; i++) {
       this.lowPhase = (this.lowPhase + low) % 1;
       this.highPhase = (this.highPhase + high) % 1;
       const tone =
-        lowGain * (sine[(this.lowPhase * 16384) & sineMask] ?? 0) +
-        highGain * (sine[(this.highPhase * 16384) & sineMask] ?? 0);
+        compressorGain * (sine[(this.lowPhase * 16384) & sineMask] ?? 0) +
+        turbineGain * (sine[(this.highPhase * 16384) & sineMask] ?? 0);
       out[i] = (out[i] ?? 0) + (start + step * i) * tone;
     }
   }

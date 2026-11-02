@@ -4,10 +4,11 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { frameIndex } from "./engine.ts";
 import { type CarEnvironment, useEnvironment } from "./carpaint.ts";
 import { contactShadow, gltfToSdCar, wheelRest } from "./gltf.ts";
+import { finishAll } from "./display.ts";
 import { mergedMesh, placedCopy } from "./merge.ts";
-import { carFile, teams } from "./teams.ts";
+import { loaded } from "./preload.ts";
+import { carFile, gridTeamOrder, teams } from "./teams.ts";
 
-const carsPerTeam = 2;
 const leaveAfterLap = 2;
 const headingProbe = 2;
 const envStrength = 1;
@@ -114,6 +115,48 @@ class Batches {
   }
 }
 
+function addParts(
+  batches: Batches,
+  team: string,
+  parts: TeamPart[],
+  matrix: THREE.Matrix4,
+  env: CarEnvironment,
+): void {
+  for (const { geometry, source } of parts) {
+    if (atlasMaterials.has(source.name))
+      batches.add(
+        team,
+        () => atlasMaterial(team, env),
+        placedCopy(geometry, matrix, textured),
+      );
+    else if (source.name === "tyre")
+      batches.add(
+        "tyre",
+        () => tyreMaterial(env),
+        placedCopy(geometry, matrix, textured),
+      );
+    else
+      batches.add(
+        source.name,
+        () => flatMaterial(source, env),
+        tinted(placedCopy(geometry, matrix, plain), source.color),
+      );
+  }
+}
+
+export async function teamModel(
+  team: string,
+  env: CarEnvironment,
+): Promise<THREE.Object3D> {
+  const batches = new Batches();
+  addParts(batches, team, await teamParts(team), new THREE.Matrix4(), env);
+  const model = new THREE.Group();
+  model.add(...batches.meshes());
+  finishAll(model);
+  await loaded();
+  return model;
+}
+
 function tinted(
   part: THREE.BufferGeometry,
   colour: THREE.Color,
@@ -128,6 +171,7 @@ function tinted(
 export class GridCars {
   readonly root = new THREE.Group();
   private placed = false;
+  playerSlot = 0;
   private readonly batches = new Batches();
 
   private constructor(
@@ -154,35 +198,18 @@ export class GridCars {
         ),
       ),
     );
-    const order = [
-      player,
-      ...teams.map((team) => team.id).filter((id) => id !== player),
-    ].flatMap((id) => Array.from({ length: carsPerTeam }, () => id));
-    return new GridCars(order.slice(1), parts, slots, point, env);
+    return new GridCars(
+      gridTeamOrder(player).slice(1),
+      parts,
+      slots,
+      point,
+      env,
+    );
   }
 
   private addCar(team: string, matrix: THREE.Matrix4): void {
     const placed = new THREE.Matrix4().multiplyMatrices(matrix, gltfToSdCar);
-    for (const { geometry, source } of this.parts.get(team) ?? []) {
-      if (atlasMaterials.has(source.name))
-        this.batches.add(
-          team,
-          () => atlasMaterial(team, this.env),
-          placedCopy(geometry, placed, textured),
-        );
-      else if (source.name === "tyre")
-        this.batches.add(
-          "tyre",
-          () => tyreMaterial(this.env),
-          placedCopy(geometry, placed, textured),
-        );
-      else
-        this.batches.add(
-          source.name,
-          () => flatMaterial(source, this.env),
-          tinted(placedCopy(geometry, placed, plain), source.color),
-        );
-    }
+    addParts(this.batches, team, this.parts.get(team) ?? [], placed, this.env);
   }
 
   private build(contacts: THREE.BufferGeometry[]): void {
@@ -208,6 +235,7 @@ export class GridCars {
 
   private place(player: THREE.Vector3): void {
     const { slot, side } = this.locate(player);
+    this.playerSlot = slot;
     const own = this.slots[slot];
     if (!own) return;
     const ownPoint = new THREE.Vector3(

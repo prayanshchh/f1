@@ -18,7 +18,7 @@ DefaultLoadingManager.itemEnd = (url: string) => {
   waiting = [];
 };
 
-function loaded(): Promise<void> {
+export function loaded(): Promise<void> {
   if (loading <= 0) return Promise.resolve();
   return new Promise((resolve) => waiting.push(resolve));
 }

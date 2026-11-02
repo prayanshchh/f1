@@ -61,6 +61,7 @@ export interface RaceSystems {
   fuelMix: number;
   ersAssist: boolean;
   straightAssist: boolean;
+  countdown: number;
 }
 
 export async function loadSpeedDreams(): Promise<SpeedDreamsModule> {
@@ -105,6 +106,7 @@ export class Engine {
     now: number,
     race: RaceSystems,
   ): Engine {
+    module._sdRaceCountdown(race.countdown);
     module._sdInputAssist(assist ? 1 : 0);
     module._sdInputAntiLock(antiLock ? 1 : 0);
     module._sdTyresConfigure(race.compound, race.wearScale);

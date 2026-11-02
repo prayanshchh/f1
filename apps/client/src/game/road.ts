@@ -48,9 +48,6 @@ const concreteColor = vec3(0.3, 0.295, 0.275);
 const runoffAsphalt = vec3(0.14, 0.135, 0.13);
 const paintRoughness = 0.62;
 const grassRoughness = 0.95;
-const startLightCount = 5;
-const startLightLead = 2;
-const startLightInterval = 0.4;
 const startLampRows = 2;
 const startLampRed = vec3(6, 0.15, 0.05);
 const rubberWidth = 1.3;
@@ -523,14 +520,8 @@ export function releaseCpuCopies(
 
 const startLightsLit = uniform(0).setGroup(renderGroup);
 
-export function setStartLights(raceTime: number): void {
-  startLightsLit.value =
-    raceTime < 0
-      ? Math.min(
-          startLightCount,
-          Math.floor((raceTime + startLightLead) / startLightInterval) + 1,
-        )
-      : 0;
+export function setStartLights(lit: number): void {
+  startLightsLit.value = lit;
 }
 
 function startLampMaterial(): THREE.MeshStandardNodeMaterial {

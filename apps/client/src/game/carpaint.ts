@@ -21,6 +21,9 @@ import {
 } from "three/tsl";
 import { carFile } from "./teams.ts";
 
+const envWidth = 512;
+const envHeight = 256;
+const studioEnvRotation = new THREE.Euler(Math.PI / 2, 0, 0);
 const envIntensity = 1;
 const mirrorDim = 0.86;
 const bumpStrength = 0.5;
@@ -70,6 +73,75 @@ export type MirrorName = keyof typeof mirrorLayout;
 export interface CarEnvironment {
   texture: THREE.Texture;
   rotation: THREE.Euler;
+}
+
+function smoothPulse(x: number, centre: number, width: number): number {
+  return Math.exp(-(((x - centre) / width) ** 2));
+}
+
+function environmentPixels(): Uint16Array {
+  const pixels = new Uint16Array(envWidth * envHeight * 4);
+  const half = (value: number) => THREE.DataUtils.toHalfFloat(value);
+  for (let row = 0; row < envHeight; row++) {
+    const up = 1 - (row + 0.5) / (envHeight / 2);
+    for (let column = 0; column < envWidth; column++) {
+      const around = (column / envWidth) * Math.PI * 2;
+      const cloud =
+        Math.sin(around * 3 + up * 7) * 0.5 +
+        Math.sin(around * 7 - up * 11 + 1.3) * 0.3 +
+        Math.sin(around * 13 + up * 19 + 2.1) * 0.2;
+      const clouds = Math.max(0, cloud - 0.15) * 2.4;
+      const sky = Math.max(up, 0);
+      const wash = (1 - sky) ** 2.4;
+      const cover = clouds * (1 - sky) * 0.55;
+      let r = 0.26 + 0.34 * wash + cover;
+      let g = 0.36 + 0.32 * wash + cover;
+      let b = 0.58 + 0.25 * wash + cover;
+      if (up < 0.1) {
+        const stands =
+          0.32 +
+          0.22 * Math.sin(around * 29) ** 2 +
+          0.65 * smoothPulse(up, 0.018, 0.012);
+        const t = THREE.MathUtils.smoothstep(up, 0.02, 0.1);
+        r = r * t + stands * (1 - t);
+        g = g * t + stands * 0.96 * (1 - t);
+        b = b * t + stands * 0.9 * (1 - t);
+      }
+      if (up < 0) {
+        const ground = 0.13 + 0.1 * Math.exp(up * 6);
+        const t = THREE.MathUtils.smoothstep(up, -0.03, 0);
+        r = r * t + ground * 1.0 * (1 - t);
+        g = g * t + ground * 1.0 * (1 - t);
+        b = b * t + ground * 1.03 * (1 - t);
+      }
+      const at = (row * envWidth + column) * 4;
+      pixels[at] = half(r);
+      pixels[at + 1] = half(g);
+      pixels[at + 2] = half(b);
+      pixels[at + 3] = half(1);
+    }
+  }
+  return pixels;
+}
+
+export function carEnvironment(renderer: THREE.WebGPURenderer): CarEnvironment {
+  const source = new THREE.DataTexture(
+    environmentPixels(),
+    envWidth,
+    envHeight,
+    THREE.RGBAFormat,
+    THREE.HalfFloatType,
+  );
+  source.mapping = THREE.EquirectangularReflectionMapping;
+  source.colorSpace = THREE.LinearSRGBColorSpace;
+  source.magFilter = THREE.LinearFilter;
+  source.minFilter = THREE.LinearFilter;
+  source.flipY = true;
+  source.needsUpdate = true;
+  const generator = new THREE.PMREMGenerator(renderer);
+  const target = generator.fromEquirectangular(source);
+  generator.dispose();
+  return { texture: target.texture, rotation: studioEnvRotation };
 }
 
 export function useEnvironment(

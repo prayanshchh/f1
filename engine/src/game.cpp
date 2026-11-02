@@ -230,6 +230,8 @@ static void runOneStep(double deltaTimeIncrement)
         manageCar(s->cars[i]);
 }
 
+static double raceCountdown = 2.0;
+
 static void startRace()
 {
     tSituation *s = ReInfo->s;
@@ -255,7 +257,7 @@ static void startRace()
 
     ReInfo->_reTimeMult = 1.0;
     ReInfo->_reLastRobTime = -1.0;
-    s->currentTime = -2.0;
+    s->currentTime = -raceCountdown;
     s->deltaTime = RCM_MAX_DT_SIMU;
     s->_raceState = RM_RACE_STARTING;
     ReInfo->_reRunning = 1;
@@ -345,6 +347,11 @@ int sdSurfaceClass(const tTrackSeg *seg)
 }
 
 extern "C" {
+
+EMSCRIPTEN_KEEPALIVE void sdRaceCountdown(double seconds)
+{
+    raceCountdown = seconds;
+}
 
 EMSCRIPTEN_KEEPALIVE int sdInit(const char *trackCategory, const char *trackName, const char *raceFile, const char *carOverride, double now)
 {

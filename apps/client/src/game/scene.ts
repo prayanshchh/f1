@@ -1,5 +1,6 @@
 import * as THREE from "three/webgpu";
 import crewUrl from "../../../../content/tracks/cota/crew.glb?url";
+import frameUrl from "../../../../content/tracks/cota/sd-frame.json?url";
 import racingLineUrl from "../../../../content/tracks/cota/racing-line.json?url";
 import trackUrl from "../../../../content/tracks/cota/track.json?url";
 import roadUrl from "../../../../content/tracks/cota/road.glb?url";
@@ -15,6 +16,7 @@ import {
 } from "./road.ts";
 import { Rumble, type RumbleWheel, type Shake } from "./rumble.ts";
 import type { AtmosphereState } from "./atmosphere.ts";
+import type { CameraPose } from "./buildup-shots.ts";
 import type { RacingLineData, RacingLineMode } from "./racing-line.ts";
 import { RacingLineView } from "./racing-line-view.ts";
 import { PitCrew } from "./pit-crew.ts";
@@ -22,6 +24,7 @@ import { uploadEverything } from "./preload.ts";
 import { PitGate } from "./pit-gate.ts";
 import type { PitControl, PitLayout } from "./pitstop.ts";
 import { SkidMarks } from "./skidmarks.ts";
+import type { StartLights } from "./start-lights.ts";
 import { SdSky } from "./sky.ts";
 import { SkyBox } from "./skybox.ts";
 import { Crowd } from "./crowd.ts";
@@ -35,8 +38,11 @@ const crewReach = 12;
 const flipX = new THREE.Matrix4().makeScale(-1, 1, 1);
 const sunGlow = 2.4;
 const kelvinOffset = 273.15;
+const cinematicNear = 0.5;
+const cinematicFar = 41000;
+const upAxis = new THREE.Vector3(0, 0, 1);
 
-async function fetchJson<T>(url: string): Promise<T> {
+export async function fetchJson<T>(url: string): Promise<T> {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`failed to load ${url}`);
   return (await response.json()) as T;
@@ -48,11 +54,13 @@ export class Scene {
   private readonly view = new THREE.Matrix4();
   private readonly rumble = new Rumble();
   private readonly shakeMatrix = new THREE.Matrix4();
+  private readonly cinematicLook = new THREE.Matrix4();
   private shake: Shake | null = null;
   private lastFeel = 0;
   private readonly eye = new THREE.Vector3();
   private readonly carPosition = new THREE.Vector3();
   private viewMirrored = false;
+  private cinematic: CameraPose | null = null;
   private readonly sunlight: Sunlight;
   private readonly smoke = new TyreSmoke();
   private readonly moving: THREE.Object3D[];
@@ -90,6 +98,7 @@ export class Scene {
     private readonly racingLine: RacingLineView,
     readonly crew: PitCrew,
     private readonly lapScale: number,
+    private readonly lights: StartLights,
   ) {
     this.camera.matrixAutoUpdate = false;
     this.camera.matrixWorldAutoUpdate = false;
@@ -132,6 +141,7 @@ export class Scene {
     team: string,
     renderer: THREE.WebGPURenderer,
     lineMode: RacingLineMode,
+    lights: StartLights,
   ): Promise<Scene> {
     const anisotropy = renderer.getMaxAnisotropy();
     const local = engine.trackLocal();
@@ -144,7 +154,7 @@ export class Scene {
     };
     const point = engine.trackPoint.bind(engine);
     const [frame, people, road, data, crew, car, gridData] = await Promise.all([
-      fetchJson<TrackFrame>("/wasm/sd-frame.json"),
+      fetchJson<TrackFrame>(frameUrl),
       Crowd.load(),
       loadRoad(roadUrl, anisotropy),
       fetchJson<RacingLineData>(racingLineUrl),
@@ -185,6 +195,7 @@ export class Scene {
       racingLine,
       crew,
       data.length / engine.trackLength(),
+      lights,
     );
   }
 
@@ -251,6 +262,10 @@ export class Scene {
     });
   }
 
+  get playerSlot(): number {
+    return this.grid.playerSlot;
+  }
+
   get mirrored(): boolean {
     return this.viewMirrored;
   }
@@ -263,6 +278,50 @@ export class Scene {
       frame[pose] ?? 1,
       frame[pose + 1] ?? 0,
     );
+  }
+
+  setCinematic(pose: CameraPose | null): void {
+    this.cinematic = pose;
+    this.racingLine.root.visible = pose === null;
+  }
+
+  private applyCinematic(pose: CameraPose): void {
+    const eye = new THREE.Vector3(...pose.eye);
+    this.cinematicLook.lookAt(eye, new THREE.Vector3(...pose.target), upAxis);
+    this.cinematicLook.setPosition(eye);
+    this.camera.matrixWorld.copy(this.cinematicLook);
+    this.camera.matrixWorldInverse.copy(this.cinematicLook).invert();
+    this.viewMirrored = false;
+    this.setLens(pose.fov, cinematicNear, cinematicFar);
+  }
+
+  private setLens(fov: number, near: number, far: number): void {
+    if (
+      this.camera.fov === fov &&
+      this.camera.near === near &&
+      this.camera.far === far
+    )
+      return;
+    this.camera.fov = fov;
+    this.camera.near = near;
+    this.camera.far = far;
+    this.camera.updateProjectionMatrix();
+    this.sunlight.refit();
+  }
+
+  private applyDriverView(frame: Float64Array): void {
+    const c = frameIndex.camera;
+    const at = (k: number) => frame[c + k] ?? 0;
+    this.view.fromArray(frame, c);
+    this.applyShake();
+    const det = this.view.determinant();
+    if (Math.abs(det) > 1e-6) {
+      this.viewMirrored = det < 0;
+      if (this.viewMirrored) this.view.premultiply(flipX);
+      this.camera.matrixWorld.copy(this.view).invert();
+      this.camera.matrixWorldInverse.copy(this.view);
+    }
+    this.setLens(at(16), at(17), at(18));
   }
 
   private applyShake(): void {
@@ -282,35 +341,17 @@ export class Scene {
       Math.abs(frame[frameIndex.speed] ?? 0),
     );
 
-    const c = frameIndex.camera;
-    const at = (k: number) => frame[c + k] ?? 0;
-    this.view.fromArray(frame, c);
-    this.applyShake();
-    const det = this.view.determinant();
-    if (Math.abs(det) > 1e-6) {
-      this.viewMirrored = det < 0;
-      if (this.viewMirrored) this.view.premultiply(flipX);
-      this.camera.matrixWorld.copy(this.view).invert();
-      this.camera.matrixWorldInverse.copy(this.view);
-    }
-    if (
-      this.camera.fov !== at(16) ||
-      this.camera.near !== at(17) ||
-      this.camera.far !== at(18)
-    ) {
-      this.camera.fov = at(16);
-      this.camera.near = at(17);
-      this.camera.far = at(18);
-      this.camera.updateProjectionMatrix();
-      this.sunlight.refit();
-    }
+    if (this.cinematic) this.applyCinematic(this.cinematic);
+    else this.applyDriverView(frame);
 
     const [, , , , , , , , , , , , eyeX, eyeY, eyeZ] =
       this.camera.matrixWorld.elements;
     this.grid.update(frame);
+    const shown = (k: number) =>
+      this.cinematic !== null || (frame[frameIndex.camera + k] ?? 0) !== 0;
     this.car.setDraw(
-      at(19) !== 0,
-      at(20) !== 0,
+      shown(19),
+      shown(20),
       this.eye
         .set(eyeX, eyeY, eyeZ)
         .distanceToSquared(
@@ -319,9 +360,14 @@ export class Scene {
         onboardReach * onboardReach,
     );
     const time = frame[frameIndex.time] ?? 0;
-    setStartLights(time);
+    setStartLights(this.cinematic ? 0 : this.lights.lit(time));
     const sky = this.sky.update(time, time, eyeX, eyeY);
-    this.sunlight.update(sky, eyeX, eyeY, eyeZ);
+    const [focusX, focusY, focusZ] = this.cinematic?.target ?? [
+      eyeX,
+      eyeY,
+      eyeZ,
+    ];
+    this.sunlight.update(sky, focusX, focusY, focusZ);
     this.atmosphere.sunDirection.copy(this.sunlight.direction);
     this.skyBox.update(this.sunlight.direction, eyeX, eyeY, this.scene);
     this.people.update(this.eye.set(eyeX, eyeY, eyeZ));

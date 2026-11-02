@@ -5,6 +5,7 @@ import { carMaterials, carTextures, mirrorLayout } from "./carpaint.ts";
 import type {
   CarEnvironment,
   CarMaterials,
+  CarTextures,
   DashReadout,
   MirrorName,
 } from "./carpaint.ts";
@@ -180,6 +181,7 @@ export class GltfCar {
   private compoundShown = -1;
   private readonly radii: number[] = [];
   private materials: CarMaterials | null = null;
+  private textures: CarTextures | null = null;
   private auxFrame = 0;
   private mirrorsShown = false;
   private onboard = true;
@@ -237,7 +239,8 @@ export class GltfCar {
       loader.loadAsync(carFile(team, "car.glb")),
       loader.loadAsync(carFile(team, "lod.glb")),
     ]);
-    const materials = carMaterials(carTextures(team, anisotropy), env, {
+    car.textures = carTextures(team, anisotropy);
+    const materials = carMaterials(car.textures, env, {
       "mirror-l": car.addMirror("mirror-l"),
       "mirror-r": car.addMirror("mirror-r"),
     });
@@ -280,6 +283,17 @@ export class GltfCar {
       axis: new THREE.Vector3(),
     }));
     return car;
+  }
+
+  dispose(): void {
+    this.root.traverse((object) => {
+      if (!(object instanceof THREE.Mesh)) return;
+      (object.geometry as THREE.BufferGeometry).dispose();
+      (object.material as THREE.Material).dispose();
+    });
+    for (const map of Object.values(this.textures ?? {}))
+      (map as THREE.Texture).dispose();
+    for (const mirror of this.mirrors.values()) mirror.target.dispose();
   }
 
   private addSidewalls(): void {

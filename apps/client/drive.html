@@ -254,8 +254,9 @@
           <button type="button" data-menu="reset">
             <i class="btn-glyph">R</i>Reset to Defaults
           </button>
-          <button type="button" data-menu="resume" hidden>
-            <i class="btn-glyph">Esc</i>Resume
+          <button type="button" data-menu="resume">
+            <i class="btn-glyph">Esc</i
+            ><span data-menu="resume-label">Back</span>
           </button>
           <button type="button" class="primary" data-menu="start">
             <i class="btn-glyph">↵</i><span data-menu="start-label">Start</span>
@@ -263,6 +264,9 @@
         </footer>
       </div>
     </div>
+
+    <div class="front" data-front="root" hidden></div>
+    <div class="records" data-records="root" hidden></div>
 
     <div class="results" data-results="root" hidden>
       <div class="stage">
@@ -277,7 +281,7 @@
               <button type="button" data-results="restart">
                 Restart Session
               </button>
-              <button type="button" data-results="menu">Settings</button>
+              <button type="button" data-results="menu">Main Menu</button>
             </nav>
             <table class="results-table">
               <thead>

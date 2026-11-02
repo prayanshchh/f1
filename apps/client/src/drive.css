@@ -45,6 +45,7 @@ button {
 .status {
   position: fixed;
   inset: 0;
+  z-index: 6;
   display: grid;
   place-items: center;
   margin: 0;
@@ -335,6 +336,15 @@ button {
 .timer-sectors div[data-status="slower"]::before {
   background: var(--yellow);
   transform: scaleX(1);
+}
+
+.timer-sectors div[data-status="faster"]::before {
+  background: var(--green);
+  transform: scaleX(1);
+}
+
+.timer-sectors div[data-status="faster"] {
+  color: #06140a;
 }
 
 .timer-sectors div[data-status="slower"] {

@@ -10,11 +10,12 @@ import {
 import type { PitControl } from "./pitstop.ts";
 import { DamageMonitor, retirementLabel } from "./damage.ts";
 import { frameIndex, type HudInfo } from "./engine.ts";
-import type { LapResult, LapTrace } from "./laptrace.ts";
+import type { LapResult, LapTrace, SectorState } from "./laptrace.ts";
 import { type CarStatus, Mfd } from "./mfd.ts";
 import { closedPolyline, type Polyline, pointAlong } from "./polyline.ts";
 import { putAttr, putData, putHidden, putStyle, putText } from "./hud-dom.ts";
 import type { HudPart } from "./settings.ts";
+import { type StartLights, startLightCount } from "./start-lights.ts";
 import { compounds, type TyreInfo, wearState } from "./tyres.ts";
 
 export function lapTime(seconds: number | null): string {
@@ -31,6 +32,23 @@ function shortTime(seconds: number | null): string {
 
 export function signed(seconds: number): string {
   return `${seconds < 0 ? "-" : "+"}${Math.abs(seconds).toFixed(3)}`;
+}
+
+function sectorLabel(index: number, sectors: SectorState): string {
+  const delta = sectors.deltas[index];
+  if (delta !== null && delta !== undefined) return signed(delta);
+  const time = sectors.times[index];
+  if (time !== null && time !== undefined) return time.toFixed(3);
+  return `S${String(index + 1)}`;
+}
+
+function rowGap(
+  isMe: boolean,
+  time: number | null,
+  mine: number | null,
+): string {
+  if (isMe || time === null) return "--:--.---";
+  return mine === null ? lapTime(time) : signed(time - mine);
 }
 
 function gearLabel(gear: number): string {
@@ -72,7 +90,6 @@ function ersLabel(energy: EnergyInfo, boosting: boolean): string {
 }
 
 const revLeds = 15;
-const lightCount = 5;
 const sectorColors = ["map-s1", "map-s2", "map-s3"];
 
 export interface TrackMap {
@@ -86,6 +103,8 @@ export interface HudOptions {
   session: string;
   reference: number | null;
   map: TrackMap | null;
+  start: StartLights;
+  onLap: (lap: LapResult) => void;
 }
 
 interface Toast {
@@ -149,7 +168,7 @@ export class Hud {
       this.leds.push(led);
     }
     const gantry = this.find("lights");
-    for (let i = 0; i < lightCount; i++) {
+    for (let i = 0; i < startLightCount; i++) {
       const light = document.createElement("i");
       gantry.append(light);
       this.lights.push(light);
@@ -201,6 +220,7 @@ export class Hud {
     if (result) {
       this.laps.push(result);
       this.showLap(result, now);
+      this.options.onLap(result);
     }
     this.updateDash(value);
     this.updateTiming(value, laps, distance, current, now);
@@ -316,12 +336,7 @@ export class Hud {
         "fastest",
         fastest !== null && entry.time === fastest,
       );
-      putText(
-        row.gap,
-        isMe || mine === null || entry.time === null
-          ? "--:--.---"
-          : signed(entry.time - mine),
-      );
+      putText(row.gap, rowGap(isMe, entry.time, mine));
     });
   }
 
@@ -483,6 +498,7 @@ export class Hud {
         "status",
         status ?? (i === sectors.active && laps > 0 ? "live" : ""),
       );
+      putText(cell, sectorLabel(i, sectors));
     });
     this.sectorPaths.forEach((path) => {
       const i = Number(path.dataset["sector"]);
@@ -620,8 +636,7 @@ export class Hud {
 
   private updateLights(time: number): void {
     const gantry = this.find("lights");
-    const lit =
-      time < 0 ? Math.min(lightCount, Math.floor((time + 2) / 0.4) + 1) : 0;
+    const lit = this.options.start.lit(time);
     this.lights.forEach((light, i) => {
       light.classList.toggle("on", i < lit);
     });

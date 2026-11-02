@@ -118,7 +118,7 @@ function upright(id: string, side: number, y: number, h: number): string {
   return `<g class="part damage" data-part="suspension-${id}"><rect x="${String(x)}" y="${String(y)}" width="20" height="${String(h)}" rx="5"/></g>`;
 }
 
-const carArt = `${frame}
+export const carArt = `${frame}
   <g class="part damage" data-part="wing-left"><path d="${wingShape}"/></g>
   <g class="part damage" data-part="wing-right"><path d="${wingShape}" transform="scale(-1 1)"/></g>
   <g class="part damage" data-part="sidepod-left"><path d="${sidepodShape}"/></g>

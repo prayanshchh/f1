@@ -1897,12 +1897,61 @@ kbd,
 }
 
 .info-car svg {
+  display: block;
   width: 100%;
   height: auto;
-  fill: none;
+}
+
+.info-car .car-line {
+  stroke: rgb(216 218 226 / 45%);
+  stroke-width: 5;
+}
+
+.info-car .car-line.fill {
+  fill: rgb(216 218 226 / 6%);
+}
+
+.info-car .part.damage > *,
+.info-car .part.engine path,
+.info-car .tyre-outer {
+  fill: rgb(216 218 226 / 6%);
   stroke: #d8dae2;
-  stroke-width: 2.5;
+  stroke-width: 5;
   stroke-linejoin: round;
+}
+
+.info-car .tyre-inner {
+  fill: none;
+  stroke: rgb(216 218 226 / 55%);
+  stroke-width: 4;
+}
+
+.info-car .part.setup path {
+  fill: none;
+  stroke: rgb(216 218 226 / 55%);
+  stroke-width: 5;
+  stroke-linecap: round;
+}
+
+.info-car .part.setup rect {
+  fill: rgb(216 218 226 / 6%);
+  stroke: rgb(216 218 226 / 70%);
+  stroke-width: 4;
+}
+
+.info-car .part.setup.on path {
+  fill: none;
+  stroke: #f6f774;
+  stroke-width: 8;
+}
+
+.info-car .part.on > *,
+.info-car .part.on path,
+.info-car .part.setup.on rect,
+.info-car .on .tyre-outer {
+  fill: rgb(246 247 116 / 42%);
+  stroke: #f6f774;
+  stroke-width: 7;
 }
 
 .info-head {

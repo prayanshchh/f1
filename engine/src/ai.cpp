@@ -127,6 +127,8 @@ struct TrackModel
     std::vector<double> rawLine;
     std::vector<double> leftBound;
     std::vector<double> rightBound;
+    std::vector<double> leftLimit;
+    std::vector<double> rightLimit;
     std::vector<double> kappa;
     std::vector<double> centreKappa;
     std::vector<double> pitLateral;
@@ -188,6 +190,12 @@ struct Driver
     bool pitDone = false;
     bool serviced = false;
     bool autoRelease = true;
+    bool driveThrough = false;
+    bool noService = false;
+    bool deferredPit = false;
+    int deferredCompound = 0;
+    double deferredTime = 0;
+    double caution = 1.0;
     double holdClock = 0;
     double stuckClock = 0;
     double crawlClock = 0;
@@ -1263,6 +1271,11 @@ void drivePit(int index, Driver &driver, tCarElt *car, tSituation *s, double dt)
     }
     if (driver.pit == PIT_LANE)
     {
+        if (driver.driveThrough)
+        {
+            driver.pit = PIT_EXIT;
+            return;
+        }
         if (toBox < stopRun)
             driver.pit = PIT_BOXING;
         steerAndGo(index, driver, car, s, lanePath, limit, toBox < stopRun + 8.0 ? sqrt(2.0 * stopDecel * std::max(0.0, toBox)) : limit, dt);
@@ -1294,7 +1307,8 @@ void drivePit(int index, Driver &driver, tCarElt *car, tSituation *s, double dt)
         if (driver.pitClock <= 0 && !driver.serviced)
         {
             driver.serviced = true;
-            sdServiceCar(index, driver.pitCompound);
+            if (!driver.noService)
+                sdServiceCar(index, driver.pitCompound);
             driver.pitDone = true;
             driver.holdClock = 0.25;
         }
@@ -1328,6 +1342,13 @@ void drivePit(int index, Driver &driver, tCarElt *car, tSituation *s, double dt)
         if (wrap(pos - p.exit - 10.0) < 200.0)
         {
             driver.pit = PIT_NONE;
+            driver.driveThrough = false;
+            driver.noService = false;
+            if (driver.deferredPit)
+            {
+                driver.deferredPit = false;
+                sdAiRequestPit(index, driver.deferredCompound, driver.deferredTime);
+            }
             driver.lane = car->_trkPos.toMiddle - sampled(model.line, pos);
             driver.laneTarget = driver.lane;
         }
@@ -1444,7 +1465,7 @@ bool sdAiLoadTrack(tTrack *track)
     const auto &kl = data["kerb_left"];
     const auto &kr = data["kerb_right"];
     int centreCount = (int)cx.size();
-    std::vector<Projected> leftEdge, rightEdge;
+    std::vector<Projected> leftEdge, rightEdge, leftLine, rightLine;
     hint = first;
     for (int i = 0; i < centreCount; i++)
     {
@@ -1460,9 +1481,15 @@ bool sdAiLoadTrack(tTrack *track)
         leftEdge.push_back(project(&hint, wx, wy));
         toWorld(frame, cx[i] - leftX * (half + kr[i] * kerbUse), cz[i] - leftZ * (half + kr[i] * kerbUse), &wx, &wy);
         rightEdge.push_back(project(&hint, wx, wy));
+        toWorld(frame, cx[i] + leftX * cw[i] / 2, cz[i] + leftZ * cw[i] / 2, &wx, &wy);
+        leftLine.push_back(project(&hint, wx, wy));
+        toWorld(frame, cx[i] - leftX * cw[i] / 2, cz[i] - leftZ * cw[i] / 2, &wx, &wy);
+        rightLine.push_back(project(&hint, wx, wy));
     }
     resample(leftEdge, model.leftBound, model.count);
     resample(rightEdge, model.rightBound, model.count);
+    resample(leftLine, model.leftLimit, model.count);
+    resample(rightLine, model.rightLimit, model.count);
 
     const auto &gain = data["gain"];
     model.gain.assign(model.count, 1.0);
@@ -1589,6 +1616,66 @@ void sdAiRequestPit(int index, int compound, double stopTime)
     driver.pitCompound = compound;
     driver.pitTime = stopTime;
     driver.pitDone = false;
+    driver.driveThrough = false;
+    driver.noService = false;
+}
+
+bool sdAiRequestPenalty(int index, bool driveThrough, double stopTime)
+{
+    Driver &driver = drivers[index];
+    if (driver.pit != PIT_NONE)
+        return false;
+    if (driver.pitPending && !driver.noService)
+    {
+        driver.deferredPit = true;
+        driver.deferredCompound = driver.pitCompound;
+        driver.deferredTime = driver.pitTime;
+    }
+    driver.pitPending = false;
+    sdAiRequestPit(index, sdTyresCompound(index), stopTime);
+    driver.driveThrough = driveThrough;
+    driver.noService = true;
+    return true;
+}
+
+void sdAiExtendStop(int index, double seconds)
+{
+    Driver &driver = drivers[index];
+    if (driver.pitPending && !driver.noService)
+        driver.pitTime += seconds;
+}
+
+void sdAiSetCaution(int index, double factor)
+{
+    drivers[index].caution = factor;
+}
+
+bool sdAiTrackEdges(double distance, double *left, double *right)
+{
+    if (!model.ready || model.leftLimit.empty())
+        return false;
+    *left = sampled(model.leftLimit, distance);
+    *right = sampled(model.rightLimit, distance);
+    return true;
+}
+
+double sdAiRacingLine(double distance)
+{
+    return model.ready ? sampled(model.line, distance) : 0.0;
+}
+
+void sdAiPitZone(double *from, double *to, double *limit)
+{
+    *from = model.pit.wallStart;
+    *to = model.pit.wallEnd;
+    *limit = model.pit.speedLimit / 3.6;
+}
+
+double sdAiCurvature(double distance)
+{
+    if (!model.ready)
+        return 0;
+    return sampled(model.centreKappa, distance);
 }
 
 bool sdAiInPitLane(int index)
@@ -1766,7 +1853,7 @@ void sdAiDrive(int index, tCarElt *car, tSituation *s)
     double step = rate * dt;
     driver.lane += std::max(-step, std::min(step, driver.laneTarget - driver.lane));
     double wanted = laneLateralAt(pos + v * 0.05, driver.lane);
-    double speedFactor = driver.blueFlag ? yieldSpeed : 1.0;
+    double speedFactor = (driver.blueFlag ? yieldSpeed : 1.0) * driver.caution;
     double lateral = lateralSafety(index, car, s, wanted, &speedFactor);
     if (driver.task == AI_RACE && targetSpeedAt(driver, pos + v * 2.0, driver.lane) > slowCornerSpeed && holdsInside(index, car, s))
         speedFactor = std::max(speedFactor, insideLateBrake);

@@ -4,6 +4,7 @@ export interface LapResult {
   sectors: number[];
   best: boolean;
   delta: number | null;
+  valid: boolean;
 }
 
 type SectorStatus = "pb" | "faster" | "slower";
@@ -64,11 +65,12 @@ export class LapTrace {
     distance: number,
     time: number,
     lastLapTime: number,
+    valid = true,
   ): LapResult | null {
     let result: LapResult | null = null;
     if (lap !== this.lap) {
       if (this.lap >= 1 && lap === this.lap + 1 && lastLapTime > 0)
-        result = this.finish(this.lap, lastLapTime);
+        result = this.finish(this.lap, lastLapTime, valid);
       this.startLap(lap);
     }
     if (lap >= 1) this.record(distance, time);
@@ -172,12 +174,12 @@ export class LapTrace {
     return this.current[Math.floor(boundary)] ?? 0;
   }
 
-  private finish(lap: number, lapTime: number): LapResult {
+  private finish(lap: number, lapTime: number, valid: boolean): LapResult {
     const last = this.boundaries.length;
     this.closeSector(last, lapTime);
     const sectors = this.sectorTimes.map((t) => t ?? 0);
     const previous = this.bestLapTime();
-    const best = previous === null || lapTime < previous;
+    const best = valid && (previous === null || lapTime < previous);
     const delta = previous === null ? null : lapTime - previous;
     if (best && sectors.every((t) => t > 0)) {
       const trace = Float64Array.from(this.current);
@@ -185,6 +187,6 @@ export class LapTrace {
       this.best = trace;
       this.bestSectors = sectors;
     }
-    return { lap, time: lapTime, sectors, best, delta };
+    return { lap, time: lapTime, sectors, best, delta, valid };
   }
 }

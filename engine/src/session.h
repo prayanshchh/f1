@@ -12,6 +12,12 @@ void sdSessionBegin(tSituation *s);
 void sdSessionTick(tSituation *s, double dt);
 void sdSessionAfterStep(tSituation *s);
 bool sdSessionCarVisible(int index);
+int sdSessionKindOf();
+int sdSessionTotalLaps();
+bool sdSessionRacing(int index);
+bool sdSessionFinished(int index);
+int sdSessionPositionOf(int index);
+void sdSessionDisqualify(int index);
 void sdSessionClearPlans();
 
 #endif

@@ -92,6 +92,11 @@ declare module "*/wasm/speed-dreams.js" {
     _sdSessionPitCompound(compound: number): void;
     _sdQualifyingTimes(index: number, out: number): void;
     _sdTiming(out: number): void;
+    _sdSessionGrid(out: number): number;
+    _sdStewardsLights(interval: number): void;
+    _sdStewardsMessages(out: number, max: number, after: number): number;
+    _sdStewardsCar(index: number, out: number): void;
+    _sdStewardsFlags(out: number, max: number): number;
     _sdCars(out: number): void;
     _sdTimeScale(scale: number): void;
     _sdKey(key: number, state: number): void;

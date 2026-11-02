@@ -20,7 +20,7 @@ export interface SpeedDreams {
   _sdInputSpeedLimit: (limit: number) => void;
   _sdInputSteerDirect: (on: number) => void;
   _sdInputPitHold: (on: number) => void;
-  _sdPitService: (fuel: number) => void;
+  _sdPitService: (fuel: number, frontWing: number) => void;
   _sdInputAnalog: (
     active: number,
     steer: number,

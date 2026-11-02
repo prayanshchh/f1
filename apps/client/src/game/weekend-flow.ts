@@ -143,7 +143,7 @@ export class WeekendFlow {
   private leaveGarage(compound: number): void {
     const { engine, pit, sound, startFuel } = this.ctx;
     engine.setPitCompound(compound);
-    engine.pitService(startFuel);
+    engine.pitService(startFuel, true);
     engine.playerInGarage(false);
     this.setScale(1);
     this.setGarageOpen(false);
@@ -186,7 +186,7 @@ export class WeekendFlow {
           },
         },
         {
-          label: "Settings",
+          label: "Main Menu",
           run: () => {
             this.leaveToMenu();
           },
@@ -250,7 +250,7 @@ export class WeekendFlow {
           },
         },
         {
-          label: "Settings",
+          label: "Main Menu",
           run: () => {
             this.leaveToMenu();
           },

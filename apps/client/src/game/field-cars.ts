@@ -1,4 +1,5 @@
 import * as THREE from "three/webgpu";
+import type { CarEnvironment } from "./carpaint.ts";
 import { carField, carStride } from "./engine.ts";
 import { contactShadow, gltfToSdCar, wheelRest } from "./gltf.ts";
 import { teamModel } from "./grid.ts";
@@ -134,7 +135,7 @@ function wheelShapes(model: THREE.Object3D): WheelShape[] {
 
 async function loadTemplate(
   team: string,
-  env: THREE.Texture,
+  env: CarEnvironment,
 ): Promise<Template> {
   const model = await teamModel(team, env);
   const wheels = wheelShapes(model);
@@ -159,7 +160,7 @@ export class FieldCars {
   );
   private readonly eye = new THREE.Vector3();
 
-  static async load(teams: string[], env: THREE.Texture): Promise<FieldCars> {
+  static async load(teams: string[], env: CarEnvironment): Promise<FieldCars> {
     const field = new FieldCars();
     const unique = [...new Set(teams)];
     const templates = new Map(
@@ -195,6 +196,7 @@ export class FieldCars {
       if (object.type === "Mesh" && mesh !== contact && !rings.includes(mesh))
         casters.push(mesh);
     });
+    for (const mesh of casters) mesh.castShadow = true;
     this.root.add(root);
     return {
       root,
@@ -202,7 +204,7 @@ export class FieldCars {
       wheels,
       rings,
       casters,
-      shadowOn: false,
+      shadowOn: true,
       compound: -1,
       placed: false,
       axleMid: template.axleMid,

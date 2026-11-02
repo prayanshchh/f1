@@ -8,7 +8,14 @@ import {
   toggleBoost,
 } from "../apps/client/src/game/energy.ts";
 import {
+  DamageMonitor,
+  retirementLabel,
+  tyreRoughness,
+  wingRequested,
+} from "../apps/client/src/game/damage.ts";
+import {
   brakeState,
+  type CarStatus,
   damageState,
   nextPage,
   wearColour,
@@ -18,6 +25,7 @@ import {
   puffsPerSecond,
   smokeIntensity,
   temperatureState,
+  type TyreInfo,
   wearScale,
   wearState,
 } from "../apps/client/src/game/tyres.ts";
@@ -103,9 +111,9 @@ describe("fuel estimate", () => {
 
 describe("tyre wear scale", () => {
   test("race length scales short races up to a limit", () => {
-    expect(wearScale("scaled", "race", 56)).toBe(1);
-    expect(wearScale("scaled", "race", 28)).toBe(2);
-    expect(wearScale("scaled", "race", 3)).toBe(5);
+    expect(wearScale("raceLength", "race", 56)).toBe(1);
+    expect(wearScale("raceLength", "race", 28)).toBe(2);
+    expect(wearScale("raceLength", "race", 3)).toBe(5);
     expect(wearScale("real", "race", 3)).toBe(1);
     expect(wearScale("off", "race", 3)).toBe(0);
   });
@@ -141,5 +149,83 @@ describe("lock-up smoke", () => {
     expect(puffPeakSize(smokeIntensity(0.9, 0))).toBeGreaterThan(
       puffPeakSize(smokeIntensity(0.2, 0)) * 2,
     );
+  });
+});
+
+describe("damage alerts", () => {
+  const status = (wing: number): CarStatus => ({
+    engineTemp: 100,
+    damage: {
+      wingLeft: wing,
+      wingRight: 0,
+      sidepodLeft: 0,
+      sidepodRight: 0,
+      floor: 0,
+      diffuser: 0,
+      rearWing: 0,
+      suspension: [0, 0, 0, 0],
+    },
+    brakes: [0, 0, 0, 0],
+    retired: 0,
+    stopped: false,
+  });
+  const wheel = {
+    surface: 95,
+    carcass: 95,
+    pressure: 23,
+    wear: 0.1,
+    lock: 0,
+    spin: 0,
+    grip: 1,
+    flat: 0,
+    leak: 0,
+    cut: 0,
+  };
+  const tyres = (leak = 0, flat = 0): TyreInfo => ({
+    compound: 1,
+    age: 0,
+    low: 85,
+    high: 105,
+    wheels: [{ ...wheel, leak, flat }, wheel, wheel, wheel],
+  });
+
+  test("a part is announced once for each step worse it gets", () => {
+    const monitor = new DamageMonitor();
+    expect(monitor.update(status(0.1), tyres())).toBeNull();
+    expect(monitor.update(status(0.3), tyres())?.title).toBe(
+      "Front wing damage",
+    );
+    expect(monitor.update(status(0.3), tyres())).toBeNull();
+    expect(monitor.update(status(0.5), tyres())?.title).toBe(
+      "Front wing damage",
+    );
+  });
+
+  test("a slow puncture and a full one name the wheel", () => {
+    const monitor = new DamageMonitor();
+    expect(monitor.update(status(0), tyres(0.1))?.title).toBe("Slow puncture");
+    const flat = monitor.update(status(0), tyres(1));
+    expect(flat?.title).toBe("Puncture");
+    expect(flat?.detail).toContain("front right");
+  });
+
+  test("a flat spot warns about the vibration", () => {
+    const monitor = new DamageMonitor();
+    expect(monitor.update(status(0), tyres(0, 0.2))?.title).toBe("Flat spot");
+    expect(tyreRoughness(tyres(0, 0.2))).toBeCloseTo(0.3);
+    expect(tyreRoughness(tyres(1))).toBe(1);
+  });
+
+  test("the next stop replaces a damaged wing unless told otherwise", () => {
+    expect(wingRequested(null, status(0.1))).toBe(false);
+    expect(wingRequested(null, status(0.4))).toBe(true);
+    expect(wingRequested(false, status(0.9))).toBe(false);
+    expect(wingRequested(true, status(0))).toBe(true);
+  });
+
+  test("retirement reasons have names", () => {
+    expect(retirementLabel(0)).toBe("");
+    expect(retirementLabel(2)).toBe("Suspension failure");
+    expect(retirementLabel(4)).toBe("Out of fuel");
   });
 });

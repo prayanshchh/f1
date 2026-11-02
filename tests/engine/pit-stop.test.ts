@@ -10,7 +10,8 @@ import {
   type PitDrive,
   type PitLayout,
 } from "../../apps/client/src/game/pitstop.ts";
-import { type SpeedDreams, startCota, wasm } from "../support/speed-dreams.ts";
+import { type RaceSystems, statusReader } from "../support/race-systems.ts";
+import { startCota, wasm } from "../support/speed-dreams.ts";
 import { repoRoot } from "../support/repo.ts";
 
 const layout = (
@@ -34,6 +35,11 @@ describe("turn-in timing", () => {
     expect(stopDuration("late")).toBeGreaterThan(stopDuration("optimal"));
     expect(stopDuration("optimal")).toBe(2.5);
   });
+
+  test("a front wing change adds the time a real nose change takes", () => {
+    expect(stopDuration("optimal", true)).toBeGreaterThan(9.5);
+    expect(stopDuration("optimal", true)).toBeLessThan(12.5);
+  });
 });
 
 interface Lap {
@@ -45,6 +51,10 @@ interface Lap {
   fuelAfter: number;
   startFuel: number;
   fastestInLane: number;
+  stopTime: number;
+  wingBefore: number;
+  wingAfter: number;
+  floorAfter: number;
 }
 
 const ahead = (from: number, to: number) =>
@@ -61,7 +71,7 @@ function approach(armed: boolean, distance: number, look: number): PitDrive {
   };
 }
 
-function sample(m: SpeedDreams) {
+function sample(m: RaceSystems) {
   const frame = new Float64Array(m.HEAPF64.buffer, m._sdFrame(), 88);
   const [time, cos, sin] = [frame[0], frame[1], frame[2]].map((v) => v ?? 0);
   const [x, y] = [frame[13], frame[14]].map((v) => v ?? 0);
@@ -97,8 +107,15 @@ function record(
   lap.finished = lap.phases.has("release") && control.phase === "lane";
 }
 
-async function driveStop(): Promise<Lap> {
-  const m = await startCota();
+function service(m: RaceSystems, lap: Lap, control: PitControl): void {
+  m._sdPitService(lap.startFuel, control.wingChange ? 1 : 0);
+  m._sdStep(1);
+  lap.stopTime = control.stopTime ?? 0;
+}
+
+async function driveStop(replaceWing = false): Promise<Lap> {
+  const m = await startCota<RaceSystems>();
+  const status = statusReader(m);
   const out = m._malloc(12);
   const hud = m._malloc(8 * 32);
   const point = (d: number, l: number) => {
@@ -110,6 +127,7 @@ async function driveStop(): Promise<Lap> {
     return new Float64Array(m.HEAPF64.buffer, hud, 32)[0] ?? 0;
   };
   const pit = new PitStop(layout, false);
+  pit.requestWing(replaceWing);
   m._sdInputSteerDirect(1);
   m._sdStep(1000);
   const lap: Lap = {
@@ -121,7 +139,13 @@ async function driveStop(): Promise<Lap> {
     fuelAfter: 0,
     startFuel: fuel(),
     fastestInLane: 0,
+    stopTime: 0,
+    wingBefore: 0.6,
+    wingAfter: 0,
+    floorAfter: 0,
   };
+  m._sdCarDamageSet(0, lap.wingBefore);
+  m._sdCarDamageSet(4, 0.5);
   let armed = false;
   for (let tick = 0; tick < 200000 && !lap.finished; tick++) {
     const car = sample(m);
@@ -146,9 +170,10 @@ async function driveStop(): Promise<Lap> {
     m._sdInputAnalog(1, command.steer, command.throttle, command.brake);
     record(lap, control, car, car.toMiddle + pit.shiftAt(car.distance), fuel());
     if (control.serviceNow) {
-      m._sdPitService(lap.startFuel);
-      m._sdStep(1);
+      service(m, lap, control);
       lap.fuelAfter = fuel();
+      lap.wingAfter = status().part(0);
+      lap.floorAfter = status().part(4);
     }
     m._sdStep(1);
   }
@@ -169,5 +194,14 @@ describe.skipIf(!existsSync(wasm))("pit stop in the engine", () => {
     expect(lap.fuelAfter).toBeGreaterThan(lap.fuelBefore);
     expect(lap.fuelAfter).toBeGreaterThan(lap.startFuel - 0.5);
     expect(lap.fastestInLane).toBeLessThan(84);
+    expect(lap.wingAfter).toBe(lap.wingBefore);
   }, 120_000);
+
+  test("asking for a new front wing makes the stop longer and fits it", async () => {
+    const plain = await driveStop();
+    const withWing = await driveStop(true);
+    expect(withWing.stopTime).toBeGreaterThan(plain.stopTime + 7);
+    expect(withWing.wingAfter).toBe(0);
+    expect(withWing.floorAfter).toBeGreaterThan(0.4);
+  }, 240_000);
 });

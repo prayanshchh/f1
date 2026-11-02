@@ -1,4 +1,5 @@
 import { ersModes, fuelMixes, nominalFuelPerLap } from "./energy.ts";
+import { el } from "./dom.ts";
 import { ParamDoc } from "./params.ts";
 import { compounds } from "./tyres.ts";
 import { raceLapOptions, raceLaps } from "./weekend.ts";
@@ -20,7 +21,7 @@ import {
   tracks,
 } from "./settings.ts";
 
-export type MenuAction = "start" | "resume" | "restart";
+export type MenuAction = "start" | "resume" | "restart" | "back";
 
 interface Option {
   id: string;
@@ -137,17 +138,6 @@ const setupOrder = [
   "Tyres",
 ];
 
-function el<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  className = "",
-  text = "",
-): HTMLElementTagNameMap[K] {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text) node.textContent = text;
-  return node;
-}
-
 function decimals(step: number): number {
   const text = String(step);
   return text.includes(".") ? (text.split(".")[1] ?? "").length : 0;
@@ -195,7 +185,7 @@ export class Menu {
       this.finish(this.inSession ? "restart" : "start");
     });
     this.find("resume").addEventListener("click", () => {
-      this.finish("resume");
+      this.finish(this.inSession ? "resume" : "back");
     });
     window.addEventListener(
       "keydown",
@@ -214,6 +204,7 @@ export class Menu {
 
   async run(inSession: boolean): Promise<MenuAction> {
     this.inSession = inSession;
+    this.find("resume-label").textContent = inSession ? "Resume" : "Back";
     this.root.hidden = false;
     this.root.classList.toggle("paused", inSession);
     requestAnimationFrame(() => {
@@ -237,7 +228,7 @@ export class Menu {
     const big = event.shiftKey;
     const actions: Record<string, () => void> = {
       Escape: () => {
-        if (this.inSession) this.finish("resume");
+        this.finish(this.inSession ? "resume" : "back");
       },
       Enter: () => {
         this.finish(this.inSession ? "restart" : "start");
@@ -314,6 +305,7 @@ export class Menu {
         reset: () => {
           Object.assign(this.settings, {
             session: defaults.session,
+            buildUp: defaults.buildUp,
             laps: defaults.laps,
             difficulty: defaults.difficulty,
             startSlot: defaults.startSlot,
@@ -617,7 +609,6 @@ export class Menu {
     this.find("start-label").textContent = this.inSession
       ? "Restart Session"
       : "Start Session";
-    this.find("resume").hidden = !this.inSession;
     this.find("note").textContent =
       this.inSession && dirty
         ? "Changes apply when the session restarts"
@@ -748,6 +739,16 @@ export class Menu {
           },
         ),
       );
+    rows.push(
+      this.toggle(
+        "Pre-Race Build-Up",
+        "Plays the circuit preview, track map and starting grid before the session. Restarting a session always skips it.",
+        () => s.buildUp,
+        (v) => {
+          s.buildUp = v;
+        },
+      ),
+    );
     if (s.session === "race")
       rows.push({
         kind: "number",
@@ -841,7 +842,7 @@ export class Menu {
       ),
       this.choice(
         "Tyre Wear",
-        "Real Life matches measured F1 25 wear at Austin (Soft about 25 laps, Medium 28, Hard 37 to full wear). Race Length speeds wear up for shorter races, up to five times, so tyres matter in every session.",
+        "Real Life matches real Austin stints at race pace: Soft about 21 laps, Medium 29 and Hard 40 before they fall away, with the tread gone about 27, 37 and 53 laps in. Push harder, lock up or hit things and they go sooner. Race Length speeds wear up for shorter races, up to five times.",
         choices.tyreWear,
         () => s.tyreWear,
         (id) => {

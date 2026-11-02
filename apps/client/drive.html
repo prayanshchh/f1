@@ -209,6 +209,10 @@
             <div class="quick-row">
               <span>Differential</span><b data-hud="diff">60%</b><kbd>, .</kbd>
             </div>
+            <div class="quick-row">
+              <span>Next Stop: Front Wing</span
+              ><b data-hud="wing-change">Keep</b><kbd>N</kbd>
+            </div>
             <div class="quick-row selected" data-hud="ers-row">
               <span>ERS Deploy</span><b data-hud="ers-mode">Medium</b
               ><kbd>M</kbd>
@@ -260,8 +264,9 @@
           <button type="button" data-menu="reset">
             <i class="btn-glyph">R</i>Reset to Defaults
           </button>
-          <button type="button" data-menu="resume" hidden>
-            <i class="btn-glyph">Esc</i>Resume
+          <button type="button" data-menu="resume">
+            <i class="btn-glyph">Esc</i
+            ><span data-menu="resume-label">Back</span>
           </button>
           <button type="button" class="primary" data-menu="start">
             <i class="btn-glyph">↵</i><span data-menu="start-label">Start</span>
@@ -269,6 +274,9 @@
         </footer>
       </div>
     </div>
+
+    <div class="front" data-front="root" hidden></div>
+    <div class="records" data-records="root" hidden></div>
 
     <div class="results" data-results="root" hidden>
       <div class="stage">

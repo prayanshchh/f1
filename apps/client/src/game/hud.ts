@@ -8,23 +8,26 @@ import {
   fuelMixes,
 } from "./energy.ts";
 import type { PitControl } from "./pitstop.ts";
+import { DamageMonitor, retirementLabel } from "./damage.ts";
 import {
   carStride,
   type CarTiming,
   frameIndex,
   type HudInfo,
-  outOfRaceState,
   sessionPhase,
   type SessionInfo,
 } from "./engine.ts";
 import { Tower } from "./tower.ts";
 import { clockText, type Entrant, segmentNames } from "./weekend.ts";
-import type { LapResult, LapTrace } from "./laptrace.ts";
+import type { LapResult, LapTrace, SectorState } from "./laptrace.ts";
 import { type CarStatus, Mfd } from "./mfd.ts";
+import { closedPolyline, type Polyline, pointAlong } from "./polyline.ts";
+import { putAttr, putData, putHidden, putStyle, putText } from "./hud-dom.ts";
 import type { HudPart } from "./settings.ts";
+import { type StartLights, startLightCount } from "./start-lights.ts";
 import { compounds, type TyreInfo, wearState } from "./tyres.ts";
 
-function lapTime(seconds: number | null): string {
+export function lapTime(seconds: number | null): string {
   if (seconds === null || !(seconds > 0)) return "--:--.---";
   const minutes = Math.floor(seconds / 60);
   const rest = seconds - minutes * 60;
@@ -36,8 +39,25 @@ function shortTime(seconds: number | null): string {
   return seconds < 60 ? seconds.toFixed(3) : lapTime(seconds);
 }
 
-function signed(seconds: number): string {
+export function signed(seconds: number): string {
   return `${seconds < 0 ? "-" : "+"}${Math.abs(seconds).toFixed(3)}`;
+}
+
+function sectorLabel(index: number, sectors: SectorState): string {
+  const delta = sectors.deltas[index];
+  if (delta !== null && delta !== undefined) return signed(delta);
+  const time = sectors.times[index];
+  if (time !== null && time !== undefined) return time.toFixed(3);
+  return `S${String(index + 1)}`;
+}
+
+function rowGap(
+  isMe: boolean,
+  time: number | null,
+  mine: number | null,
+): string {
+  if (isMe || time === null) return "--:--.---";
+  return mine === null ? lapTime(time) : signed(time - mine);
 }
 
 function gearLabel(gear: number): string {
@@ -79,7 +99,6 @@ function ersLabel(energy: EnergyInfo, boosting: boolean): string {
 }
 
 const revLeds = 15;
-const lightCount = 5;
 const sectorColors = ["map-s1", "map-s2", "map-s3"];
 
 export interface TrackMap {
@@ -95,8 +114,8 @@ export interface HudOptions {
   map: TrackMap | null;
   field: Entrant[] | null;
   qualifying: boolean;
-  lightLead: number;
-  lightInterval: number;
+  start: StartLights;
+  onLap: (lap: LapResult) => void;
 }
 
 interface Toast {
@@ -120,10 +139,12 @@ export class Hud {
     tyre: HTMLElement;
   }[] = [];
   private mapCar: SVGCircleElement | null = null;
-  private mapPath: SVGPathElement | null = null;
+  private mapLine: Polyline | null = null;
   private mapLength = 1;
+  private sectorPaths: SVGPathElement[] = [];
   private sessionBest: number | null = null;
   private toast: Toast | null = null;
+  private readonly damage = new DamageMonitor();
   private toastShown = "";
   private freezeUntil = 0;
   private extraUntil = 0;
@@ -146,9 +167,13 @@ export class Hud {
     private readonly trace: LapTrace,
     private readonly options: HudOptions,
   ) {
+    const found = new Map<string, HTMLElement>();
     this.find = (id: string) => {
+      const known = found.get(id);
+      if (known) return known;
       const element = root.querySelector<HTMLElement>(`[data-hud="${id}"]`);
       if (!element) throw new Error(`missing HUD element ${id}`);
+      found.set(id, element);
       return element;
     };
     const strip = this.find("leds");
@@ -159,7 +184,7 @@ export class Hud {
       this.leds.push(led);
     }
     const gantry = this.find("lights");
-    for (let i = 0; i < lightCount; i++) {
+    for (let i = 0; i < startLightCount; i++) {
       const light = document.createElement("i");
       gantry.append(light);
       this.lights.push(light);
@@ -168,15 +193,16 @@ export class Hud {
     const count = trace.sectors(0).times.length;
     for (let i = 0; i < count; i++) {
       const cell = document.createElement("div");
-      cell.textContent = `S${String(i + 1)}`;
+      putText(cell, `S${String(i + 1)}`);
       sectors.append(cell);
       this.sectorCells.push(cell);
     }
     this.mfd = new Mfd(this.find("mfd"), this.find);
-    this.find("session").textContent = options.session;
-    this.find("lap-total").textContent = options.totalLaps
-      ? ` / ${String(options.totalLaps)}`
-      : "";
+    putText(this.find("session"), options.session);
+    putText(
+      this.find("lap-total"),
+      options.totalLaps ? ` / ${String(options.totalLaps)}` : "",
+    );
     this.tower = options.field
       ? new Tower(this.find("rows"), options.field, options.qualifying)
       : null;
@@ -297,6 +323,7 @@ export class Hud {
     if (result) {
       this.laps.push(result);
       this.showLap(result, now);
+      this.options.onLap(result);
     }
     this.updateDash(value);
     this.updateTiming(value, laps, distance, current, now);
@@ -306,8 +333,12 @@ export class Hud {
     this.updateInputs(value);
     this.updateLights(time);
     this.updateMap(distance);
-    this.updateWarnings(info, tyres, laps, now);
+    this.updateWarnings(status, tyres, laps, now);
     this.updateToast(now);
+  }
+
+  setWingChoice(replace: boolean): void {
+    this.find("wing-change").textContent = replace ? "Replace +8s" : "Keep";
   }
 
   updatePit(control: PitControl): void {
@@ -318,25 +349,27 @@ export class Hud {
   }
 
   private updatePitPanel(control: PitControl, active: boolean): void {
-    this.find("pit-panel").hidden = !active || control.pitTime === null;
-    this.find("pit-time").textContent = (control.pitTime ?? 0).toFixed(1);
+    putHidden(this.find("pit-panel"), !active || control.pitTime === null);
+    putText(this.find("pit-time"), (control.pitTime ?? 0).toFixed(1));
     const running = control.serviceProgress * (control.estimate ?? 0);
     const stop =
       control.stopTime ?? (control.phase === "service" ? running : null);
-    this.find("pit-stop").textContent = stop === null ? "-.-" : stop.toFixed(1);
+    putText(this.find("pit-stop"), stop === null ? "-.-" : stop.toFixed(1));
   }
 
   private updatePitBanner(control: PitControl, active: boolean): void {
     const banner = this.find("pit-banner");
-    banner.hidden = !active || control.limit <= 0;
+    putHidden(banner, !active || control.limit <= 0);
     const limitKph = Math.round(control.limit * 3.6);
-    banner.dataset["over"] = String(control.speedKph > limitKph + 1);
-    this.find("pit-limit").textContent = String(limitKph);
-    this.find("pit-speed").textContent = String(Math.round(control.speedKph));
-    this.find("pit-distance").textContent =
+    putData(banner, "over", String(control.speedKph > limitKph + 1));
+    putText(this.find("pit-limit"), String(limitKph));
+    putText(this.find("pit-speed"), String(Math.round(control.speedKph)));
+    putText(
+      this.find("pit-distance"),
       control.distanceToBox === null
         ? ""
-        : `Your box - ${String(Math.round(control.distanceToBox))}m`;
+        : `Your box - ${String(Math.round(control.distanceToBox))}m`,
+    );
   }
 
   private updatePitTurn(control: PitControl): void {
@@ -345,13 +378,18 @@ export class Hud {
         ? control.grade
         : null;
     const turn = this.find("pit-turn");
-    turn.hidden = control.countdown === null && grade === null;
-    turn.dataset["grade"] = grade ?? "";
-    this.find("pit-turn-value").textContent =
-      grade?.toUpperCase() ?? (control.countdown ?? 0).toFixed(1);
-    this.find("pit-turn-hint").textContent = grade
-      ? `Estimated stop time ${(control.estimate ?? 0).toFixed(1)}s`
-      : "Press Space / Brake";
+    putHidden(turn, control.countdown === null && grade === null);
+    putData(turn, "grade", grade ?? "");
+    putText(
+      this.find("pit-turn-value"),
+      grade?.toUpperCase() ?? (control.countdown ?? 0).toFixed(1),
+    );
+    putText(
+      this.find("pit-turn-hint"),
+      grade
+        ? `Estimated stop time ${(control.estimate ?? 0).toFixed(1)}s`
+        : "Press Space / Brake",
+    );
   }
 
   private buildRows(): void {
@@ -363,7 +401,7 @@ export class Hud {
       pos.className = "row-pos";
       const label = document.createElement("span");
       label.className = "row-name";
-      label.textContent = name;
+      putText(label, name);
       const tyre = document.createElement("i");
       tyre.className = "row-tyre";
       const gap = document.createElement("b");
@@ -372,8 +410,8 @@ export class Hud {
       flag.className = "row-flag";
       flag.innerHTML = '<svg><use href="#stopwatch" /></svg>';
       root.append(pos, label, tyre, gap, flag);
-      root.dataset["me"] = name === "You" ? "1" : "";
-      root.hidden = name !== "You" && this.options.reference === null;
+      putData(root, "me", name === "You" ? "1" : "");
+      putHidden(root, name !== "You" && this.options.reference === null);
       list.append(root);
       this.rows.push({ root, pos, gap, tyre });
     }
@@ -395,16 +433,13 @@ export class Hud {
       const row = entry.row;
       if (!row) return;
       row.root.style.order = String(i);
-      row.pos.textContent = String(i + 1);
+      putText(row.pos, String(i + 1));
       const isMe = row.root.dataset["me"] === "1";
       row.root.classList.toggle(
         "fastest",
         fastest !== null && entry.time === fastest,
       );
-      row.gap.textContent =
-        isMe || mine === null || entry.time === null
-          ? "--:--.---"
-          : signed(entry.time - mine);
+      putText(row.gap, rowGap(isMe, entry.time, mine));
     });
   }
 
@@ -477,39 +512,44 @@ export class Hud {
       marks.append(ring);
       const [lx, ly] = at((b + (cuts[i] ?? 0)) / 2);
       const label = svg("text", { x: lx, y: ly, class: "map-num" });
-      label.textContent = String(i + 1);
+      putText(label, String(i + 1));
       marks.append(label);
     });
     const [lx, ly] = at(((boundaries.at(-1) ?? 0) + map.length) / 2);
     const label = svg("text", { x: lx, y: ly, class: "map-num" });
-    label.textContent = String(boundaries.length + 1);
+    putText(label, String(boundaries.length + 1));
     marks.append(label);
     const [dx, dy] = at(detectionPoint(map.length));
     marks.append(svg("circle", { cx: dx, cy: dy, r: 7, class: "map-detect" }));
-    this.mapPath = svg("path", { d, class: "map-hidden" });
-    groups.append(this.mapPath);
+    this.mapLine = closedPolyline(
+      screen.map((p) => [Number(p[0].toFixed(1)), Number(p[1].toFixed(1))]),
+    );
+    this.sectorPaths = Array.from(
+      this.root.querySelectorAll<SVGPathElement>(".map-sector"),
+    );
     this.mapLength = map.length;
     this.mapCar = this.find("map-car") as unknown as SVGCircleElement;
   }
 
   private updateMap(distance: number): void {
-    if (!this.mapCar || !this.mapPath) return;
-    const total = this.mapPath.getTotalLength();
-    const point = this.mapPath.getPointAtLength(
-      ((((distance / this.mapLength) % 1) + 1) % 1) * total,
+    if (!this.mapCar || !this.mapLine) return;
+    const [x, y] = pointAlong(
+      this.mapLine,
+      ((((distance / this.mapLength) % 1) + 1) % 1) * this.mapLine.total,
     );
-    this.mapCar.setAttribute("cx", point.x.toFixed(1));
-    this.mapCar.setAttribute("cy", point.y.toFixed(1));
+    putAttr(this.mapCar, "cx", x.toFixed(1));
+    putAttr(this.mapCar, "cy", y.toFixed(1));
   }
 
   private updateDash(value: (index: number) => number): void {
     const rpm = value(frameIndex.rpm) * (30 / Math.PI);
     const redLine = Math.max(1, value(frameIndex.rpmRedLine) * (30 / Math.PI));
-    this.find("speed").textContent = String(
-      Math.round(Math.abs(value(frameIndex.speed)) * 3.6),
+    putText(
+      this.find("speed"),
+      String(Math.round(Math.abs(value(frameIndex.speed)) * 3.6)),
     );
-    this.find("gear").textContent = gearLabel(value(frameIndex.gear));
-    this.find("rpm").textContent = String(Math.round(rpm));
+    putText(this.find("gear"), gearLabel(value(frameIndex.gear)));
+    putText(this.find("rpm"), String(Math.round(rpm)));
     const fraction = rpm / redLine;
     const lit = Math.round(((fraction - 0.7) / 0.28) * revLeds);
     this.leds.forEach((led, i) => {
@@ -517,9 +557,16 @@ export class Hud {
     });
     this.find("leds").classList.toggle("flash", fraction > 0.98);
     const ring = this.find("rpm-ring");
-    ring.style.strokeDashoffset = String(100 - Math.min(1, fraction) * 75);
-    ring.dataset["zone"] =
-      fraction > 0.97 ? "limit" : fraction > 0.85 ? "high" : "";
+    putStyle(
+      ring,
+      "stroke-dashoffset",
+      String(100 - Math.min(1, fraction) * 75),
+    );
+    putData(
+      ring,
+      "zone",
+      fraction > 0.97 ? "limit" : fraction > 0.85 ? "high" : "",
+    );
   }
 
   private updateTiming(
@@ -530,16 +577,17 @@ export class Hud {
     now: number,
   ): void {
     const total = this.options.totalLaps;
-    this.find("lap").textContent = String(
-      total ? Math.max(1, Math.min(laps, total)) : Math.max(1, laps),
+    putText(
+      this.find("lap"),
+      String(total ? Math.max(1, Math.min(laps, total)) : Math.max(1, laps)),
     );
     if (now > this.freezeUntil) {
-      this.find("current").textContent = shortTime(laps > 0 ? current : 0);
-      this.find("main").dataset["state"] = "";
+      putText(this.find("current"), shortTime(laps > 0 ? current : 0));
+      putData(this.find("main"), "state", "");
     }
     const best = value(frameIndex.bestLapTime);
-    this.find("best").textContent = lapTime(best);
-    this.find("last").textContent = lapTime(value(frameIndex.lastLapTime));
+    putText(this.find("best"), lapTime(best));
+    putText(this.find("last"), lapTime(value(frameIndex.lastLapTime)));
     this.find("extra").classList.toggle("open", now < this.extraUntil);
     this.updateSectors(laps, distance, now);
     this.updateDelta(laps, distance, current);
@@ -549,15 +597,17 @@ export class Hud {
     const sectors = this.trace.sectors(distance);
     this.sectorCells.forEach((cell, i) => {
       const status = sectors.status[i] ?? null;
-      cell.dataset["status"] =
-        status ?? (i === sectors.active && laps > 0 ? "live" : "");
+      putData(
+        cell,
+        "status",
+        status ?? (i === sectors.active && laps > 0 ? "live" : ""),
+      );
+      putText(cell, sectorLabel(i, sectors));
     });
-    this.root
-      .querySelectorAll<SVGPathElement>(".map-sector")
-      .forEach((path) => {
-        const i = Number(path.dataset["sector"]);
-        path.dataset["status"] = sectors.status[i] ?? "";
-      });
+    this.sectorPaths.forEach((path) => {
+      const i = Number(path.dataset["sector"]);
+      putData(path, "status", sectors.status[i] ?? "");
+    });
     if (sectors.active === this.lastActiveSector) return;
     const closed = sectors.active - 1;
     const time = sectors.times[closed];
@@ -567,8 +617,8 @@ export class Hud {
       const split = sectors.times
         .slice(0, closed + 1)
         .reduce<number>((sum, t) => sum + (t ?? 0), 0);
-      this.find("current").textContent = shortTime(split);
-      this.find("main").dataset["state"] = sectors.status[closed] ?? "";
+      putText(this.find("current"), shortTime(split));
+      putData(this.find("main"), "state", sectors.status[closed] ?? "");
       replay(this.find("main"), "flash");
       this.freezeUntil = now + 3;
     }
@@ -579,14 +629,14 @@ export class Hud {
     const delta = this.trace.delta(distance, current);
     const widget = this.find("delta");
     if (delta === null) {
-      widget.dataset["state"] = "idle";
-      this.find("delta-value").textContent = laps > 0 ? "--.---" : "";
+      putData(widget, "state", "idle");
+      putText(this.find("delta-value"), laps > 0 ? "--.---" : "");
       return;
     }
     this.deltaShown += (delta - this.deltaShown) * 0.25;
     const shown = this.deltaShown;
-    widget.dataset["state"] = shown <= 0 ? "ahead" : "behind";
-    this.find("delta-value").textContent = signed(shown);
+    putData(widget, "state", shown <= 0 ? "ahead" : "behind");
+    putText(this.find("delta-value"), signed(shown));
   }
 
   private updateEnergy(
@@ -599,26 +649,33 @@ export class Hud {
       1,
       energy.harvested / Math.max(1, energy.harvestLimit),
     );
-    this.find("dash").dataset["ers"] = ersState(energy, share);
-    this.find("batt").textContent = `${String(Math.round(share * 100))}%`;
-    this.find("batt-ring").style.strokeDashoffset = String(100 - share * 75);
-    this.find("harvest-ring").style.strokeDashoffset = String(
-      100 - harvest * 100,
+    putData(this.find("dash"), "ers", ersState(energy, share));
+    putText(this.find("batt"), `${String(Math.round(share * 100))}%`);
+    putStyle(
+      this.find("batt-ring"),
+      "stroke-dashoffset",
+      String(100 - share * 75),
     );
-    this.find("s-mode").hidden = energy.straightMode < 0.5;
-    this.find("bias").textContent =
-      `${String(Math.round(energy.brakeBias * 100))}%`;
+    putStyle(
+      this.find("harvest-ring"),
+      "stroke-dashoffset",
+      String(100 - harvest * 100),
+    );
+    putHidden(this.find("s-mode"), energy.straightMode < 0.5);
+    putText(
+      this.find("bias"),
+      `${String(Math.round(energy.brakeBias * 100))}%`,
+    );
     this.updateErs(energy);
     this.updateFuel(energy, info, value);
   }
 
   private updateErs(energy: EnergyInfo): void {
     const boosting = energy.mode === boostMode;
-    this.find("status").textContent = ersLabel(energy, boosting);
-    this.find("ers-mode").textContent = ersModes[energy.mode]?.label ?? "";
-    this.find("boost-state").textContent = boosting ? "Disable" : "Boost";
-    this.find("diff").textContent =
-      `${String(Math.round(energy.differential))}%`;
+    putText(this.find("status"), ersLabel(energy, boosting));
+    putText(this.find("ers-mode"), ersModes[energy.mode]?.label ?? "");
+    putText(this.find("boost-state"), boosting ? "Disable" : "Boost");
+    putText(this.find("diff"), `${String(Math.round(energy.differential))}%`);
     if (energy.overtakeArmed && !this.overtakeArmed)
       this.toast = {
         kind: "pb",
@@ -641,11 +698,14 @@ export class Hud {
     const remaining = total ? Math.max(0, total - lapsDone) : 0;
     const delta = fuelLapsDelta(info.fuel, perLap, remaining);
     const label = this.find("fuel-delta");
-    label.textContent = `${total ? (delta >= 0 ? "+" : "") : ""}${delta.toFixed(2)} Laps`;
-    label.dataset["state"] = !total || delta >= 0 ? "ok" : "short";
-    this.find("fuel-mix").textContent = fuelMixes[energy.fuelMix]?.label ?? "";
+    putText(
+      label,
+      `${total ? (delta >= 0 ? "+" : "") : ""}${delta.toFixed(2)} Laps`,
+    );
+    putData(label, "state", !total || delta >= 0 ? "ok" : "short");
+    putText(this.find("fuel-mix"), fuelMixes[energy.fuelMix]?.label ?? "");
     const low = total ? delta < 0 : delta < 1.2;
-    this.find("fuel-can").hidden = !low;
+    putHidden(this.find("fuel-can"), !low);
     this.find("dash").classList.toggle("low-fuel", info.fuel < perLap);
   }
 
@@ -654,7 +714,7 @@ export class Hud {
     if (tyres.compound !== this.tyreShown && !this.tower) {
       this.tyreShown = tyres.compound;
       for (const row of this.rows) {
-        row.tyre.textContent = compound.letter;
+        putText(row.tyre, compound.letter);
         row.tyre.style.setProperty("--tyre", compound.colour);
       }
     }
@@ -666,24 +726,22 @@ export class Hud {
 
   private updateInputs(value: (index: number) => number): void {
     const clamp = (v: number) => Math.max(0, Math.min(1, v));
-    this.find("in-throttle").style.transform =
-      `scaleX(${String(clamp(value(frameIndex.accel)))})`;
-    this.find("in-brake").style.transform =
-      `scaleX(${String(clamp(value(frameIndex.brake)))})`;
+    putStyle(
+      this.find("in-throttle"),
+      "transform",
+      `scaleX(${String(clamp(value(frameIndex.accel)))})`,
+    );
+    putStyle(
+      this.find("in-brake"),
+      "transform",
+      `scaleX(${String(clamp(value(frameIndex.brake)))})`,
+    );
   }
 
   private updateLights(time: number): void {
     if (this.options.qualifying) return;
     const gantry = this.find("lights");
-    const lit =
-      time < 0
-        ? Math.min(
-            lightCount,
-            Math.floor(
-              (time + this.options.lightLead) / this.options.lightInterval,
-            ) + 1,
-          )
-        : 0;
+    const lit = this.options.start.lit(time);
     this.lights.forEach((light, i) => {
       light.classList.toggle("on", i < lit);
     });
@@ -693,25 +751,24 @@ export class Hud {
   }
 
   private updateWarnings(
-    info: HudInfo,
+    status: CarStatus,
     tyres: TyreInfo,
     laps: number,
     now: number,
   ): void {
-    let text = "";
-    if (info.state & 0x0400) text = "Out of fuel";
-    else if (info.state & 0x0200) text = "Car broken";
-    else if (info.state & outOfRaceState) text = "Retired";
-    if (text) {
+    const retired = retirementLabel(status.retired);
+    if (retired) {
       this.toast = {
         kind: "warn",
-        title: text,
-        detail: "Press Esc to restart the session",
+        title: retired,
+        detail: "Session over",
         until: Infinity,
       };
       return;
     }
     this.updateTyreWarning(tyres, now);
+    const alert = this.damage.update(status, tyres);
+    if (alert) this.toast = { kind: "warn", ...alert, until: now + 6 };
     const total = this.options.totalLaps;
     if (total && total > 1 && laps === total && !this.finalLapShown) {
       this.finalLapShown = true;
@@ -744,9 +801,9 @@ export class Hud {
       this.toast = null;
       return;
     }
-    element.dataset["kind"] = toast.kind;
-    this.find("toast-title").textContent = toast.title;
-    this.find("toast-detail").textContent = toast.detail;
+    putData(element, "kind", toast.kind);
+    putText(this.find("toast-title"), toast.title);
+    putText(this.find("toast-detail"), toast.detail);
     this.find("toast-icon").innerHTML =
       `<use href="#${toast.kind === "final" || toast.kind === "warn" ? "flag" : "stopwatch"}" />`;
     element.classList.remove("show");
@@ -769,12 +826,12 @@ export class Hud {
         until: now + 5,
       };
     }
-    this.find("current").textContent = lapTime(result.time);
-    this.find("main").dataset["state"] = result.best ? "pb" : "slower";
+    putText(this.find("current"), lapTime(result.time));
+    putData(this.find("main"), "state", result.best ? "pb" : "slower");
     replay(this.find("main"), "flash");
     this.freezeUntil = now + 4;
     this.extraUntil = now + 10;
-    this.find("previous-row").hidden = this.laps.length < 2;
+    putHidden(this.find("previous-row"), this.laps.length < 2);
     this.lastActiveSector = -1;
   }
 }

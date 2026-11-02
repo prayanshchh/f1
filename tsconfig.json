@@ -15,7 +15,7 @@
     "noPropertyAccessFromIndexSignature": true,
     "verbatimModuleSyntax": true,
     "allowImportingTsExtensions": true,
-    "types": ["node", "@webgpu/types", "vite/client"],
+    "types": ["node", "@webgpu/types", "emscripten", "vite/client"],
     "lib": ["ES2023", "DOM"]
   },
   "include": ["tests/**/*.ts", "*.config.ts", ".github/scripts/*.ts"]

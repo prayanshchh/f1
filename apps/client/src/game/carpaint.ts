@@ -1,46 +1,31 @@
 import * as THREE from "three/webgpu";
-import type { Node } from "three/webgpu";
 import {
   abs,
   bumpMap,
   color,
-  cubeTexture,
-  dot,
   float,
   floor,
   fract,
   fwidth,
   luminance,
   max,
-  min,
   mix,
   normalGeometry,
-  normalView,
   positionGeometry,
-  positionViewDirection,
-  pow,
-  reflectVector,
-  roughness,
   smoothstep,
   step,
   texture,
   uniform,
   uv,
   vec2,
-  vec3,
 } from "three/tsl";
-import { finish } from "./road.ts";
 import { carFile } from "./teams.ts";
 
 const envWidth = 512;
 const envHeight = 256;
-const envIntensity = 0.65;
-const atlasEnvIntensity = 0.3;
-const reflectionGain = 1.05;
-const reflectionPeak = 0.38;
+const studioEnvRotation = new THREE.Euler(Math.PI / 2, 0, 0);
+const envIntensity = 1;
 const mirrorDim = 0.86;
-const reflectionGamma = 2.2;
-const reflectionLevels = 6;
 const bumpStrength = 0.5;
 const knitPitch = 1 / 0.0012;
 const screenLift = 1.15;
@@ -85,32 +70,9 @@ export const mirrorLayout = {
 } as const;
 export type MirrorName = keyof typeof mirrorLayout;
 
-export interface CarTextures {
-  albedo: THREE.Texture;
-  orm: THREE.Texture;
-  bump: THREE.Texture;
-  tyre: THREE.Texture;
-  wheelFace: THREE.Texture;
-  glove: THREE.Texture;
-}
-
-function loaded(url: string, sRgb: boolean, anisotropy: number): THREE.Texture {
-  const map = new THREE.TextureLoader().load(url);
-  map.flipY = false;
-  map.colorSpace = sRgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
-  map.anisotropy = anisotropy;
-  return map;
-}
-
-export function carTextures(team: string, anisotropy: number): CarTextures {
-  return {
-    albedo: loaded(carFile(team, "albedo.jpg"), true, anisotropy),
-    orm: loaded(carFile(team, "orm.jpg"), false, anisotropy),
-    bump: loaded(carFile(team, "bump.jpg"), false, anisotropy),
-    tyre: loaded(carFile("shared", "tyre.jpg"), true, anisotropy),
-    wheelFace: loaded(carFile(team, "wheel-face.jpg"), true, anisotropy),
-    glove: loaded(carFile(team, "glove.jpg"), true, anisotropy),
-  };
+export interface CarEnvironment {
+  texture: THREE.Texture;
+  rotation: THREE.Euler;
 }
 
 function smoothPulse(x: number, centre: number, width: number): number {
@@ -162,7 +124,7 @@ function environmentPixels(): Uint16Array {
   return pixels;
 }
 
-export function carEnvironment(renderer: THREE.WebGPURenderer): THREE.Texture {
+export function carEnvironment(renderer: THREE.WebGPURenderer): CarEnvironment {
   const source = new THREE.DataTexture(
     environmentPixels(),
     envWidth,
@@ -179,7 +141,45 @@ export function carEnvironment(renderer: THREE.WebGPURenderer): THREE.Texture {
   const generator = new THREE.PMREMGenerator(renderer);
   const target = generator.fromEquirectangular(source);
   generator.dispose();
-  return target.texture;
+  return { texture: target.texture, rotation: studioEnvRotation };
+}
+
+export function useEnvironment(
+  material: THREE.MeshStandardNodeMaterial,
+  env: CarEnvironment,
+  intensity: number,
+): void {
+  material.envMap = env.texture;
+  material.envMapIntensity = intensity;
+  material.envMapRotation = env.rotation;
+}
+
+export interface CarTextures {
+  albedo: THREE.Texture;
+  orm: THREE.Texture;
+  bump: THREE.Texture;
+  tyre: THREE.Texture;
+  wheelFace: THREE.Texture;
+  glove: THREE.Texture;
+}
+
+function loaded(url: string, sRgb: boolean, anisotropy: number): THREE.Texture {
+  const map = new THREE.TextureLoader().load(url);
+  map.flipY = false;
+  map.colorSpace = sRgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+  map.anisotropy = anisotropy;
+  return map;
+}
+
+export function carTextures(team: string, anisotropy: number): CarTextures {
+  return {
+    albedo: loaded(carFile(team, "albedo.jpg"), true, anisotropy),
+    orm: loaded(carFile(team, "orm.jpg"), false, anisotropy),
+    bump: loaded(carFile(team, "bump.jpg"), false, anisotropy),
+    tyre: loaded(carFile("shared", "tyre.jpg"), true, anisotropy),
+    wheelFace: loaded(carFile(team, "wheel-face.jpg"), true, anisotropy),
+    glove: loaded(carFile(team, "glove.jpg"), true, anisotropy),
+  };
 }
 
 function weave() {
@@ -203,36 +203,13 @@ function weave() {
   ).mul(mix(float(1), mix(float(0.86), float(1.14), warp), fade));
 }
 
-function liveReflection(
-  view: THREE.CubeTexture,
-  occlusion: Node<"float">,
-  coat: Node<"float">,
-) {
-  const facing = max(dot(normalView, positionViewDirection), 0);
-  const fresnel = min(
-    float(0.04).add(float(0.96).mul(pow(float(1).sub(facing), 5))),
-    float(reflectionPeak),
-  );
-  const level = smoothstep(0.08, 0.7, roughness)
-    .mul(float(1).sub(coat))
-    .mul(reflectionLevels);
-  const seen = cubeTexture(view, reflectVector, level).rgb;
-  return pow(seen, vec3(reflectionGamma))
-    .mul(fresnel)
-    .mul(occlusion)
-    .mul(reflectionGain);
-}
-
 function atlasMaterial(
   textures: CarTextures,
-  env: THREE.Texture,
-  view: THREE.CubeTexture,
+  env: CarEnvironment,
   name: string,
 ): THREE.MeshPhysicalNodeMaterial {
   const material = new THREE.MeshPhysicalNodeMaterial({ name });
-  material.envMap = env;
-  material.envMapIntensity = atlasEnvIntensity;
-  material.envMapRotation.set(Math.PI / 2, 0, 0);
+  useEnvironment(material, env, envIntensity);
   const orm = texture(textures.orm, uv());
   const carbon = orm.b;
   const pattern = weave();
@@ -249,8 +226,6 @@ function atlasMaterial(
     texture(textures.bump, uv()).r,
     float(bumpStrength),
   );
-  material.emissiveNode = liveReflection(view, orm.r, coat);
-  finish(material);
   return material;
 }
 
@@ -264,7 +239,7 @@ function knit() {
 
 function copied(
   source: THREE.MeshStandardMaterial,
-  env: THREE.Texture,
+  env: CarEnvironment,
 ): THREE.MeshPhysicalNodeMaterial {
   const material = new THREE.MeshPhysicalNodeMaterial({
     name: source.name,
@@ -273,9 +248,7 @@ function copied(
     metalness: source.metalness,
     side: source.side,
   });
-  material.envMap = env;
-  material.envMapIntensity = envIntensity;
-  material.envMapRotation.set(Math.PI / 2, 0, 0);
+  useEnvironment(material, env, envIntensity);
   material.emissive.copy(source.emissive);
   material.emissiveIntensity = source.emissiveIntensity;
   return material;
@@ -458,7 +431,6 @@ function brakeGlow(physical: THREE.MeshPhysicalNodeMaterial): void {
 function flatMaterial(paint: (material: THREE.MeshBasicNodeMaterial) => void) {
   const material = new THREE.MeshBasicNodeMaterial();
   paint(material);
-  finish(material);
   return material;
 }
 
@@ -498,7 +470,7 @@ function texturedPart(
 function partMaterial(
   source: THREE.MeshStandardMaterial,
   textures: CarTextures,
-  env: THREE.Texture,
+  env: CarEnvironment,
 ): THREE.Material {
   const physical = copied(source, env);
   const name = source.name;
@@ -517,15 +489,13 @@ function partMaterial(
   }
   if (satinParts.test(name)) physical.roughness = satinRoughness;
   if (name.startsWith("led-") && name !== "led-red") ledGlow(physical);
-  finish(physical);
   return physical;
 }
 
 export function carMaterials(
   textures: CarTextures,
-  env: THREE.Texture,
+  env: CarEnvironment,
   views: Record<MirrorName, THREE.Texture>,
-  reflection: THREE.CubeTexture,
 ): CarMaterials {
   const made = new Map<string, THREE.Material>();
   const screen = new WheelScreen();
@@ -543,7 +513,7 @@ export function carMaterials(
   };
   const create = (source: THREE.MeshStandardMaterial): THREE.Material => {
     if (atlasMaterials.has(source.name))
-      return atlasMaterial(textures, env, reflection, source.name);
+      return atlasMaterial(textures, env, source.name);
     return special[source.name]?.() ?? partMaterial(source, textures, env);
   };
   const build = (source: THREE.MeshStandardMaterial): THREE.Material => {

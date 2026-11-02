@@ -161,7 +161,8 @@ static double rearSlip(tCarElt *car, double sign)
 {
     double slip = 0;
     for (int i = REAR_RGT; i <= REAR_LFT; i++)
-        slip = std::max(slip, hypot(std::max(0.0, sign * longSlip(car, i)), latSlip(car, i)));
+        if (!sdTyreFlat(i))
+            slip = std::max(slip, hypot(std::max(0.0, sign * longSlip(car, i)), latSlip(car, i)));
     return slip;
 }
 
@@ -193,7 +194,8 @@ static void updateBraking(tCarElt *car, double dt)
     {
         excess = rearSlip(car, 1.0) - wheelLockLimit;
         for (int i = FRNT_RGT; i <= FRNT_LFT; i++)
-            excess = std::max(excess, longSlip(car, i) - wheelLockLimit);
+            if (!sdTyreFlat(i))
+                excess = std::max(excess, longSlip(car, i) - wheelLockLimit);
     }
     bool turning = analog ? fabs(analogSteer) > trailBrakeSteer : left || right;
     braking = antiLock || turning ? limiter(braking, excess, wheelLockLimit, absCut, absRecover, dt) : 1.0;

@@ -2,17 +2,18 @@ import * as THREE from "three/webgpu";
 import { texture, uv } from "three/tsl";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { frameIndex } from "./engine.ts";
+import { type CarEnvironment, useEnvironment } from "./carpaint.ts";
 import { contactShadow, gltfToSdCar, wheelRest } from "./gltf.ts";
-import { finish } from "./road.ts";
-import { carFile, teams } from "./teams.ts";
+import { mergedMesh, placedCopy } from "./merge.ts";
+import { loaded } from "./preload.ts";
+import { carFile, gridTeamOrder, teams } from "./teams.ts";
 
-const carsPerTeam = 2;
-const visibleDistance = 700;
 const leaveAfterLap = 2;
 const headingProbe = 2;
-const shadowDistance = 30;
-const envStrength = 0.65;
+const envStrength = 1;
 const atlasMaterials = new Set(["body", "cockpit", "helmet"]);
+const textured = ["position", "normal", "uv"] as const;
+const plain = ["position", "normal"] as const;
 
 export interface GridSlot {
   distance: number;
@@ -31,66 +32,152 @@ function textureOf(url: string, sRgb: boolean): THREE.Texture {
   return map;
 }
 
-function teamMaterials(
+function flatMaterial(
+  source: THREE.MeshStandardMaterial,
+  env: CarEnvironment,
+): THREE.MeshStandardNodeMaterial {
+  const material = new THREE.MeshStandardNodeMaterial({
+    name: source.name,
+    roughness: source.roughness,
+    metalness: source.metalness,
+    vertexColors: true,
+  });
+  useEnvironment(material, env, envStrength);
+  return material;
+}
+
+function tyreMaterial(env: CarEnvironment): THREE.MeshStandardNodeMaterial {
+  const material = new THREE.MeshStandardNodeMaterial({
+    name: "tyre",
+    map: textureOf(carFile("shared", "tyre.jpg"), true),
+    roughness: 0.9,
+    metalness: 0,
+  });
+  useEnvironment(material, env, envStrength);
+  return material;
+}
+
+function atlasMaterial(
   team: string,
-  env: THREE.Texture,
-): (source: THREE.MeshStandardMaterial) => THREE.Material {
-  const albedo = textureOf(carFile(team, "albedo-lod.jpg"), true);
+  env: CarEnvironment,
+): THREE.MeshStandardNodeMaterial {
   const orm = textureOf(carFile(team, "orm-lod.jpg"), false);
-  const tyre = textureOf(carFile("shared", "tyre.jpg"), true);
-  const made = new Map<string, THREE.Material>();
-  return (source) => {
-    const existing = made.get(source.name);
-    if (existing) return existing;
-    const material = new THREE.MeshStandardNodeMaterial({
-      name: source.name,
-      color: source.color,
-      roughness: source.roughness,
-      metalness: source.metalness,
+  const material = new THREE.MeshStandardNodeMaterial({
+    name: `${team} atlas`,
+    map: textureOf(carFile(team, "albedo-lod.jpg"), true),
+  });
+  useEnvironment(material, env, envStrength);
+  material.roughnessNode = texture(orm, uv()).g;
+  material.metalnessNode = texture(orm, uv()).b.mul(0);
+  material.aoNode = texture(orm, uv()).r;
+  return material;
+}
+
+interface TeamPart {
+  geometry: THREE.BufferGeometry;
+  source: THREE.MeshStandardMaterial;
+}
+
+async function teamParts(team: string): Promise<TeamPart[]> {
+  const gltf = await new GLTFLoader().loadAsync(carFile(team, "lod.glb"));
+  const parts: TeamPart[] = [];
+  gltf.scene.traverse((object) => {
+    if (!(object instanceof THREE.Mesh)) return;
+    parts.push({
+      geometry: object.geometry as THREE.BufferGeometry,
+      source: object.material as THREE.MeshStandardMaterial,
     });
-    material.envMap = env;
-    material.envMapIntensity = envStrength;
-    material.envMapRotation.set(Math.PI / 2, 0, 0);
-    if (atlasMaterials.has(source.name)) {
-      material.color.set(1, 1, 1);
-      material.map = albedo;
-      material.roughnessNode = texture(orm, uv()).g;
-      material.metalnessNode = texture(orm, uv()).b.mul(0);
-      material.aoNode = texture(orm, uv()).r;
-    }
-    if (source.name === "tyre") {
-      material.color.set(1, 1, 1);
-      material.map = tyre;
-    }
-    finish(material);
-    made.set(source.name, material);
-    return material;
-  };
+  });
+  return parts;
+}
+
+class Batches {
+  private readonly groups = new Map<
+    string,
+    { material: THREE.Material; parts: THREE.BufferGeometry[] }
+  >();
+
+  add(
+    key: string,
+    material: () => THREE.Material,
+    part: THREE.BufferGeometry,
+  ): void {
+    const group = this.groups.get(key) ?? { material: material(), parts: [] };
+    group.parts.push(part);
+    this.groups.set(key, group);
+  }
+
+  meshes(): THREE.Mesh[] {
+    return Array.from(this.groups.values(), ({ material, parts }) =>
+      mergedMesh(parts, material),
+    );
+  }
+}
+
+function addParts(
+  batches: Batches,
+  team: string,
+  parts: TeamPart[],
+  matrix: THREE.Matrix4,
+  env: CarEnvironment,
+): void {
+  for (const { geometry, source } of parts) {
+    if (atlasMaterials.has(source.name))
+      batches.add(
+        team,
+        () => atlasMaterial(team, env),
+        placedCopy(geometry, matrix, textured),
+      );
+    else if (source.name === "tyre")
+      batches.add(
+        "tyre",
+        () => tyreMaterial(env),
+        placedCopy(geometry, matrix, textured),
+      );
+    else
+      batches.add(
+        source.name,
+        () => flatMaterial(source, env),
+        tinted(placedCopy(geometry, matrix, plain), source.color),
+      );
+  }
 }
 
 export async function teamModel(
   team: string,
-  env: THREE.Texture,
+  env: CarEnvironment,
 ): Promise<THREE.Object3D> {
-  const gltf = await new GLTFLoader().loadAsync(carFile(team, "lod.glb"));
-  const material = teamMaterials(team, env);
-  gltf.scene.traverse((object) => {
-    if (!(object instanceof THREE.Mesh)) return;
-    object.material = material(object.material as THREE.MeshStandardMaterial);
-  });
-  return gltf.scene;
+  const batches = new Batches();
+  addParts(batches, team, await teamParts(team), new THREE.Matrix4(), env);
+  const model = new THREE.Group();
+  model.add(...batches.meshes());
+  await loaded();
+  return model;
+}
+
+function tinted(
+  part: THREE.BufferGeometry,
+  colour: THREE.Color,
+): THREE.BufferGeometry {
+  const count = part.getAttribute("position").count;
+  const colours = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) colour.toArray(colours, i * 3);
+  part.setAttribute("color", new THREE.BufferAttribute(colours, 3));
+  return part;
 }
 
 export class GridCars {
   readonly root = new THREE.Group();
   private placed = false;
-  private shown = false;
-  private readonly centre = new THREE.Vector3();
+  playerSlot = 0;
+  private readonly batches = new Batches();
 
   private constructor(
-    private readonly cars: THREE.Object3D[],
+    private readonly teamsInOrder: string[],
+    private readonly parts: Map<string, TeamPart[]>,
     private readonly slots: GridSlot[],
     private readonly point: TrackPoint,
+    private readonly env: CarEnvironment,
   ) {
     this.root.visible = false;
   }
@@ -99,38 +186,37 @@ export class GridCars {
     player: string,
     slots: GridSlot[],
     point: TrackPoint,
-    env: THREE.Texture,
+    env: CarEnvironment,
   ): Promise<GridCars> {
-    const models = new Map(
+    const parts = new Map(
       await Promise.all(
         teams.map(
           async (team) =>
-            [team.id, await teamModel(team.id, env)] as [
-              string,
-              THREE.Object3D,
-            ],
+            [team.id, await teamParts(team.id)] as [string, TeamPart[]],
         ),
       ),
     );
-    const order = [
-      player,
-      ...teams.map((team) => team.id).filter((id) => id !== player),
-    ].flatMap((id) => Array.from({ length: carsPerTeam }, () => id));
-    const cars = order.slice(1).map((id) => {
-      const model = models.get(id);
-      if (!model) throw new Error(`no grid model for ${id}`);
-      const axes = new THREE.Group();
-      axes.matrixAutoUpdate = false;
-      axes.matrix.copy(gltfToSdCar);
-      axes.add(model.clone());
-      const car = new THREE.Group();
-      car.matrixAutoUpdate = false;
-      const contact = contactShadow(wheelRest);
-      contact.userData["contact"] = true;
-      car.add(axes, contact);
-      return car;
-    });
-    return new GridCars(cars, slots, point);
+    return new GridCars(
+      gridTeamOrder(player).slice(1),
+      parts,
+      slots,
+      point,
+      env,
+    );
+  }
+
+  private addCar(team: string, matrix: THREE.Matrix4): void {
+    const placed = new THREE.Matrix4().multiplyMatrices(matrix, gltfToSdCar);
+    addParts(this.batches, team, this.parts.get(team) ?? [], placed, this.env);
+  }
+
+  private build(contacts: THREE.BufferGeometry[]): void {
+    const meshes = this.batches.meshes();
+    for (const mesh of meshes) mesh.castShadow = true;
+    const contact = contactShadow(wheelRest);
+    const shadows = mergedMesh(contacts, contact.material as THREE.Material);
+    shadows.renderOrder = contact.renderOrder;
+    this.root.add(...meshes, shadows);
   }
 
   private locate(player: THREE.Vector3) {
@@ -147,6 +233,7 @@ export class GridCars {
 
   private place(player: THREE.Vector3): void {
     const { slot, side } = this.locate(player);
+    this.playerSlot = slot;
     const own = this.slots[slot];
     if (!own) return;
     const ownPoint = new THREE.Vector3(
@@ -159,7 +246,11 @@ export class GridCars {
       .normalize();
     const along = player.clone().sub(ownPoint).dot(ahead);
     const others = this.slots.filter((_, index) => index !== slot);
-    this.cars.forEach((car, index) => {
+    const contact = contactShadow(wheelRest);
+    contact.updateMatrix();
+    const contacts: THREE.BufferGeometry[] = [];
+    const matrix = new THREE.Matrix4();
+    this.teamsInOrder.forEach((team, index) => {
       const target = others[index];
       if (!target) return;
       const lateral = target.offset * side;
@@ -172,32 +263,21 @@ export class GridCars {
         .normalize();
       const left = new THREE.Vector3(0, 0, 1).cross(forward).normalize();
       const up = forward.clone().cross(left);
-      car.matrix.makeBasis(forward, left, up).setPosition(at);
-      car.userData["position"] = at;
-      this.root.add(car);
+      matrix.makeBasis(forward, left, up).setPosition(at);
+      this.addCar(team, matrix);
+      contacts.push(
+        placedCopy(
+          contact.geometry,
+          new THREE.Matrix4().multiplyMatrices(matrix, contact.matrix),
+          textured,
+        ),
+      );
     });
-    this.centre.copy(player);
+    this.build(contacts);
     this.placed = true;
   }
 
-  hide(hidden: boolean): void {
-    this.root.visible = !hidden && this.shown;
-  }
-
-  private updateShadows(eye: THREE.Vector3): void {
-    for (const car of this.cars) {
-      const position = car.userData["position"] as THREE.Vector3 | undefined;
-      const near = position ? position.distanceTo(eye) < shadowDistance : false;
-      if (car.userData["near"] === near) continue;
-      car.userData["near"] = near;
-      car.traverse((object) => {
-        if (object instanceof THREE.Mesh && !object.userData["contact"])
-          object.castShadow = near;
-      });
-    }
-  }
-
-  update(frame: Float64Array, eye: THREE.Vector3): void {
+  update(frame: Float64Array): void {
     const pose = frameIndex.posMat;
     const player = new THREE.Vector3(
       frame[pose + 12] ?? 0,
@@ -206,9 +286,6 @@ export class GridCars {
     );
     if (!this.placed) this.place(player);
     const lap = frame[frameIndex.laps] ?? 0;
-    const near = eye.distanceTo(this.centre) < visibleDistance;
-    this.shown = lap < leaveAfterLap && near;
-    this.root.visible = this.shown;
-    if (this.shown) this.updateShadows(eye);
+    this.root.visible = lap < leaveAfterLap;
   }
 }

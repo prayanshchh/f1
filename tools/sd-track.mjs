@@ -16,7 +16,8 @@ const kerbMaxWidening = 0.6;
 const kerbRamp = 16;
 const grassRoughness = 0.006;
 const grassWavelength = 3;
-const timeOfDay = 16.5;
+const timeOfDay = 14.8;
+const sunAscension = 73.2;
 const pitWallThin = 0.4;
 const pitDeckRamp = 20;
 const pitWallHeight = 1;
@@ -405,6 +406,7 @@ ${str("author", "generated from content/tracks/cota/track.json")}
 <section name="Local Info">
 ${str("station", "KAUS")}
 ${num("time of day", timeOfDay, "hour")}
+${num("sun ascension", sunAscension, "deg")}
 ${num("latitude", 30.1328)}
 ${num("longitude", -97.6411)}
 ${num("altitude", 170, "m")}

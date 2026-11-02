@@ -1,39 +1,39 @@
-import bmesh
-import bpy
 import numpy as np
-from mathutils import Vector
 
-from trackside import UNIT, Batch, beam
+from palette import BRAND_ROWS
+from standshape import FRONT_WALL, ROW_RISE, layout
+from trackside import UNIT, beam
 
-ROW_DEPTH = 0.85
-ROW_RISE = 0.45
-FRONT_WALL = 1.2
-MIN_ROWS = 3
-MAX_ROWS = 40
-ROOF_CLEARANCE = 3.5
-ROOF_COVER = 0.75
-ROOF_THICKNESS = 0.3
-COLUMN_SPACING = 12.0
-COLUMN_SIZE = 0.5
-FACADE_METRES = (32.0, 14.0)
-TOWER_HEIGHT = 70.0
-TOWER_RADIUS = 2.5
-DECK_RADIUS = 7.5
-DECK_DEPTH = 4.0
-MAST_HEIGHT = 8.0
-VEIL_CABLES = 40
-VEIL_SPREAD = np.radians(55.0)
-VEIL_REACH = 48.0
-VEIL_WIDTH = 0.35
-VEIL_DIRECTION = np.radians(200.0)
+ROOF_CLEARANCE = 4.5
+ROOF_COVER = 0.8
+BAY_WIDTH = 14.0
+FIN_THICKNESS = 0.22
+FIN_RISE = 2.4
+COLUMN_SIZE = 0.45
+RAIL_HEIGHT = 1.0
+RAIL_SIZE = 0.05
+FRAME_SPACING = 8.0
+FRAME_SIZE = 0.2
+TOWER_HEIGHT = 76.5
+TOWER_FLOORS = 20
+TOWER_PLATE = 8.5
+TOWER_CORE = 4.6
+TOWER_COLUMN = 0.5
+TOWER_DECK = 11.5
+VEIL_RIBS = 36
+VEIL_SPREAD = np.radians(62.0)
+VEIL_REACH = 46.0
+VEIL_ROOF = 13.0
+VEIL_TOP = 68.0
+VEIL_WIDTH = 0.55
+VEIL_STEPS = 18
 GANTRY_CLEARANCE = 2.5
 GANTRY_LOW = 6.0
 GANTRY_HIGH = 7.6
 GANTRY_DEPTH = 1.0
 GANTRY_PILLAR = 1.0
-GANTRY_BRAND = 0
-BRAND_ROWS = 4
-BOARD_SPAN = 4.0
+GANTRY_BRAND = 8
+BOARD_SPAN = 12.8
 PANEL_SIZE = (3.2, 1.6)
 PANEL_DEPTH = 0.35
 LIGHT_COLUMNS = 5
@@ -41,26 +41,15 @@ LIGHT_ROWS = 4
 LAMP_SIZE = 0.26
 
 
-def frame(outline, toward):
-    _, short = principal_axes(outline)
-    facing = short if np.dot(short, toward) >= 0 else -short
-    across = np.array([-facing[1], facing[0]])
-    depth = outline @ facing
-    length = outline @ across
-    return facing, across, depth.min(), depth.max(), length.min(), length.max()
-
-
 def at(facing, across, d, l):
     return facing * d + across * l
 
 
 def stand(seats, concrete, roof, columns, data):
-    outline = np.array(data["outline"])
-    facing, across, back, front, left, right = frame(outline, np.asarray(data["facing"], float))
-    base = data["base"]
-    rows = int(np.clip((front - back) / ROW_DEPTH, MIN_ROWS, MAX_ROWS))
-    depth = (front - back) / rows
-    ends = (left, right)
+    shape = layout(data)
+    facing, across = shape["facing"], shape["across"]
+    back, front, left, right = shape["back"], shape["front"], shape["left"], shape["right"]
+    rows, depth, base = shape["rows"], shape["depth"], shape["base"]
 
     def edge(d):
         return at(facing, across, d, left), at(facing, across, d, right)
@@ -73,52 +62,46 @@ def stand(seats, concrete, roof, columns, data):
         n0, n1 = edge(near)
         f0, f1 = edge(far)
         seats.add([(*n0, low), (*n1, low), (*f1, low), (*f0, low)], UNIT)
-        concrete.add([(*f0, low), (*f1, low), (*f1, low + ROW_RISE), (*f0, low + ROW_RISE)], UNIT)
+        seats.add([(*f0, low), (*f1, low), (*f1, low + ROW_RISE), (*f0, low + ROW_RISE)], UNIT)
     top = base + FRONT_WALL + rows * ROW_RISE
     b0, b1 = edge(back)
-    concrete.add([(*b0, base), (*b1, base), (*b1, top), (*b0, top)], UNIT)
-    for l in ends:
+    concrete.add([(*b0, top - 1.0), (*b1, top - 1.0), (*b1, top + RAIL_HEIGHT), (*b0, top + RAIL_HEIGHT)], UNIT)
+    for l in (left, right):
         p_front, p_back = at(facing, across, front, l), at(facing, across, back, l)
         concrete.add([(*p_front, base), (*p_back, base), (*p_back, top), (*p_front, base + FRONT_WALL)], UNIT)
+    for l in np.arange(left, right + 1, FRAME_SPACING):
+        foot = at(facing, across, back, l)
+        beam(columns, np.array([*foot, base]), np.array([*foot, top]), FRAME_SIZE)
+        mid = at(facing, across, (back + front) / 2, l)
+        beam(columns, np.array([*mid, base]), np.array([*foot, top]), FRAME_SIZE * 0.6)
+    beam(columns, np.array([*b0, top + RAIL_HEIGHT]), np.array([*b1, top + RAIL_HEIGHT]), RAIL_SIZE * 2)
+    a0, a1 = edge(front)
+    beam(columns, np.array([*a0, base + FRONT_WALL + RAIL_HEIGHT]), np.array([*a1, base + FRONT_WALL + RAIL_HEIGHT]), RAIL_SIZE)
     if not data["roof"]:
         return
     height = top + ROOF_CLEARANCE
     reach = back + (front - back) * ROOF_COVER
-    r0, r1 = edge(back), edge(reach)
-    roof.add([(*r0[0], height), (*r0[1], height), (*r1[1], height - 0.6), (*r1[0], height - 0.6)], UNIT)
-    count = max(2, int((right - left) / COLUMN_SPACING) + 1)
-    for l in np.linspace(left, right, count):
-        foot = at(facing, across, back, l)
+    bays = max(1, int((right - left) / BAY_WIDTH))
+    span = (right - left) / bays
+    for bay in range(bays):
+        l0, l1 = left + bay * span, left + (bay + 1) * span
+        rear0, rear1 = at(facing, across, back, l0), at(facing, across, back, l1)
+        lip0, lip1 = at(facing, across, reach, l0 - 0.6), at(facing, across, reach, l1 + 0.6)
+        roof.add([(*rear0, height), (*rear1, height), (*lip1, height + FIN_RISE)], [(0, 0), (1, 0), (1, 1)])
+        roof.add([(*rear0, height), (*lip1, height + FIN_RISE), (*lip0, height + FIN_RISE)], [(0, 0), (1, 1), (0, 1)])
+        roof.add([(*lip0, height + FIN_RISE - FIN_THICKNESS), (*lip1, height + FIN_RISE - FIN_THICKNESS), (*lip1, height + FIN_RISE), (*lip0, height + FIN_RISE)], UNIT)
+        foot = at(facing, across, back, l0)
         beam(columns, np.array([*foot, base]), np.array([*foot, height]), COLUMN_SIZE)
+        beam(columns, np.array([*foot, height]), np.array([*at(facing, across, reach, l0), height + FIN_RISE]), COLUMN_SIZE * 0.5)
 
 
-def principal_axes(outline):
-    centred = outline - outline.mean(axis=0)
-    _, _, vectors = np.linalg.svd(centred, full_matrices=False)
-    return vectors[0], vectors[1]
-
-
-def pit_building(facade, concrete, roof, data, track_side):
-    outline = np.array(data["outline"])
-    long_axis, short_axis = principal_axes(outline)
-    u = outline @ long_axis
-    v = outline @ short_axis
-    base, height = data["base"], data["height"]
-    corners = [
-        long_axis * u.min() + short_axis * v.min(),
-        long_axis * u.max() + short_axis * v.min(),
-        long_axis * u.max() + short_axis * v.max(),
-        long_axis * u.min() + short_axis * v.max(),
-    ]
-    span = u.max() - u.min()
-    for a, b, textured in ((0, 1, True), (1, 2, False), (2, 3, True), (3, 0, False)):
-        pa, pb = corners[a], corners[b]
-        if textured and np.linalg.norm((pa + pb) / 2 - track_side) < np.linalg.norm((corners[(a + 2) % 4] + corners[(b + 2) % 4]) / 2 - track_side):
-            continue
-        target = facade if textured else concrete
-        repeat = span / FACADE_METRES[0] if textured else 1
-        target.add([(*pa, base), (*pb, base), (*pb, base + height), (*pa, base + height)], [(0, 0), (repeat, 0), (repeat, 1), (0, 1)])
-    roof.add([(*c, base + height) for c in corners], UNIT)
+def extrude_box(batch, centre, half_x, half_y, z0, z1):
+    x, y = centre
+    corners = [(x - half_x, y - half_y), (x + half_x, y - half_y), (x + half_x, y + half_y), (x - half_x, y + half_y)]
+    for a, b in zip(corners, corners[1:] + corners[:1]):
+        batch.add([(*a, z0), (*b, z0), (*b, z1), (*a, z1)], UNIT)
+    batch.add([(*c, z1) for c in corners], UNIT)
+    batch.add([(*c, z0) for c in corners[::-1]], UNIT)
 
 
 def extrude(walls, roofs, data):
@@ -130,34 +113,45 @@ def extrude(walls, roofs, data):
     roofs.add([(*p, base + height) for p in outline], [(0, 0)] * len(outline))
 
 
-def tower(white, glass, data):
+def tower(plates, core, veil, data):
     x, y = data["position"]
     base = data["base"]
-    meshes = []
-    bm = bmesh.new()
-    bmesh.ops.create_cone(bm, cap_ends=True, segments=24, radius1=TOWER_RADIUS, radius2=TOWER_RADIUS * 0.8, depth=TOWER_HEIGHT)
-    bmesh.ops.translate(bm, verts=bm.verts, vec=Vector((x, y, base + TOWER_HEIGHT / 2)))
-    result = bmesh.ops.create_cone(bm, cap_ends=True, segments=8, radius1=0.25, radius2=0.05, depth=MAST_HEIGHT)
-    bmesh.ops.translate(bm, verts=result["verts"], vec=Vector((x, y, base + TOWER_HEIGHT + MAST_HEIGHT / 2)))
-    meshes.append(("tower column", bm, white))
-    deck = bmesh.new()
-    bmesh.ops.create_cone(deck, cap_ends=True, segments=32, radius1=DECK_RADIUS, radius2=DECK_RADIUS, depth=DECK_DEPTH)
-    bmesh.ops.translate(deck, verts=deck.verts, vec=Vector((x, y, base + TOWER_HEIGHT - DECK_DEPTH / 2)))
-    meshes.append(("tower deck", deck, glass))
-    cables = Batch()
-    for angle in VEIL_DIRECTION + np.linspace(-VEIL_SPREAD, VEIL_SPREAD, VEIL_CABLES):
-        direction = np.array([np.cos(angle), np.sin(angle)])
-        top = np.array([x, y]) + direction * DECK_RADIUS
-        foot = np.array([x, y]) + direction * VEIL_REACH * (0.85 + 0.15 * np.cos(angle - VEIL_DIRECTION))
-        beam(cables, np.array([*top, base + TOWER_HEIGHT - DECK_DEPTH]), np.array([*foot, base]), VEIL_WIDTH)
-    for name, bm, material in meshes:
-        data_mesh = bpy.data.meshes.new(name)
-        bm.to_mesh(data_mesh)
-        bm.free()
-        data_mesh.materials.append(material)
-        obj = bpy.data.objects.new(name, data_mesh)
-        bpy.context.scene.collection.objects.link(obj)
-    return cables
+    direction = np.asarray(data["veil"], float)
+    extrude_box(core, (x, y), TOWER_CORE / 2, TOWER_CORE / 2, base, base + TOWER_HEIGHT)
+    for floor in range(TOWER_FLOORS):
+        z = base + 6.0 + floor * (TOWER_HEIGHT - 8.0) / TOWER_FLOORS
+        half = TOWER_PLATE / 2 * (1.0 - 0.15 * (floor % 2))
+        extrude_box(plates, (x, y), half, half, z, z + 0.42)
+    for sx in (-1, 1):
+        for sy in (-1, 1):
+            cx, cy = x + sx * TOWER_PLATE * 0.44, y + sy * TOWER_PLATE * 0.44
+            extrude_box(plates, (cx, cy), TOWER_COLUMN / 2, TOWER_COLUMN / 2, base, base + TOWER_HEIGHT - 2.0)
+    extrude_box(plates, (x, y), TOWER_DECK / 2, TOWER_DECK / 2, base + TOWER_HEIGHT - 3.0, base + TOWER_HEIGHT - 2.4)
+    extrude_box(core, (x, y), TOWER_DECK / 2 - 0.5, TOWER_DECK / 2 - 0.5, base + TOWER_HEIGHT - 2.4, base + TOWER_HEIGHT)
+    extrude_box(plates, (x, y), TOWER_DECK / 2 + 0.3, TOWER_DECK / 2 + 0.3, base + TOWER_HEIGHT, base + TOWER_HEIGHT + 0.4)
+    heading = np.arctan2(direction[1], direction[0])
+    ends = []
+    for index in range(VEIL_RIBS):
+        t = index / (VEIL_RIBS - 1)
+        angle = heading + (t - 0.5) * 2 * VEIL_SPREAD
+        out = np.array([np.cos(angle), np.sin(angle)])
+        side = np.array([-out[1], out[0]])
+        start = np.array([x, y]) + direction * TOWER_PLATE * 0.6 + side * (t - 0.5) * TOWER_PLATE * 0.8
+        reach = VEIL_REACH * (0.82 + 0.18 * np.cos(angle - heading))
+        points = []
+        for step in range(VEIL_STEPS + 1):
+            u = step / VEIL_STEPS
+            xy = start + out * reach * (u**1.7)
+            z = base + VEIL_TOP * (1 - u) ** 1.4 + VEIL_ROOF * u + (1 - u) * 3.0 * np.sin(t * np.pi)
+            points.append((xy, z))
+        for (p0, z0), (p1, z1) in zip(points, points[1:]):
+            veil.add(
+                [(*(p0 - side * VEIL_WIDTH / 2), z0), (*(p0 + side * VEIL_WIDTH / 2), z0), (*(p1 + side * VEIL_WIDTH / 2), z1), (*(p1 - side * VEIL_WIDTH / 2), z1)],
+                UNIT,
+            )
+        ends.append(points[-1])
+    for (p0, z0), (p1, z1) in zip(ends, ends[1:]):
+        beam(veil, np.array([*p0, z0]), np.array([*p1, z1]), 0.5)
 
 
 def gantry(track, boards, steel, panel, lamps):

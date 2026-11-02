@@ -1,8 +1,8 @@
 {
   "extends": "../../tsconfig.json",
   "compilerOptions": {
-    "types": ["@webgpu/types", "vite/client"],
+    "types": ["@webgpu/types", "vite/client", "emscripten"],
     "resolveJsonModule": true
   },
-  "include": ["src/**/*.ts", "vite.config.ts", "pad-server.ts"]
+  "include": ["src/**/*.ts", "vite.config.ts", "pad-server.ts", "api-server.ts"]
 }

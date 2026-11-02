@@ -13,7 +13,33 @@
       "accent": "#f4c43f"
     },
     "sponsors": ["NORTHWIND", "VOLTARA", "KESTREL", "AURELIA"],
-    "design": {}
+    "design": {},
+    "fullName": "Northwind Vanta Racing",
+    "brand": "#e8402a",
+    "principal": "Elias Korvath",
+    "chassis": "V26",
+    "base": "Bicester, UK",
+    "powerUnit": "Aurion",
+    "ratings": {
+      "performance": 94,
+      "aero": 95,
+      "power": 91,
+      "reliability": 88
+    },
+    "drivers": [
+      {
+        "first": "Mateo",
+        "last": "Sandoval",
+        "nationality": "ES",
+        "number": 7
+      },
+      {
+        "first": "Lukas",
+        "last": "Brandt",
+        "nationality": "DE",
+        "number": 70
+      }
+    ]
   },
   {
     "id": "meridian",
@@ -42,7 +68,33 @@
       "airbox": 0.92,
       "finHeight": 0.9,
       "neck": "twin"
-    }
+    },
+    "fullName": "Tessera Meridian Racing",
+    "brand": "#ff7a1a",
+    "principal": "Hana Whitlock",
+    "chassis": "MR-26",
+    "base": "Woking Green, UK",
+    "powerUnit": "Helion",
+    "ratings": {
+      "performance": 97,
+      "aero": 98,
+      "power": 93,
+      "reliability": 90
+    },
+    "drivers": [
+      {
+        "first": "Oliver",
+        "last": "Fairclough",
+        "nationality": "GB",
+        "number": 14
+      },
+      {
+        "first": "Jonas",
+        "last": "Ekholm",
+        "nationality": "SE",
+        "number": 41
+      }
+    ]
   },
   {
     "id": "corvus",
@@ -72,7 +124,33 @@
       "airbox": 0.82,
       "finHeight": 1.2,
       "neck": "single"
-    }
+    },
+    "fullName": "Orbis Corvus Motorsport",
+    "brand": "#14c9b8",
+    "principal": "Tomas Reinholt",
+    "chassis": "CV26",
+    "base": "Brackley Vale, UK",
+    "powerUnit": "Helion",
+    "ratings": {
+      "performance": 92,
+      "aero": 90,
+      "power": 95,
+      "reliability": 93
+    },
+    "drivers": [
+      {
+        "first": "Noah",
+        "last": "Bellamy",
+        "nationality": "GB",
+        "number": 22
+      },
+      {
+        "first": "Andrea",
+        "last": "Corsini",
+        "nationality": "IT",
+        "number": 23
+      }
+    ]
   },
   {
     "id": "halden",
@@ -102,7 +180,33 @@
       "airbox": 1.12,
       "finHeight": 0.85,
       "neck": "twin"
-    }
+    },
+    "fullName": "Arkwright Halden Racing",
+    "brand": "#f0c02a",
+    "principal": "Margot Lindqvist",
+    "chassis": "HR26",
+    "base": "Milton Heath, UK",
+    "powerUnit": "Volkraft",
+    "ratings": {
+      "performance": 89,
+      "aero": 91,
+      "power": 85,
+      "reliability": 84
+    },
+    "drivers": [
+      {
+        "first": "Kaito",
+        "last": "Morishita",
+        "nationality": "JP",
+        "number": 33
+      },
+      {
+        "first": "Liam",
+        "last": "Castellan",
+        "nationality": "NZ",
+        "number": 3
+      }
+    ]
   },
   {
     "id": "sylvan",
@@ -132,7 +236,33 @@
       "airbox": 1.0,
       "finHeight": 1.1,
       "neck": "single"
-    }
+    },
+    "fullName": "Groveland Sylvan Racing",
+    "brand": "#a8d42a",
+    "principal": "Andre Vasselin",
+    "chassis": "SY-26",
+    "base": "Silverton, UK",
+    "powerUnit": "Helion",
+    "ratings": {
+      "performance": 78,
+      "aero": 80,
+      "power": 84,
+      "reliability": 82
+    },
+    "drivers": [
+      {
+        "first": "Ferran",
+        "last": "Oliveras",
+        "nationality": "ES",
+        "number": 2
+      },
+      {
+        "first": "Theo",
+        "last": "Lindgren",
+        "nationality": "CA",
+        "number": 18
+      }
+    ]
   },
   {
     "id": "azura",
@@ -162,7 +292,33 @@
       "airbox": 0.88,
       "finHeight": 1.0,
       "neck": "twin"
-    }
+    },
+    "fullName": "Solvane Azura Racing",
+    "brand": "#2f8dff",
+    "principal": "Celine Marchetti",
+    "chassis": "AZ26",
+    "base": "Enstone Ridge, UK",
+    "powerUnit": "Helion",
+    "ratings": {
+      "performance": 72,
+      "aero": 74,
+      "power": 78,
+      "reliability": 75
+    },
+    "drivers": [
+      {
+        "first": "Pascal",
+        "last": "Durand",
+        "nationality": "FR",
+        "number": 10
+      },
+      {
+        "first": "Jack",
+        "last": "Merrick",
+        "nationality": "AU",
+        "number": 5
+      }
+    ]
   },
   {
     "id": "orion",
@@ -192,7 +348,33 @@
       "airbox": 1.06,
       "finHeight": 0.95,
       "neck": "single"
-    }
+    },
+    "fullName": "Stellan Orion Racing",
+    "brand": "#3fc4f2",
+    "principal": "James Holloway",
+    "chassis": "OR26",
+    "base": "Grove Park, UK",
+    "powerUnit": "Helion",
+    "ratings": {
+      "performance": 81,
+      "aero": 79,
+      "power": 84,
+      "reliability": 86
+    },
+    "drivers": [
+      {
+        "first": "Alex",
+        "last": "Thorne",
+        "nationality": "TH",
+        "number": 28
+      },
+      {
+        "first": "Diego",
+        "last": "Santoro",
+        "nationality": "ES",
+        "number": 55
+      }
+    ]
   },
   {
     "id": "strato",
@@ -222,7 +404,33 @@
       "airbox": 0.96,
       "finHeight": 1.15,
       "neck": "twin"
-    }
+    },
+    "fullName": "Cirrus Peak Strato F-Team",
+    "brand": "#ef2b34",
+    "principal": "Ayaka Tanabe",
+    "chassis": "ST-26",
+    "base": "Kannapolis, USA",
+    "powerUnit": "Marano",
+    "ratings": {
+      "performance": 70,
+      "aero": 68,
+      "power": 86,
+      "reliability": 72
+    },
+    "drivers": [
+      {
+        "first": "Ethan",
+        "last": "Calloway",
+        "nationality": "US",
+        "number": 4
+      },
+      {
+        "first": "Olli",
+        "last": "Rantanen",
+        "nationality": "FI",
+        "number": 87
+      }
+    ]
   },
   {
     "id": "novara",
@@ -252,7 +460,33 @@
       "airbox": 0.86,
       "finHeight": 1.05,
       "neck": "single"
-    }
+    },
+    "fullName": "Lumen Row Novara Racing",
+    "brand": "#7478ff",
+    "principal": "Laurens Meijer",
+    "chassis": "NV-26",
+    "base": "Faenza Alta, IT",
+    "powerUnit": "Volkraft",
+    "ratings": {
+      "performance": 76,
+      "aero": 78,
+      "power": 85,
+      "reliability": 78
+    },
+    "drivers": [
+      {
+        "first": "Isaac",
+        "last": "Hadley",
+        "nationality": "FR",
+        "number": 61
+      },
+      {
+        "first": "Arvid",
+        "last": "Solberg",
+        "nationality": "NO",
+        "number": 30
+      }
+    ]
   },
   {
     "id": "krona",
@@ -282,7 +516,33 @@
       "airbox": 1.15,
       "finHeight": 0.8,
       "neck": "twin"
-    }
+    },
+    "fullName": "Forgehaus Krona Racing",
+    "brand": "#f45a22",
+    "principal": "Mattias Brunner",
+    "chassis": "KR26",
+    "base": "Hinwil Tal, CH",
+    "powerUnit": "Ostara",
+    "ratings": {
+      "performance": 66,
+      "aero": 70,
+      "power": 72,
+      "reliability": 70
+    },
+    "drivers": [
+      {
+        "first": "Nico",
+        "last": "Hartmann",
+        "nationality": "DE",
+        "number": 77
+      },
+      {
+        "first": "Bruno",
+        "last": "Teixeira",
+        "nationality": "BR",
+        "number": 8
+      }
+    ]
   },
   {
     "id": "ardent",
@@ -312,6 +572,32 @@
       "airbox": 0.94,
       "finHeight": 1.25,
       "neck": "single"
-    }
+    },
+    "fullName": "Gildhall Ardent Racing",
+    "brand": "#d4ab40",
+    "principal": "Marcus Ashworth",
+    "chassis": "AR26",
+    "base": "Silverton, UK",
+    "powerUnit": "Sendai",
+    "ratings": {
+      "performance": 86,
+      "aero": 88,
+      "power": 83,
+      "reliability": 80
+    },
+    "drivers": [
+      {
+        "first": "Rafael",
+        "last": "Aguirre",
+        "nationality": "ES",
+        "number": 88
+      },
+      {
+        "first": "Lance",
+        "last": "Whitmore",
+        "nationality": "CA",
+        "number": 19
+      }
+    ]
   }
 ]

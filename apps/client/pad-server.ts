@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import https from "node:https";
@@ -13,6 +14,25 @@ const padPort = Number(process.env["PAD_PORT"] ?? 5200);
 const setupPort = padPort + 1;
 const certDir = path.join(os.homedir(), ".f1-pad");
 const socketPath = "/__pad/ws";
+const viteClient = "/@vite/client";
+const pingInterval = 2000;
+const quietClient = `const styles = new Map();
+const hot = { data: {}, accept() {}, acceptExports() {}, dispose() {}, prune() {}, decline() {}, invalidate() {}, on() {}, off() {}, send() {} };
+export function createHotContext() { return hot; }
+export function updateStyle(id, css) {
+  let style = styles.get(id);
+  if (!style) {
+    style = document.createElement("style");
+    style.setAttribute("data-vite-dev-id", id);
+    document.head.appendChild(style);
+    styles.set(id, style);
+  }
+  style.textContent = css;
+}
+export function removeStyle(id) { styles.get(id)?.remove(); styles.delete(id); }
+export function injectQuery(url) { return url; }
+export class ErrorOverlay extends HTMLElement {}
+`;
 
 function lanAddresses(): string[] {
   return Object.values(os.networkInterfaces())
@@ -64,14 +84,17 @@ function ensureCertificates(names: string[]): {
       "keyUsage=critical,keyCertSign,cRLSign",
     ]);
   }
+  const own = String(padPort);
+  mkdirSync(path.join(certDir, own), { recursive: true });
+  const file = (name: string) => path.join(own, name);
   const wanted = names.join(",");
-  const namesFile = path.join(certDir, "server.names");
+  const namesFile = path.join(certDir, file("server.names"));
   if (!existsSync(namesFile) || readFileSync(namesFile, "utf8") !== wanted) {
     const san = names
       .map((name) => (net.isIP(name) ? `IP:${name}` : `DNS:${name}`))
       .join(",");
     writeFileSync(
-      path.join(certDir, "server.ext"),
+      path.join(certDir, file("server.ext")),
       `subjectAltName=${san}\nextendedKeyUsage=serverAuth\nbasicConstraints=CA:FALSE\nkeyUsage=digitalSignature,keyEncipherment\n`,
     );
     openssl([
@@ -81,9 +104,9 @@ function ensureCertificates(names: string[]): {
       "-newkey",
       "rsa:2048",
       "-keyout",
-      "server.key",
+      file("server.key"),
       "-out",
-      "server.csr",
+      file("server.csr"),
       "-subj",
       "/CN=F1 Pad",
     ]);
@@ -91,25 +114,26 @@ function ensureCertificates(names: string[]): {
       "x509",
       "-req",
       "-in",
-      "server.csr",
+      file("server.csr"),
       "-CA",
       "ca.crt",
       "-CAkey",
       "ca.key",
-      "-CAcreateserial",
+      "-set_serial",
+      `0x${randomBytes(16).toString("hex")}`,
       "-out",
-      "server.crt",
+      file("server.crt"),
       "-days",
       "825",
       "-sha256",
       "-extfile",
-      "server.ext",
+      file("server.ext"),
     ]);
     writeFileSync(namesFile, wanted);
   }
   return {
-    key: readFileSync(path.join(certDir, "server.key")),
-    cert: readFileSync(path.join(certDir, "server.crt")),
+    key: readFileSync(path.join(certDir, own, "server.key")),
+    cert: readFileSync(path.join(certDir, own, "server.crt")),
     ca: readFileSync(path.join(certDir, "ca.crt")),
   };
 }
@@ -118,6 +142,24 @@ class Relay {
   private readonly server = new WebSocketServer({ noServer: true });
   private readonly games = new Set<WebSocket>();
   private readonly pads = new Set<WebSocket>();
+  private readonly alive = new WeakSet<WebSocket>();
+
+  constructor(private readonly log: (message: string) => void) {
+    setInterval(() => {
+      this.sweep();
+    }, pingInterval).unref();
+  }
+
+  private sweep(): void {
+    for (const client of [...this.games, ...this.pads]) {
+      if (!this.alive.has(client)) {
+        client.terminate();
+        continue;
+      }
+      this.alive.delete(client);
+      client.ping();
+    }
+  }
 
   accept(
     request: http.IncomingMessage,
@@ -129,14 +171,21 @@ class Relay {
       const own = role === "game" ? this.games : this.pads;
       const peers = role === "game" ? this.pads : this.games;
       own.add(client);
+      this.alive.add(client);
+      client.on("pong", () => this.alive.add(client));
+      const since = Date.now();
+      this.log(`${role} connected`);
       this.announce();
       client.on("message", (data, isBinary) => {
         for (const peer of peers)
           if (peer.readyState === WebSocket.OPEN)
             peer.send(data, { binary: isBinary });
       });
-      client.on("close", () => {
+      client.on("close", (code) => {
         own.delete(client);
+        this.log(
+          `${role} closed with code ${String(code)} after ${String(Math.round((Date.now() - since) / 1000))} s`,
+        );
         this.announce();
       });
     });
@@ -151,6 +200,11 @@ class Relay {
 
 function proxyRequest(target: number) {
   return (request: http.IncomingMessage, response: http.ServerResponse) => {
+    if (request.url?.split("?")[0] === viteClient) {
+      response.writeHead(200, { "Content-Type": "text/javascript" });
+      response.end(quietClient);
+      return;
+    }
     const upstream = http.request(
       {
         host: "127.0.0.1",
@@ -228,7 +282,9 @@ function start(
     ...new Set([...lanAddresses(), "127.0.0.1", "localhost", localHostName()]),
   ];
   const certificates = ensureCertificates(names);
-  const relay = new Relay();
+  const relay = new Relay((message) => {
+    server.config.logger.info(`  pad relay: ${message}`, { timestamp: true });
+  });
 
   server.httpServer?.on(
     "upgrade",

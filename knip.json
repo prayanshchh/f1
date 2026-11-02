@@ -18,7 +18,12 @@
       ]
     },
     "apps/client": {
-      "entry": ["pad-server.ts"],
+      "entry": ["pad-server.ts", "api-server.ts"],
+      "project": ["src/**/*.ts"],
+      "ignoreDependencies": ["flag-icons"]
+    },
+    "apps/api": {
+      "entry": ["src/index.ts"],
       "project": ["src/**/*.ts"]
     }
   },

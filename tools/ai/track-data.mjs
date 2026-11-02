@@ -33,6 +33,7 @@ export function writeTrackData(root, target) {
   const line = read("racing-line.json");
   const frame = read("sd-frame.json");
   const calibration = read("ai-calibration.json");
+  const kerbs = { length: track.length, ...read("ai-kerbs.json") };
   const centre = track.centerline;
   const pit = track.pitLane;
   const span =
@@ -57,8 +58,8 @@ export function writeTrackData(root, target) {
       "centre_width",
       centre.map((c) => c.width),
     ),
-    section("kerb_left", kerbMask(track, "left", centre.length)),
-    section("kerb_right", kerbMask(track, "right", centre.length)),
+    section("kerb_left", kerbMask(kerbs, "left", centre.length)),
+    section("kerb_right", kerbMask(kerbs, "right", centre.length)),
     section(
       "pit_x",
       pit.centerline.map((c) => c.x),

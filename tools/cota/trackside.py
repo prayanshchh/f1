@@ -1,11 +1,13 @@
 import numpy as np
 
+from palette import BRAND_ASPECT, BRAND_ROWS
+
 WALL_HEIGHT = 1.0
 WALL_THICKNESS = 0.3
 WALL_BURY = 2.5
-BOARD_LENGTH = 4.0
-BRAND_RUN = 24.0
-BRAND_COUNT = 4
+BOARD_LENGTH = float(BRAND_ASPECT)
+BRAND_RUN = 230.0
+BRAND_SEQUENCE = (6, 7, 4, 5, 10, 8, 9, 0, 11, 2, 1, 3)
 TECPRO_LENGTH = 3.0
 TECPRO_RADIUS = 150.0
 TECPRO_SPREAD = 50.0
@@ -107,8 +109,8 @@ def walls(track, smooth):
                 u0, u1 = reading * s0 / TECPRO_LENGTH, reading * s1 / TECPRO_LENGTH
                 tecpro.add(face, [(u0, 0), (u1, 0), (u1, 1), (u0, 1)])
             else:
-                brand = int(s0 // BRAND_RUN) % BRAND_COUNT
-                v0, v1 = 1 - (brand + 1) / BRAND_COUNT, 1 - brand / BRAND_COUNT
+                brand = BRAND_SEQUENCE[int(s0 // BRAND_RUN) % len(BRAND_SEQUENCE)]
+                v0, v1 = 1 - (brand + 1) / BRAND_ROWS, 1 - brand / BRAND_ROWS
                 u0, u1 = reading * s0 / BOARD_LENGTH, reading * s1 / BOARD_LENGTH
                 boards.add(face, [(u0, v0), (u1, v0), (u1, v1), (u0, v1)])
             concrete.add(

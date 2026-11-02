@@ -309,6 +309,10 @@ export function showClassification(
   body.replaceChildren(...classificationRows(entrants, timing, mode, segment));
   body.parentElement?.classList.toggle("compact", timing.length > compactRows);
   find("[data-results=summary]").textContent = "";
+  showActions(actions);
+}
+
+export function showActions(actions: ClassificationAction[]): void {
   const root = find("[data-results=root]");
   find("[data-results=actions]").replaceChildren(
     ...actions.map((action) => {

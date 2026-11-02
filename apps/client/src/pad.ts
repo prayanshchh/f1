@@ -12,6 +12,8 @@ const gravityTime = 0.04;
 const minGravity = 3;
 const vibrateFrom = 0.15;
 const vibratePulse = 60;
+const stallBytes = 2048;
+const stallTime = 1500;
 const riseTime: Record<Pedal, number> = { gas: 1.2, brake: 0.8 };
 const fallTime: Record<Pedal, number> = { gas: 0.2, brake: 0.15 };
 
@@ -87,6 +89,8 @@ class Pad {
   private boostPresses = 0;
   private ersPresses = 0;
   private pagePresses = 0;
+  private wingPresses = 0;
+  private stalledSince = 0;
 
   async start(): Promise<void> {
     if (isPortrait())
@@ -132,6 +136,9 @@ class Pad {
     element("page").addEventListener("click", () => {
       this.pagePresses++;
     });
+    element("wing").addEventListener("click", () => {
+      this.wingPresses++;
+    });
     element("center").addEventListener("click", () => {
       this.calibrate();
     });
@@ -153,7 +160,12 @@ class Pad {
   private async keepAwake(): Promise<void> {
     if (!("wakeLock" in navigator) || document.visibilityState !== "visible")
       return;
-    await navigator.wakeLock.request("screen").catch(() => undefined);
+    const lock = await navigator.wakeLock
+      .request("screen")
+      .catch(() => undefined);
+    lock?.addEventListener("release", () => {
+      void this.keepAwake();
+    });
   }
 
   private async requestMotion(): Promise<void> {
@@ -176,6 +188,7 @@ class Pad {
       this.onFeedback(event.data);
     });
     socket.addEventListener("close", () => {
+      if (this.socket !== socket) return;
       this.setLink(false);
       this.socket = null;
       window.setTimeout(() => {
@@ -347,8 +360,24 @@ class Pad {
     this.root.style.transform = `translate(-50%, -50%) rotate(${String(rotation)}deg)`;
   }
 
+  private stalled(socket: WebSocket, now: number): boolean {
+    if (socket.bufferedAmount < stallBytes) {
+      this.stalledSince = 0;
+      return false;
+    }
+    this.stalledSince ||= now;
+    if (now - this.stalledSince < stallTime) return false;
+    this.stalledSince = 0;
+    this.socket = null;
+    socket.close();
+    this.setLink(false);
+    this.connect();
+    return true;
+  }
+
   private send(): void {
     if (this.socket?.readyState !== WebSocket.OPEN) return;
+    if (this.stalled(this.socket, performance.now())) return;
     this.socket.send(
       new Float32Array([
         this.steer,
@@ -357,6 +386,7 @@ class Pad {
         this.boostPresses,
         this.ersPresses,
         this.pagePresses,
+        this.wingPresses,
       ]),
     );
   }

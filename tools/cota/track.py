@@ -3,17 +3,21 @@ import sys
 from pathlib import Path
 
 import numpy as np
+from PIL import Image
+from pyproj import Transformer
 from scipy.interpolate import splev, splprep
 from scipy.ndimage import gaussian_filter1d, median_filter
 from scipy.spatial import cKDTree
-from shapely import contains_xy
 from shapely.geometry import LinearRing, LineString, Point, Polygon
 from shapely.ops import unary_union
 
+import aerial
+import standshape
 from geo import Osm, Terrain
 
 CIRCUIT = 6537729
 STEP = 2.0
+AERIAL_ROW = 1.0
 NOMINAL_WIDTH = 14.0
 MIN_CENTRE_RADIUS = 15.0
 MIN_EDGE_RADIUS = 8.0
@@ -24,7 +28,7 @@ SURFACE_TOLERANCE = 2.0
 MAX_CAMBER = 0.035
 WALL_SLOPE = 0.35
 WALL_MIN_FORWARD = 0.15
-RAIL_REACH = 40.0
+RAIL_REACH = 110.0
 SYNTHETIC_OFFSET = 14.0
 PIT_WALL = 9.0
 PIT_MIN_REACH = 18.0
@@ -64,20 +68,31 @@ TERRAIN_MARGIN = 650.0
 TERRAIN_SINK = 0.1
 TERRAIN_ROAD_SINK = 0.5
 PIT_CLEARANCE = 9.0
-TREE_SPACING = 15.0
-TREE_JITTER = 5.0
-TREE_SEED = 11
-TREE_GROVE_SCALE = 1 / 260.0
-TREE_EDGE_BAND = 140.0
-TREE_TRACK_CLEARANCE = 8.0
-TREE_ROAD_BUFFER = {"service": 6.0, "footway": 3.0, "residential": 8.0, "secondary": 12.0, "tertiary": 10.0, "unclassified": 8.0, "raceway": 12.0}
-TREE_AREA_BUFFER = 6.0
-TREE_VARIANTS = 3
 PIT_BUILDING_HEIGHT = 14.0
 BUILDING_DEFAULT_HEIGHT = 5.0
-TOWER_POSITION = [316.0, 188.0]
-TREE_BASE_DENSITY = 0.12
-TREE_PARKING_DENSITY = 0.06
+TOWER_MIN_HEIGHT = 40.0
+AMPHITHEATRE_REACH = 160.0
+UTM = Transformer.from_crs(4326, 32614, always_xy=True)
+REGION_SIZE = 44000.0
+REGION_CENTRE = (631483.0, 3334446.0)
+HORIZON_STRIDE = 3
+HORIZON_OVERLAP = 180.0
+HORIZON_SKIRT = 500.0
+HORIZON_SINK = 6.0
+CROWD_SEED = 29
+CROWD_OCCUPANCY = 0.9
+CROWD_ROW_STEP = 2.0
+CROWD_BANKS = ((540.0, 760.0), (1180.0, 1460.0), (1640.0, 1860.0), (2360.0, 2640.0), (3660.0, 4360.0), (4680.0, 4900.0), (5120.0, 5330.0))
+CROWD_BANK_NEAR = 0.6
+CROWD_BANK_FAR = 5.4
+CROWD_BANK_ROW = 0.9
+CROWD_BANK_BACK = 6.0
+CROWD_WALL_CLEARANCE = 0.5
+CROWD_BANK_JITTER = 0.4
+CROWD_BANK_DENSITY = 0.42
+CROWD_GROVE_SCALE = 1 / 45.0
+CROWD_GROVE = 0.42
+CROWD_SHIRTS = ((0.62, 0.06, 0.05), (0.72, 0.1, 0.06), (0.06, 0.14, 0.5), (0.08, 0.2, 0.62), (0.75, 0.74, 0.72), (0.82, 0.82, 0.8), (0.05, 0.05, 0.06), (0.1, 0.11, 0.13), (0.75, 0.42, 0.06), (0.06, 0.34, 0.16), (0.42, 0.14, 0.42), (0.7, 0.6, 0.12))
 GRID_BEHIND_LINE = 16.0
 GRID_SPACING = 8.0
 GRID_OFFSET = 3.5
@@ -437,40 +452,6 @@ def ground(ground_height, points, origin_height, pit, garage_rows):
     return xs, ys, heights.reshape(gy.shape)
 
 
-def tree_exclusions(osm):
-    shapes = []
-    for way in osm.ways.values():
-        tags = way.get("tags", {})
-        coords = osm.way(way["id"])
-        if len(coords) < 2:
-            continue
-        closed = way["nodes"][0] == way["nodes"][-1] and len(coords) >= 4
-        highway = tags.get("highway")
-        if highway in TREE_ROAD_BUFFER and not closed:
-            shapes.append(LineString(coords).buffer(TREE_ROAD_BUFFER[highway]))
-        elif closed and (
-            "building" in tags
-            or "area:highway" in tags
-            or tags.get("natural") == "water"
-            or tags.get("leisure") in ("bleachers", "swimming_pool", "sports_centre", "pitch")
-            or tags.get("landuse") == "construction"
-        ):
-            shapes.append(Polygon(coords).buffer(TREE_AREA_BUFFER))
-    return unary_union(shapes)
-
-
-def parking(osm):
-    return unary_union(
-        [Polygon(osm.way(w["id"])).buffer(0) for w in osm.ways.values() if w.get("tags", {}).get("amenity") == "parking" and len(w["nodes"]) >= 4]
-    )
-
-
-def groves(osm):
-    return unary_union(
-        [Polygon(osm.way(w["id"])) for w in osm.ways.values() if w.get("tags", {}).get("natural") in ("wood", "scrub") and len(w["nodes"]) >= 4]
-    )
-
-
 def value_noise(points, scale, seed):
     rng = np.random.default_rng(seed)
     lattice = rng.random((64, 64))
@@ -484,43 +465,42 @@ def value_noise(points, scale, seed):
     return top * (1 - f[:, 1]) + bottom * f[:, 1]
 
 
-def trees(osm, ground_height, points, offsets, xs, ys, origin_height):
-    rng = np.random.default_rng(TREE_SEED)
-    gx, gy = np.meshgrid(np.arange(xs[0], xs[-1], TREE_SPACING), np.arange(ys[0], ys[-1], TREE_SPACING))
-    candidates = np.stack([gx.ravel(), gy.ravel()], 1) + rng.uniform(-TREE_JITTER, TREE_JITTER, (gx.size, 2))
-    margin = np.minimum.reduce(
-        [candidates[:, 0] - xs[0], xs[-1] - candidates[:, 0], candidates[:, 1] - ys[0], ys[-1] - candidates[:, 1]]
-    )
-    candidates, margin = candidates[margin > 10], margin[margin > 10]
-    distance, index = cKDTree(points).query(candidates)
-    reach = np.max(offsets[index, :, -1], axis=1) + TREE_TRACK_CLEARANCE
-    keep = distance > reach
-    candidates, margin = candidates[keep], margin[keep]
-    blocked = tree_exclusions(osm)
-    grove = groves(osm)
-    free = ~contains_xy(blocked, candidates[:, 0], candidates[:, 1])
-    candidates, margin = candidates[free], margin[free]
-    density = TREE_BASE_DENSITY + 0.8 * np.clip((value_noise(candidates, TREE_GROVE_SCALE, TREE_SEED) - 0.35) * 2.5, 0, 1)
-    density = np.where(contains_xy(parking(osm), candidates[:, 0], candidates[:, 1]), TREE_PARKING_DENSITY, density)
-    density = np.where(contains_xy(grove, candidates[:, 0], candidates[:, 1]), 0.85, density)
-    density = np.where(margin < TREE_EDGE_BAND, np.maximum(density, 0.8), density)
-    chosen = candidates[rng.random(len(candidates)) < density]
-    heights = ground_height(chosen) - origin_height
-    return np.column_stack(
-        [
-            chosen,
-            heights,
-            rng.uniform(0.7, 1.3, len(chosen)),
-            rng.uniform(0, 2 * np.pi, len(chosen)),
-            rng.integers(0, TREE_VARIANTS, len(chosen)),
-        ]
-    )
+def crowd(stands, ground_height, points, normal, offsets, origin_height, path):
+    rng = np.random.default_rng(CROWD_SEED)
+    seated = [standshape.seats(stand) for stand in stands]
+    seated = np.concatenate(seated)
+    keep = rng.random(len(seated)) < CROWD_OCCUPANCY
+    seated = seated[keep]
+    rows = np.arange(0, len(points), max(1, int(round(CROWD_ROW_STEP / STEP))))
+    banks = []
+    for start, end in CROWD_BANKS:
+        for row in rows[(rows * STEP >= start) & (rows * STEP < end)]:
+            for sign, side in ((1, 0), (-1, 1)):
+                for depth in np.arange(CROWD_BANK_NEAR, CROWD_BANK_FAR, CROWD_BANK_ROW):
+                    xy = points[row] + normal[row] * sign * (offsets[row, side, -1] - CROWD_BANK_BACK + depth)
+                    banks.append(xy + rng.normal(0, CROWD_BANK_JITTER, 2))
+    banks = np.array(banks)
+    grove = value_noise(banks, CROWD_GROVE_SCALE, CROWD_SEED)
+    banks = banks[(grove > CROWD_GROVE) & (rng.random(len(banks)) < CROWD_BANK_DENSITY)]
+    _, nearest = cKDTree(points).query(banks)
+    across = np.einsum("ij,ij->i", banks - points[nearest], normal[nearest])
+    side = (across < 0).astype(int)
+    wall = offsets[nearest, side, -1] - CROWD_BANK_BACK
+    banks = banks[np.abs(across) > wall + CROWD_WALL_CLEARANCE]
+    standing = np.column_stack([banks, ground_height(banks) - origin_height])
+    positions = np.concatenate([seated, standing])
+    shirts = np.array(CROWD_SHIRTS, float)[rng.integers(0, len(CROWD_SHIRTS), len(positions))]
+    shirts *= rng.uniform(0.7, 1.15, (len(positions), 1))
+    data = np.column_stack([positions, rng.random(len(positions)), rng.integers(0, 32, len(positions)), shirts])
+    path.write_bytes(data.astype(np.float32).tobytes())
+    return len(seated), len(standing)
 
 
 def venue(osm, ground_height, points, origin_height):
     near = cKDTree(points)
     stands, buildings = [], []
     pit = None
+    tower = None
     for way in osm.ways.values():
         tags = way.get("tags", {})
         if len(way["nodes"]) < 4 or way["nodes"][0] != way["nodes"][-1]:
@@ -541,14 +521,59 @@ def venue(osm, ground_height, points, origin_height):
             pit = {"outline": outline.round(3).tolist(), "base": base, "height": PIT_BUILDING_HEIGHT}
         elif "building" in tags:
             height = float(tags.get("height", 0) or 0) or BUILDING_DEFAULT_HEIGHT
+            if height > TOWER_MIN_HEIGHT:
+                tower = centroid
+                continue
             buildings.append({"outline": outline.round(3).tolist(), "base": base, "height": height})
-    tower = np.array(TOWER_POSITION)
+    amphitheatre = np.mean([np.mean(s["outline"], axis=0) for s in stands if np.linalg.norm(np.mean(s["outline"], axis=0) - tower) < AMPHITHEATRE_REACH], axis=0)
+    veil = (amphitheatre - tower) / np.linalg.norm(amphitheatre - tower)
     return {
         "stands": stands,
         "pit": pit,
         "buildings": buildings,
-        "tower": {"position": TOWER_POSITION, "base": float(ground_height(tower[None, :])[0] - origin_height)},
+        "tower": {"position": tower.round(3).tolist(), "base": float(ground_height(tower[None, :])[0] - origin_height), "veil": veil.round(5).tolist()},
     }
+
+
+def write_horizon(root, build, osm, origin_height, xs, ys):
+    heights = np.asarray(Image.open(root / "source" / "region-dem.png"), np.float32) / 100.0 + 100.0
+    size = heights.shape[0]
+    stride = HORIZON_STRIDE
+    rows, columns = np.meshgrid(np.arange(0, size, stride), np.arange(0, size, stride), indexing="ij")
+    east = REGION_CENTRE[0] - REGION_SIZE / 2 + (columns + 0.5) * REGION_SIZE / size
+    north = REGION_CENTRE[1] + REGION_SIZE / 2 - (rows + 0.5) * REGION_SIZE / size
+    lon, lat = UTM.transform(east.ravel(), north.ravel(), direction="INVERSE")
+    local = osm.local(np.stack([lat, lon], 1)).reshape(rows.shape + (2,))
+    field = heights[rows, columns] - origin_height
+    inside = (local[..., 0] > xs[0] + HORIZON_OVERLAP) & (local[..., 0] < xs[-1] - HORIZON_OVERLAP) & (local[..., 1] > ys[0] + HORIZON_OVERLAP) & (local[..., 1] < ys[-1] - HORIZON_OVERLAP)
+    near = (local[..., 0] > xs[0] - HORIZON_SKIRT) & (local[..., 0] < xs[-1] + HORIZON_SKIRT) & (local[..., 1] > ys[0] - HORIZON_SKIRT) & (local[..., 1] < ys[-1] + HORIZON_SKIRT)
+    field = np.where(near, field - HORIZON_SINK, field)
+    u = (columns + 0.5) / size
+    v = 1.0 - (rows + 0.5) / size
+    np.savez(build / "horizon.npz", x=local[..., 0], y=local[..., 1], z=field, u=u, v=v, hole=inside)
+
+
+def dense_centreline(points, n, width, step):
+    factor = int(round(step / AERIAL_ROW))
+    count = len(points)
+    t = (np.arange(factor) / factor)[:, None]
+    dense = []
+    for i in range(count):
+        p0, p1, p2, p3 = points[i - 1], points[i], points[(i + 1) % count], points[(i + 2) % count]
+        dense.append(0.5 * (2 * p1 + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t + (-p0 + 3 * p1 - 3 * p2 + p3) * t * t * t))
+    dense = np.concatenate(dense)
+    delta = np.roll(dense, -1, 0) - np.roll(dense, 1, 0)
+    tangent = delta / np.linalg.norm(delta, axis=1, keepdims=True)
+    half = np.interp(np.arange(len(dense)) / factor, np.arange(count + 1), np.append(width, width[0]) / 2)
+    return dense, np.stack([-tangent[:, 1], tangent[:, 0]], 1), half
+
+
+def dense_kerbs(root, build, dense, normal, half, length, pit_rows, surfaces):
+    factor = len(dense) // len(pit_rows)
+    blocked = np.repeat(pit_rows, factor)
+    step = length / len(dense)
+    spans = aerial.bake(root / "source", dense, normal, half, step, blocked, root / "textures" / "baked", build)
+    return spans or surfaces
 
 
 def main():
@@ -587,6 +612,11 @@ def main():
     wall_left, wall_right = walls(osm, points, tangents, width, unary_union([left_ring, right_ring]), k, STEP, reach)
     sectors = [float(round(spline.project(osm.local([line])[0]) - start, 3) % round(length, 3)) for line in SECTOR_LINES]
     extents = verge_extents(width, wall_left, wall_right)
+    pit_rows = np.zeros(len(points), bool)
+    pit_rows[zone] = True
+    build = Path(sys.argv[2] if len(sys.argv) > 2 else "build/cota")
+    dense, dense_n, dense_half = dense_centreline(points, n, width, step)
+    surfaces = dense_kerbs(root, build, dense, dense_n, dense_half, length, pit_rows, surfaces)
     ground_height = Ground(Terrain(root / "source" / "dem.png", osm, GROUND_SMOOTHING), points, n, width, camber, centre, extents)
     track = {
         "id": "cota",
@@ -630,15 +660,15 @@ def main():
     for key in layout:
         pit[key] = round(pit[key] % length, 3)
     (root / "track.json").write_text(json.dumps(track, separators=(",", ":")) + "\n")
-    build = Path(sys.argv[2] if len(sys.argv) > 2 else "build/cota")
     build.mkdir(parents=True, exist_ok=True)
     offsets, heights = verge(points, n, width, camber, centre, extents, ground_height)
     np.savez(build / "verge.npz", offsets=offsets, heights=heights - origin_height)
     xs, ys, field = ground(ground_height, points, origin_height, track["pitLane"], garage_rows)
     np.savez(build / "terrain.npz", x=xs, y=ys, heights=field)
-    forest = trees(osm, ground_height, points, offsets, xs, ys, origin_height)
-    np.save(build / "trees.npy", forest)
-    (build / "venue.json").write_text(json.dumps(venue(osm, ground_height, points, origin_height)))
+    write_horizon(root, build, osm, origin_height, xs, ys)
+    layout_data = venue(osm, ground_height, points, origin_height)
+    (build / "venue.json").write_text(json.dumps(layout_data))
+    print("crowd", crowd(layout_data["stands"], ground_height, points, n, offsets, origin_height, root / "crowd.bin"))
     print(f"trees {len(forest)}")
     heading = np.degrees(np.arctan2(tangents[:, 1], tangents[:, 0]))
     jump = np.abs(np.diff(gaussian_filter1d(curvature(points, tangents), 0.5, mode="wrap"))) / step

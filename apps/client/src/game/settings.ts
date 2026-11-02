@@ -9,7 +9,7 @@ export const tracks = [
   {
     id: "cota",
     label: "Circuit of the Americas",
-    detail: "Austin · 5.53 km",
+    detail: "Austin · 5.48 km",
     category: "circuit",
     length: 5528,
   },
@@ -26,7 +26,7 @@ export const choices = {
   tyreWear: [
     { id: "off", label: "Off" },
     { id: "real", label: "Real Life" },
-    { id: "scaled", label: "Race Length" },
+    { id: "raceLength", label: "Race Length" },
   ],
   session: [
     { id: "practice", label: "Practice" },
@@ -94,6 +94,7 @@ export interface Settings {
   track: string;
   car: string;
   session: ChoiceId<"session">;
+  buildUp: boolean;
   laps: number;
   difficulty: number;
   startSlot: number;
@@ -144,13 +145,14 @@ export const defaults: Settings = {
   track: "cota",
   car: "vanta",
   session: "weekend",
+  buildUp: true,
   laps: 10,
   difficulty: 90,
   startSlot: 10,
   qualifyingLength: "full",
   fuel: 0,
   compound: "medium",
-  tyreWear: "scaled",
+  tyreWear: "real",
   ersMode: 1,
   fuelMix: 1,
   ersAssist: false,
@@ -211,6 +213,8 @@ export function loadSettings(params: URLSearchParams): Settings {
   if (!options.includes(settings.laps))
     settings.laps =
       options.find((laps) => laps >= settings.laps) ?? defaults.laps;
+  if (!choices.tyreWear.some((c) => c.id === settings.tyreWear))
+    settings.tyreWear = defaults.tyreWear;
   return settings;
 }
 

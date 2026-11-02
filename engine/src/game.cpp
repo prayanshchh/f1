@@ -64,6 +64,12 @@ bool sdPlayerAutopilot()
 static double frame[SD_FRAME_SIZE];
 static double simuTick = RCM_MAX_DT_SIMU;
 static double clockNow = 0.0;
+static int damageLimit = 0;
+
+int sdDamageLimit()
+{
+    return damageLimit;
+}
 
 static void *carParams(const char *carName, tCarElt *elt)
 {
@@ -355,6 +361,7 @@ static void runOneStep(double deltaTimeIncrement)
         }
         if (!playerOnAi)
             sdInputApplyHold(s->cars[0]);
+        sdCarStatusDriveLimit(s->cars[0]);
         pCurrReInfo->_reLastRobTime = s->currentTime;
     }
 
@@ -362,6 +369,7 @@ static void runOneStep(double deltaTimeIncrement)
     {
         sdTyresStep(s->cars[i], deltaTimeIncrement);
         sdEnergyStep(s->cars[i], deltaTimeIncrement);
+        sdCarStatusPrepare(s->cars[i]);
     }
     SimUpdate(s, deltaTimeIncrement);
     for (int i = 0; i < s->_ncars; i++)
@@ -371,6 +379,8 @@ static void runOneStep(double deltaTimeIncrement)
     }
     sdSessionAfterStep(s);
 }
+
+static double raceCountdown = 0.0;
 
 static void startRace()
 {
@@ -397,7 +407,7 @@ static void startRace()
 
     ReInfo->_reTimeMult = 1.0;
     ReInfo->_reLastRobTime = -1.0;
-    s->currentTime = sdSessionStartClock();
+    s->currentTime = raceCountdown > 0.0 ? -raceCountdown : sdSessionStartClock();
     s->deltaTime = RCM_MAX_DT_SIMU;
     s->_raceState = RM_RACE_STARTING;
     ReInfo->_reRunning = 1;
@@ -470,6 +480,20 @@ static void *mergedCarHandle(const char *carName)
     snprintf(buf, sizeof(buf), "cars/categories/%s.xml", category);
     void *cathdle = GfParmReadFile(buf, GFPARM_RMODE_STD | GFPARM_RMODE_CREAT);
     return GfParmMergeHandles(cathdle, carhdle, GFPARM_MMODE_SRC | GFPARM_MMODE_DST | GFPARM_MMODE_RELSRC | GFPARM_MMODE_RELDST);
+}
+
+int sdSurfaceClass(const tTrackSeg *seg)
+{
+    const char *material = seg && seg->surface ? seg->surface->material : nullptr;
+    if (!material)
+        return 0;
+    if (strstr(material, "kerb") || strstr(material, "curb"))
+        return 1;
+    if (strstr(material, "grass"))
+        return 2;
+    if (strstr(material, "sand") || strstr(material, "gravel") || strstr(material, "dirt"))
+        return 3;
+    return 0;
 }
 
 extern "C" {
@@ -549,6 +573,11 @@ EMSCRIPTEN_KEEPALIVE void sdTimeScale(double scale)
     ReInfo->_reTimeMult = 1.0 / std::max(1.0, scale);
 }
 
+EMSCRIPTEN_KEEPALIVE void sdRaceCountdown(double seconds)
+{
+    raceCountdown = seconds;
+}
+
 EMSCRIPTEN_KEEPALIVE int sdInit(const char *trackCategory, const char *trackName, const char *raceFile, const char *carOverride, double now)
 {
     clockNow = now;
@@ -578,7 +607,8 @@ EMSCRIPTEN_KEEPALIVE int sdInit(const char *trackCategory, const char *trackName
     s->cars = (tCarElt **)calloc(carCount, sizeof(tCarElt *));
     for (int i = 0; i < carCount; i++)
         s->cars[i] = &ReInfo->carList[i];
-    s->_maxDammage = (int)GfParmGetNum(ReInfo->params, ReInfo->_reRaceName, RM_ATTR_MAX_DMG, NULL, 10000);
+    damageLimit = (int)GfParmGetNum(ReInfo->params, ReInfo->_reRaceName, RM_ATTR_MAX_DMG, NULL, 10000);
+    s->_maxDammage = 0;
     s->_raceType = RM_TYPE_RACE;
     s->_totLaps = (int)GfParmGetNum(ReInfo->params, ReInfo->_reRaceName, RM_ATTR_LAPS, NULL, 3);
     s->_totTime = -60.0f;
@@ -708,33 +738,19 @@ EMSCRIPTEN_KEEPALIVE void sdTelemetry(double *out)
     sdInputState(&out[32]);
 }
 
-EMSCRIPTEN_KEEPALIVE void sdPitService(double fuel)
+EMSCRIPTEN_KEEPALIVE void sdPitService(double fuel, int frontWing)
 {
     tCarElt *car = ReInfo->s->cars[0];
+    double repaired = frontWing ? sdCarStatusReplaceWing() : 0.0;
     car->pitcmd.fuel = (tdble)std::max(0.0, fuel - car->_fuel);
-    car->pitcmd.repair = car->_dammage;
+    car->pitcmd.repair = (tdble)(car->_dammage * repaired);
     car->pitcmd.tireChange = tCarPitCmd::ALL;
     car->pitcmd.tiresetChange = tCarPitCmd::NON_CHANGE;
     SimReConfig(car);
     sdTyresService(0, sdPitCompound());
-    sdCarStatusRepair(0);
     car->pitcmd.fuel = 0;
     car->pitcmd.repair = 0;
     car->pitcmd.tireChange = tCarPitCmd::NONE;
-}
-
-static int surfaceClass(const tTrackSeg *seg)
-{
-    const char *material = seg && seg->surface ? seg->surface->material : nullptr;
-    if (!material)
-        return 0;
-    if (strstr(material, "kerb") || strstr(material, "curb"))
-        return 1;
-    if (strstr(material, "grass"))
-        return 2;
-    if (strstr(material, "sand") || strstr(material, "gravel") || strstr(material, "dirt"))
-        return 3;
-    return 0;
 }
 
 EMSCRIPTEN_KEEPALIVE void sdAudio(double *out)
@@ -746,7 +762,7 @@ EMSCRIPTEN_KEEPALIVE void sdAudio(double *out)
         w[0] = car->_skid[i];
         w[1] = car->_wheelSpinVel(i);
         w[2] = car->_wheelRadius(i);
-        w[3] = surfaceClass(car->_wheelSeg(i));
+        w[3] = sdSurfaceClass(car->_wheelSeg(i));
         w[4] = car->_wheelFz(i);
     }
     out[20] = car->_speed_xy;
@@ -873,7 +889,7 @@ EMSCRIPTEN_KEEPALIVE void sdHudInfo(double *out)
     out[0] = car->_fuel;
     out[1] = car->_tank;
     out[2] = car->_dammage;
-    out[3] = ReInfo->s->_maxDammage;
+    out[3] = damageLimit;
     out[4] = car->_state;
     out[5] = ReInfo->s->_totLaps;
     for (int i = 0; i < 4; i++)

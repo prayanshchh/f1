@@ -207,6 +207,7 @@ export function planWeekend(
 export interface WeekendState {
   stage: Stage;
   grid: string[] | null;
+  buildUpPlayed?: boolean;
 }
 
 export function loadWeekend(): WeekendState | null {

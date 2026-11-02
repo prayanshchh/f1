@@ -4,7 +4,9 @@ import { describe, expect, test } from "vitest";
 import {
   cornerMask,
   cues,
+  emptyPlan,
   layTiles,
+  planCues,
   type Cue,
   type RacingLineData,
   type SpeedProfile,
@@ -145,6 +147,25 @@ describe("dynamic racing line cues", () => {
       firstBrake(lapStart, 0) + (n - end) * step,
       5,
     );
+  });
+});
+
+describe("racing line cue planning", () => {
+  const reach = 900;
+  const shownAhead = 750;
+
+  test("a reused plan matches a fresh full-lap plan across the shown distance", () => {
+    const plan = emptyPlan(n);
+    for (let distance = 0; distance < line.length; distance += 37) {
+      const speed = value(rookie.speed, Math.floor(distance / step)) * 1.3;
+      planCues(plan, rookie, line.length, distance, speed, reach);
+      const fresh = cues(rookie, line.length, distance, speed);
+      const start = Math.floor(distance / step);
+      for (let k = 0; k < Math.floor(shownAhead / step); k++) {
+        const i = (start + k) % n;
+        expect(plan[i]).toEqual(fresh[i]);
+      }
+    }
   });
 });
 

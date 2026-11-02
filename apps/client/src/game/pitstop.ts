@@ -41,11 +41,13 @@ export interface PitControl {
   pitTime: number | null;
   stopTime: number | null;
   estimate: number | null;
+  wingChange: boolean;
   distanceToBox: number | null;
   speedKph: number;
 }
 
 const baseStop = 2.5;
+const wingChangeTime = 8;
 const turnInLead = 34;
 const countdownShown = 3.5;
 const optimalWindow = 0.12;
@@ -82,8 +84,8 @@ export function gradeTurnIn(secondsEarly: number): TurnInGrade {
   return secondsEarly > 0 ? "early" : "late";
 }
 
-export function stopDuration(grade: TurnInGrade): number {
-  return baseStop + penalties[grade];
+export function stopDuration(grade: TurnInGrade, frontWing = false): number {
+  return baseStop + penalties[grade] + (frontWing ? wingChangeTime : 0);
 }
 
 function ease(t: number): number {
@@ -104,6 +106,8 @@ export class PitStop {
   private garageMode = false;
   private waiting = false;
   private garageReleased = false;
+  private wingRequest = false;
+  private wingChange = false;
 
   constructor(
     private readonly layout: PitLayout,
@@ -138,6 +142,10 @@ export class PitStop {
 
   private onArc(distance: number, from: number, to: number): boolean {
     return this.ahead(from, distance) <= this.ahead(from, to);
+  }
+
+  requestWing(on: boolean): void {
+    this.wingRequest = on;
   }
 
   shiftAt(distance: number): number {
@@ -178,6 +186,7 @@ export class PitStop {
     if (toBox > length / 2 || toBox < arrivalDistance || crawling) {
       this.phase = "service";
       this.serviceAt = now;
+      this.wingChange = this.wingRequest;
     }
     return {
       lateral: this.turnLateral + (boxLateral - this.turnLateral) * blend,
@@ -199,7 +208,7 @@ export class PitStop {
 
   private updateService(car: PitCarState, now: number): number {
     if (this.garageMode) return this.updateGarage(car);
-    const duration = stopDuration(this.grade ?? "optimal");
+    const duration = stopDuration(this.grade ?? "optimal", this.wingChange);
     const elapsed = now - this.serviceAt;
     if (elapsed >= duration && car.laneClear !== false) {
       this.stopTime = duration;
@@ -279,7 +288,13 @@ export class PitStop {
       grade: this.grade,
       pitTime: this.laneAt === null ? null : now - this.laneAt,
       stopTime: this.stopTime,
-      estimate: this.grade ? stopDuration(this.grade) : null,
+      estimate: this.grade
+        ? stopDuration(
+            this.grade,
+            this.phase === "boxing" ? this.wingRequest : this.wingChange,
+          )
+        : null,
+      wingChange: this.wingChange,
       distanceToBox: this.boxRemaining(car),
       speedKph: Math.abs(car.speed) * 3.6,
     };
@@ -293,6 +308,7 @@ export class PitStop {
     this.serviced = false;
     this.stopTime = null;
     this.laneAt = null;
+    this.wingChange = false;
   }
 }
 

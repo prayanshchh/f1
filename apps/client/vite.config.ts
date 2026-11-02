@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
+import { apiServer } from "./api-server.ts";
 import { padRelay } from "./pad-server.ts";
 
 const headers = {
@@ -8,7 +9,7 @@ const headers = {
 };
 
 export default defineConfig({
-  plugins: [padRelay()],
+  plugins: [apiServer(), padRelay()],
   server: {
     headers,
     fs: { allow: [fileURLToPath(new URL("../..", import.meta.url))] },

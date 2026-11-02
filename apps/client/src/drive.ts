@@ -4,8 +4,11 @@ import {
   type PitDrive,
   type PitLayout,
 } from "./game/pitstop.ts";
+import frameUrl from "../../../content/tracks/cota/sd-frame.json?url";
 import "@fontsource-variable/saira/wdth.css";
 import "./drive.css";
+import "./front.css";
+import "./buildup.css";
 import * as THREE from "three/webgpu";
 import {
   boostMode,
@@ -24,15 +27,45 @@ import {
   type SessionPlan,
   setupSource,
 } from "./game/engine.ts";
-import { Hud, type HudOptions, type TrackMap } from "./game/hud.ts";
+import {
+  currentDriver,
+  type Driver,
+  driverOutbox,
+  rememberDriver,
+} from "./game/api.ts";
+import { playBuildUp, type Weather } from "./game/buildup.ts";
+import { FrontEnd } from "./game/front-end.ts";
+import {
+  Hud,
+  type HudOptions,
+  lapTime,
+  signed,
+  type TrackMap,
+} from "./game/hud.ts";
 import { sdlKeycode } from "./game/keys.ts";
-import { compoundIndex, nextCompound, wearScale } from "./game/tyres.ts";
+import {
+  retirementLabel,
+  tyreRoughness,
+  wingRequested,
+} from "./game/damage.ts";
+import {
+  compoundIndex,
+  compounds,
+  nextCompound,
+  wearScale,
+} from "./game/tyres.ts";
 import { LapTrace } from "./game/laptrace.ts";
 import { Menu } from "./game/menu.ts";
+import type { CarStatus } from "./game/mfd.ts";
 import { type PadCommands, PadLink } from "./game/pad.ts";
 import { Atmosphere } from "./game/atmosphere.ts";
-import { Scene } from "./game/scene.ts";
-import { GameSound } from "./game/sound/game-sound.ts";
+import { RaceLog } from "./game/race-log.ts";
+import { loadReference, rememberReference } from "./game/reference.ts";
+import { fetchJson, Scene } from "./game/scene.ts";
+import { GameSound, openAudio } from "./game/sound/game-sound.ts";
+import { StartLights } from "./game/start-lights.ts";
+import { Studio } from "./game/studio.ts";
+import { type PlayerSeat, startingGrid } from "./game/teams.ts";
 import {
   applySettings,
   carOf,
@@ -49,8 +82,10 @@ import {
   segmentNames,
   type Stage,
   type WeekendPlan,
+  type WeekendState,
 } from "./game/weekend.ts";
 import { WeekendFlow } from "./game/weekend-flow.ts";
+import { showActions } from "./game/weekend-ui.ts";
 
 const canvas = document.querySelector<HTMLCanvasElement>(
   "[data-testid=drive-canvas]",
@@ -83,25 +118,87 @@ function restart(autostart: boolean): void {
   location.reload();
 }
 
-function referenceKey(settings: Settings): string {
-  return `f1.best.${settings.track}.${carOf(settings).car}`;
+function cell(text: string, className = ""): HTMLTableCellElement {
+  const td = document.createElement("td");
+  td.textContent = text;
+  if (className) td.className = className;
+  return td;
 }
 
-function loadReference(
-  settings: Settings,
-): { trace: number[]; sectors: number[] } | null {
-  try {
-    const stored = JSON.parse(
-      localStorage.getItem(referenceKey(settings)) ?? "null",
-    ) as { trace: number[]; sectors: number[] } | null;
-    return stored &&
-      Array.isArray(stored.trace) &&
-      Array.isArray(stored.sectors)
-      ? stored
-      : null;
-  } catch {
-    return null;
-  }
+function showResults(hud: Hud, title: string): void {
+  const best = hud.laps.reduce<number | null>(
+    (b, lap) => (b === null || lap.time < b ? lap.time : b),
+    null,
+  );
+  const total = hud.laps.reduce((sum, lap) => sum + lap.time, 0);
+  const sectorCount = hud.laps[0]?.sectors.length ?? 3;
+  const bestSectors = Array.from({ length: sectorCount }, (_, i) =>
+    Math.min(...hud.laps.map((lap) => lap.sectors[i] ?? Infinity)),
+  );
+  element("[data-results=title]").textContent = title;
+  element("[data-results=summary]").textContent =
+    `Total ${lapTime(total)} · Best ${lapTime(best)}`;
+  element("[data-results=head]").replaceChildren(
+    ...[
+      "Lap",
+      ...bestSectors.map((_, i) => `S${String(i + 1)}`),
+      "Time",
+      "Gap",
+    ].map((label) => {
+      const th = document.createElement("th");
+      th.textContent = label;
+      return th;
+    }),
+  );
+  element("[data-results=laps]").replaceChildren(
+    ...hud.laps.map((lap, index) => {
+      const row = document.createElement("tr");
+      row.style.setProperty("--i", String(index));
+      row.classList.toggle("best", lap.time === best);
+      row.append(
+        cell(String(lap.lap), "pos"),
+        ...lap.sectors.map((t, i) =>
+          cell(t.toFixed(3), t === bestSectors[i] ? "purple" : ""),
+        ),
+        cell(lapTime(lap.time), lap.time === best ? "purple time" : "time"),
+        cell(
+          best === null || lap.time === best ? "" : signed(lap.time - best),
+          "gap",
+        ),
+      );
+      return row;
+    }),
+  );
+  const root = element("[data-results=root]");
+  root.hidden = false;
+  requestAnimationFrame(() => {
+    root.classList.add("open");
+  });
+  showActions([
+    {
+      label: "Restart Session",
+      run: () => {
+        restart(true);
+      },
+    },
+    {
+      label: "Main Menu",
+      run: () => {
+        restart(false);
+      },
+    },
+  ]);
+}
+
+function sessionTitle(
+  track: string,
+  session: string,
+  status: CarStatus,
+): string {
+  const ended = status.stopped
+    ? ` - Session ended: ${retirementLabel(status.retired)}`
+    : "";
+  return `${track} - ${session}${ended}`;
 }
 
 function trackMap(engine: Engine): TrackMap {
@@ -122,9 +219,11 @@ function fitStage(): void {
 function drawer(renderer: THREE.WebGPURenderer, scene: Scene): () => void {
   const atmosphere = new Atmosphere(renderer, scene.scene, scene.camera);
   return () => {
-    scene.renderAuxiliary(renderer);
+    scene.commitMoves();
+    scene.hideUnseenCrew();
     atmosphere.update(scene.atmosphere);
     atmosphere.render();
+    scene.renderAuxiliary(renderer);
   };
 }
 
@@ -133,6 +232,12 @@ function raceControls(engine: Engine, hud: Hud, settings: Settings) {
   let padBoost = 0;
   let padErs = 0;
   let padPage = 0;
+  let padWing = 0;
+  let wingChoice: boolean | null = null;
+  const wingWanted = () => wingRequested(wingChoice, engine.carStatus());
+  const flipWing = () => {
+    wingChoice = !wingWanted();
+  };
   const cycleErs = () => {
     cruise = nextErsMode(engine.energyInfo().mode, cruise);
     engine.setErsMode(cruise);
@@ -163,6 +268,7 @@ function raceControls(engine: Engine, hud: Hud, settings: Settings) {
     tab: () => {
       hud.toggleTower();
     },
+    n: flipWing,
     x: () => {
       engine.armStraight();
     },
@@ -185,9 +291,15 @@ function raceControls(engine: Engine, hud: Hud, settings: Settings) {
       if (pressed.boost !== padBoost) flipBoost();
       if (pressed.ers !== padErs) cycleErs();
       if (pressed.page !== padPage) hud.nextMfdPage();
+      if (pressed.wing !== padWing) flipWing();
       padPage = pressed.page;
+      padWing = pressed.wing;
       padBoost = pressed.boost;
       padErs = pressed.ers;
+    },
+    wingChange: wingWanted,
+    wingServed(): void {
+      wingChoice = null;
     },
   };
 }
@@ -196,8 +308,13 @@ const wearShortestRace = 28;
 const shortQualifying = 0.5;
 const fieldReferenceLap = 97.5;
 
-function raceSystems(settings: Settings, stage: Stage | null): RaceSystems {
+function raceSystems(
+  settings: Settings,
+  stage: Stage | null,
+  lights: StartLights,
+): RaceSystems {
   return {
+    countdown: lights.countdown,
     compound: stage === "qualifying" ? 0 : compoundIndex(settings.compound),
     wearScale: wearScale(
       stage === "qualifying" ? "real" : settings.tyreWear,
@@ -232,26 +349,28 @@ interface SessionSetup {
   stage: Stage | null;
   field: WeekendPlan | null;
   plan: SessionPlan | null;
+  weekend: WeekendState | null;
 }
 
 function prepareSession(settings: Settings): SessionSetup {
   const weekend = settings.session === "weekend" ? loadWeekend() : null;
   const stage = stageOf(settings, weekend?.stage ?? null);
-  if (!stage) return { stage, field: null, plan: null };
+  if (!stage) return { stage, field: null, plan: null, weekend };
   const field = planWeekend(
     carOf(settings).id,
     settings.startSlot,
     weekend?.grid ?? null,
   );
-  return { stage, field, plan: sessionPlan(settings, stage, field) };
+  return {
+    stage,
+    field,
+    plan: sessionPlan(settings, stage, field),
+    weekend,
+  };
 }
 
 function rivalCars(field: WeekendPlan | null): string[] {
   return (field?.entrants ?? []).slice(1).map((entrant) => entrant.car);
-}
-
-function referenceLap(reference: { sectors: number[] } | null): number | null {
-  return reference ? reference.sectors.reduce((a, b) => a + b, 0) : null;
 }
 
 function sessionLabel(stage: Stage | null): string {
@@ -264,7 +383,8 @@ function hudOptions(
   setup: SessionSetup,
   engine: Engine,
   best: number | null,
-  lightLead: number | null,
+  lights: StartLights,
+  onLap: HudOptions["onLap"],
 ): HudOptions {
   return {
     totalLaps: setup.stage === "race" ? settings.laps : null,
@@ -274,45 +394,16 @@ function hudOptions(
     map: trackMap(engine),
     field: setup.field?.entrants ?? null,
     qualifying: setup.stage === "qualifying",
-    lightLead: lightLead ?? 2,
-    lightInterval: lightLead === null ? 0.4 : 1,
+    start: lights,
+    onLap,
   };
-}
-
-async function startRenderer(
-  target: HTMLCanvasElement,
-): Promise<THREE.WebGPURenderer> {
-  if (!("gpu" in navigator))
-    throw new Error("This page needs WebGPU (Chrome 113 or newer).");
-  const renderer = new THREE.WebGPURenderer({
-    canvas: target,
-    antialias: true,
-  });
-  renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
-  renderer.toneMapping = THREE.NoToneMapping;
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFShadowMap;
-  await renderer.init();
-  return renderer;
-}
-
-async function runMenu(menu: Menu, params: URLSearchParams): Promise<void> {
-  const autostart =
-    sessionStorage.getItem(autostartKey) === "1" || params.has("autostart");
-  sessionStorage.removeItem(autostartKey);
-  if (autostart) return;
-  setStatus("");
-  await menu.run(false);
-  saveWeekend(null);
 }
 
 async function pitLayout(
   engine: Engine,
   field: WeekendPlan | null,
 ): Promise<PitLayout> {
-  const { pit } = (await (await fetch("/wasm/sd-frame.json")).json()) as {
-    pit: PitLayout;
-  };
+  const { pit } = await fetchJson<{ pit: PitLayout }>(frameUrl);
   return field ? { ...pit, boxDistance: engine.playerBox() } : pit;
 }
 
@@ -335,11 +426,242 @@ function poseOf(frame: Float64Array) {
   };
 }
 
+async function createRenderer(
+  target: HTMLCanvasElement,
+): Promise<THREE.WebGPURenderer> {
+  const renderer = new THREE.WebGPURenderer({
+    canvas: target,
+    reversedDepthBuffer: true,
+    depth: false,
+    alpha: false,
+  });
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
+  await renderer.init();
+  return renderer;
+}
+
+function consumeAutostart(params: URLSearchParams): boolean {
+  const restarted = sessionStorage.getItem(autostartKey) === "1";
+  sessionStorage.removeItem(autostartKey);
+  return restarted || params.has("autostart");
+}
+
+function chooseLights(
+  stage: Stage | null,
+  params: URLSearchParams,
+): StartLights {
+  return stage === "race" && !params.has("autostart")
+    ? StartLights.race(Math.random())
+    : StartLights.quick();
+}
+
+function compoundId(index: number): string {
+  return compounds[index]?.id ?? "medium";
+}
+
+function playerSeat(driver: Driver | null, team: string): PlayerSeat {
+  return {
+    team,
+    first: driver?.firstName ?? "You",
+    last: driver?.lastName ?? "",
+    number: driver?.number ?? 1,
+    nationality: driver?.nationality ?? "US",
+  };
+}
+
+function bestLapWatcher(
+  trace: LapTrace,
+  store: (best: { trace: number[]; sectors: number[] }) => void,
+): () => void {
+  let saved = trace.bestTime ?? Infinity;
+  return () => {
+    const time = trace.bestTime ?? Infinity;
+    if (time >= saved) return;
+    saved = time;
+    const best = trace.reference;
+    if (best) store(best);
+  };
+}
+
+interface BuildUpContext {
+  renderer: THREE.WebGPURenderer;
+  scene: Scene;
+  draw: () => void;
+  engine: Engine;
+  settings: Settings;
+  seat: PlayerSeat;
+  seek: string | null;
+  kind: "practice" | "race";
+  slot: number;
+}
+
+async function runBuildUp(context: BuildUpContext): Promise<void> {
+  const { renderer, scene, draw, engine, settings, seat, seek, kind, slot } =
+    context;
+  setStatus("Preparing the grid…");
+  const opening = engine.update(performance.now() / 1000);
+  scene.updateTyres(opening, engine.tyreInfo());
+  scene.update(opening);
+  const length = engine.trackLength();
+  await playBuildUp(
+    {
+      renderer,
+      world: scene,
+      drawWorld: draw,
+      frame: Float64Array.from(opening),
+      track: (d, l) => engine.trackPoint(((d % length) + length) % length, l),
+      trackLength: length,
+      kind,
+      grid: startingGrid(seat, slot),
+      playerDistance: opening[frameIndex.distFromStart] ?? 0,
+      playerLateral: opening[frameIndex.toMiddle] ?? 0,
+      playerSlot: slot,
+      weather: weatherFor(settings, engine.trackLocal().rain),
+      seek: Number(seek ?? 0) || 0,
+    },
+    document.body,
+    () => {
+      setStatus("");
+    },
+  ).catch(() => {
+    setStatus("");
+  });
+}
+
+function raceLog(
+  driver: Driver | null,
+  settings: Settings,
+  stage: Stage | null,
+): RaceLog | null {
+  if (!driver) return null;
+  return new RaceLog(driverOutbox(driver.id), {
+    id: crypto.randomUUID(),
+    track: settings.track,
+    car: carOf(settings).car,
+    team: settings.car,
+    kind: stage === "race" ? "race" : "practice",
+    plannedLaps: stage === "race" ? settings.laps : null,
+    conditions: {
+      compound: settings.compound,
+      timeOfDay: settings.timeOfDay,
+      clouds: settings.clouds,
+      rain: settings.rain,
+      season: settings.season,
+      transmission: settings.transmission,
+      assist: settings.assist,
+    },
+    startedAt: new Date().toISOString(),
+  });
+}
+
+function weatherFor(settings: Settings, rain: number): Weather {
+  const seasonal: Record<string, number> = {
+    spring: 24,
+    summer: 33,
+    autumn: 26,
+    winter: 15,
+  };
+  const skies: Record<string, string> = {
+    "no cloud": "Clear",
+    "few clouds": "Light Cloud",
+    "scarce clouds": "Light Cloud",
+    "many clouds": "Cloudy",
+    "full cover": "Overcast",
+  };
+  const wet = rain > 0;
+  const overcast = ["many clouds", "full cover"].includes(settings.clouds);
+  return {
+    temperature:
+      (seasonal[settings.season] ?? 27) - rain * 3 - (overcast ? 2 : 0),
+    label: wet ? "Rain (Wet)" : `${skies[settings.clouds] ?? "Clear"} (Dry)`,
+    icon: wet ? "rain" : overcast ? "cloud" : "sun",
+  };
+}
+
+async function enterGame(
+  renderer: THREE.WebGPURenderer,
+  settings: Settings,
+  menu: Menu,
+): Promise<Driver> {
+  const studio = new Studio(renderer);
+  const front = new FrontEnd(element("[data-front=root]"), studio);
+  front.open();
+  setStatus("");
+  void studio.preloadTeams();
+  let driver = await currentDriver();
+  for (;;) {
+    driver ??= await front.welcome();
+    if (!driver.onboarded) driver = await front.onboard(driver);
+    rememberDriver(driver);
+    const choice = await front.hub(driver);
+    if (choice.action === "signout") {
+      rememberDriver(null);
+      driver = null;
+      continue;
+    }
+    driver = choice.driver;
+    rememberDriver(driver);
+    settings.car = driver.team ?? settings.car;
+    front.close();
+    const action = await menu.run(false);
+    if (action === "start") break;
+    front.open();
+  }
+  studio.dispose();
+  return driver;
+}
+
+async function signIn(
+  autostart: boolean,
+  renderer: THREE.WebGPURenderer,
+  settings: Settings,
+  menu: Menu,
+): Promise<Driver | null> {
+  if (autostart) return currentDriver();
+  const driver = await enterGame(renderer, settings, menu);
+  saveWeekend(null);
+  return driver;
+}
+
+function wantsBuildUp(
+  settings: Settings,
+  setup: SessionSetup,
+  autostart: boolean,
+  seek: string | null,
+): boolean {
+  const weekendRace =
+    setup.weekend?.stage === "race" && setup.weekend.buildUpPlayed !== true;
+  return (!autostart || weekendRace) && settings.buildUp && seek !== "off";
+}
+
+function markBuildUpPlayed(setup: SessionSetup): void {
+  if (setup.weekend) saveWeekend({ ...setup.weekend, buildUpPlayed: true });
+}
+
+function gridSlot(setup: SessionSetup, scene: Scene): number {
+  return setup.field ? (setup.field.slots[0] ?? 0) : scene.playerSlot;
+}
+
+function debugHooks(
+  params: URLSearchParams,
+  engine: Engine,
+  scene: Scene,
+  renderer: THREE.WebGPURenderer,
+): void {
+  if (params.has("autopilot")) engine.autopilot(true);
+  if (params.has("debug"))
+    Object.assign(window, { f1Debug: { engine, scene, renderer } });
+}
+
 async function main(): Promise<void> {
   if (!canvas || !hudRoot) throw new Error("drive page markup is missing");
   fitStage();
   window.addEventListener("resize", fitStage);
-  const renderer = await startRenderer(canvas);
+  if (!("gpu" in navigator))
+    throw new Error("This page needs WebGPU (Chrome 113 or newer).");
+
+  const renderer = await createRenderer(canvas);
 
   const params = new URLSearchParams(location.search);
   setStatus("Loading Speed Dreams…");
@@ -347,11 +669,16 @@ async function main(): Promise<void> {
   const settings = loadSettings(params);
   const source = setupSource(module);
   const menu = new Menu(source, settings);
-  await runMenu(menu, params);
+
+  const autostart = consumeAutostart(params);
+  const driver = await signIn(autostart, renderer, settings, menu);
+  const audio = openAudio();
 
   const track = trackOf(settings);
   const setup = prepareSession(settings);
   const { stage, field, plan } = setup;
+  const log = raceLog(driver, settings, stage);
+  const lights = chooseLights(stage, params);
   const car = carOf(settings);
   applySettings(source, settings, stage);
   setStatus(`Loading ${track.label}…`);
@@ -363,38 +690,39 @@ async function main(): Promise<void> {
     settings.assist,
     settings.antiLock,
     performance.now() / 1000,
-    raceSystems(settings, stage),
+    raceSystems(settings, stage, lights),
     plan,
   );
-  if (params.has("autopilot")) engine.autopilot(true);
-  const lightLead = stage === "race" ? engine.session().startDelay : null;
   const scene = await Scene.load(
     engine,
     car.id,
     renderer,
     settings.racingLine,
     rivalCars(field),
-    lightLead,
+    lights,
   );
   const draw = drawer(renderer, scene);
+  debugHooks(params, engine, scene, renderer);
 
-  const reference = loadReference(settings);
+  const reference = await loadReference(driver, settings.track, car.car);
   const trace = new LapTrace(
     engine.trackLength(),
     engine.sectorBoundaries(),
     reference,
   );
-  const bestOfReference = referenceLap(reference);
   const hud = new Hud(
     hudRoot,
     trace,
-    hudOptions(settings, setup, engine, bestOfReference, lightLead),
+    hudOptions(settings, setup, engine, trace.bestTime, lights, (lap) => {
+      log?.lap(lap, compoundId(engine.tyreInfo().compound));
+    }),
   );
   const pad = padLink();
-  const sound = await GameSound.start();
-  hudRoot.hidden = false;
+  const sound = await GameSound.start(audio);
 
+  let frameStale = true;
   const resize = () => {
+    frameStale = true;
     const width = canvas.clientWidth;
     const height = canvas.clientHeight;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -406,9 +734,11 @@ async function main(): Promise<void> {
   resize();
 
   let pitPressed = false;
+  let buildingUp = false;
   let paused = false;
+  let ended = false;
   let flow: WeekendFlow | null = null;
-  const finished = () => flow?.finished === true;
+  const finished = () => ended || flow?.finished === true;
   const pause = () => {
     if (paused || finished()) return;
     paused = true;
@@ -438,6 +768,7 @@ async function main(): Promise<void> {
     engine.key(code, down);
   };
   const onKey = (down: boolean) => (event: KeyboardEvent) => {
+    if (buildingUp) return;
     if (event.key === "Escape") {
       event.preventDefault();
       if (down && !event.repeat) pause();
@@ -448,13 +779,15 @@ async function main(): Promise<void> {
   window.addEventListener("keydown", onKey(true));
   window.addEventListener("keyup", onKey(false));
 
-  engine.update(performance.now() / 1000);
-  setStatus("");
-  document.body.dataset["driveStatus"] = "running";
-
   const layout = await pitLayout(engine, field);
   const pit = new PitStop(layout, settings.pitExperience === "broadcast");
   scene.placePit(layout, (d, l) => engine.trackPoint(d, l));
+  scene.update(engine.update(performance.now() / 1000));
+  setStatus("Preparing circuit…");
+  await scene.warmUp(renderer, draw);
+  setStatus("");
+  document.body.dataset["driveStatus"] = "running";
+
   const startFuel = engine.hudInfo().fuel;
   let padBrakeWas = false;
   const steerToward = (frame: Float64Array, target: PitDrive) => {
@@ -466,7 +799,18 @@ async function main(): Promise<void> {
     );
   };
 
-  let savedBest = bestOfReference ?? Infinity;
+  const watchBest = bestLapWatcher(trace, (best) => {
+    rememberReference(driver, settings.track, car.car, best);
+    log?.personalBest(best);
+  });
+  const finishRace = (status: CarStatus) => {
+    ended = true;
+    log?.finish();
+    sound.mute(true);
+    window.setTimeout(() => {
+      showResults(hud, sessionTitle(track.label, sessionLabel(stage), status));
+    }, 1500);
+  };
   const detector = new OvertakeDetector(engine.trackLength());
   const armOvertake = (frame: Float64Array) => {
     const distance = frame[frameIndex.distFromStart] ?? 0;
@@ -483,6 +827,9 @@ async function main(): Promise<void> {
   };
   const applyPit = (frame: Float64Array, now: number) => {
     const { padInput, pressed } = pitButton(now);
+    const replaceWing = controls.wingChange();
+    hud.setWingChoice(replaceWing);
+    pit.requestWing(replaceWing);
     const control = pit.update(
       pitInput(frame, engine.pitLaneClear()),
       now,
@@ -497,7 +844,8 @@ async function main(): Promise<void> {
     if (control.serviceNow) {
       if (stage === "race")
         engine.setPitCompound(nextCompound(engine.tyreInfo().compound));
-      engine.pitService(startFuel);
+      engine.pitService(startFuel, control.wingChange);
+      controls.wingServed();
     }
     return control;
   };
@@ -522,16 +870,6 @@ async function main(): Promise<void> {
     });
     flow.start();
   };
-  openWeekend();
-  const saveBestLap = () => {
-    const bestTime = trace.bestTime ?? Infinity;
-    if (bestTime >= savedBest) return;
-    savedBest = bestTime;
-    localStorage.setItem(
-      referenceKey(settings),
-      JSON.stringify(trace.reference),
-    );
-  };
   const step = (now: number) => {
     controls.pad(pad.pressed());
     const frame = engine.update(now);
@@ -542,7 +880,12 @@ async function main(): Promise<void> {
     const energy = engine.energyInfo();
     const speedKph = Math.abs(frame[frameIndex.speed] ?? 0) * 3.6;
     const audio = engine.carAudio(frame);
-    const rumble = scene.feel(audio.wheels, audio.speed, now);
+    const rumble = scene.feel(
+      audio.wheels,
+      audio.speed,
+      now,
+      tyreRoughness(tyres),
+    );
     pad.feedback(
       now,
       speedKph,
@@ -562,21 +905,49 @@ async function main(): Promise<void> {
       audio.wheels.map((w) => w.surface),
     );
     sound.update(audio);
-    hud.update(frame, info, tyres, energy, engine.carStatus(), now);
+    const status = engine.carStatus();
+    hud.update(frame, info, tyres, energy, status, now);
     hud.updatePit(control);
-    saveBestLap();
+    watchBest();
+    if (!flow && status.stopped) finishRace(status);
   };
+  let flagLogged = false;
   const afterFlag = (now: number) => {
+    if (!flagLogged) log?.finish();
+    flagLogged = true;
     const frame = engine.update(now);
     flow?.update(now);
     scene.update(frame);
   };
-  if (params.has("debug"))
-    Object.assign(window, { f1Debug: { engine, scene, renderer } });
+  const seek = params.get("buildup");
+  if (wantsBuildUp(settings, setup, autostart, seek)) {
+    buildingUp = true;
+    sound.mute(true);
+    await runBuildUp({
+      renderer,
+      scene,
+      draw,
+      engine,
+      settings,
+      seat: playerSeat(driver, car.id),
+      seek,
+      kind: stage === "race" ? "race" : "practice",
+      slot: gridSlot(setup, scene),
+    });
+    markBuildUpPlayed(setup);
+    buildingUp = false;
+    sound.mute(false);
+    engine.update(performance.now() / 1000);
+  }
+  hudRoot.hidden = false;
+  openWeekend();
   void renderer.setAnimationLoop(() => {
     const now = performance.now() / 1000;
-    if (finished()) afterFlag(now);
-    else if (!paused) step(now);
+    const afterRace = flow?.finished === true;
+    if (afterRace) afterFlag(now);
+    else if (!paused && !ended) step(now);
+    else if (!frameStale) return;
+    frameStale = false;
     canvas.style.transform = scene.mirrored ? "scaleX(-1)" : "";
     draw();
   });

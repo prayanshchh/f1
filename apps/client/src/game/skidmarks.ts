@@ -39,8 +39,6 @@ export class SkidMarks {
       new Float32Array(capacity * 6),
       1,
     );
-    this.positions.setUsage(THREE.DynamicDrawUsage);
-    this.strengths.setUsage(THREE.DynamicDrawUsage);
     geometry.setAttribute("position", this.positions);
     geometry.setAttribute("strength", this.strengths);
     geometry.setDrawRange(0, 0);
@@ -49,8 +47,8 @@ export class SkidMarks {
       depthWrite: false,
       side: THREE.DoubleSide,
       polygonOffset: true,
-      polygonOffsetFactor: -3,
-      polygonOffsetUnits: -12,
+      polygonOffsetFactor: 3,
+      polygonOffsetUnits: 12,
     });
     material.colorNode = rubber;
     material.opacityNode = attribute("strength", "float").mul(darkness);

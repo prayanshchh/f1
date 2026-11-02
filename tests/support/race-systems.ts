@@ -1,7 +1,7 @@
 import { type SpeedDreams, startCota } from "./speed-dreams.ts";
 
-export const wheelFields = 7;
-const tyreFields = 32;
+export const wheelFields = 10;
+const tyreFields = 44;
 const energyFields = 17;
 
 export interface Options {
@@ -15,6 +15,7 @@ export interface Options {
 }
 
 export interface RaceSystems extends SpeedDreams {
+  _sdTrackLength: () => number;
   _sdInputAntiLock: (on: number) => void;
   _sdTyresConfigure: (compound: number, scale: number) => void;
   _sdTyresFit: (compound: number, temperature: number, wear: number) => void;
@@ -26,9 +27,16 @@ export interface RaceSystems extends SpeedDreams {
     assist: number,
   ) => void;
   _sdEnergyMode: (mode: number) => void;
-  _sdPitService: (fuel: number) => void;
+  _sdPitService: (fuel: number, frontWing: number) => void;
   _sdCarStatus: (out: number) => void;
   _sdCarDamageSet: (part: number, value: number) => void;
+  _sdCarImpact: (
+    forward: number,
+    left: number,
+    dvForward: number,
+    dvLeft: number,
+  ) => void;
+  _sdTyreDamage: (wheel: number, cut: number, flat: number) => void;
   _sdEnergyDifferential: (percent: number) => void;
   _sdEnergyStraight: (assisted: number, armed: number) => void;
   _sdEnergyFuelMix: (mix: number) => void;
@@ -87,6 +95,9 @@ export function tyreReader(m: RaceSystems) {
       lock: (w: number) => field(w, 4),
       spin: (w: number) => field(w, 5),
       grip: (w: number) => field(w, 6),
+      flat: (w: number) => field(w, 7),
+      leak: (w: number) => field(w, 8),
+      cut: (w: number) => field(w, 9),
     };
   };
 }
@@ -147,7 +158,7 @@ export async function peakBraking(
   return ticks > 0 ? (from - speedOf(m)) / (ticks * 0.002) : 0;
 }
 
-const statusFields = 12;
+const statusFields = 19;
 
 export function statusReader(m: RaceSystems) {
   const memory = m._malloc(statusFields * 8);
@@ -157,7 +168,10 @@ export function statusReader(m: RaceSystems) {
     return {
       engine: v[0] ?? 0,
       part: (i: number) => v[1 + i] ?? 0,
-      brake: (i: number) => v[8 + i] ?? 0,
+      brake: (i: number) => v[12 + i] ?? 0,
+      retired: v[16] ?? 0,
+      stopped: v[17] === 1,
+      power: v[18] ?? 0,
     };
   };
 }

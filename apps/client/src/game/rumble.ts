@@ -24,13 +24,20 @@ export interface Shake {
   cameraRoll: number;
 }
 
-export function rumbleTarget(wheels: RumbleWheel[], speed: number): number {
+export function rumbleTarget(
+  wheels: RumbleWheel[],
+  speed: number,
+  tyreRough = 0,
+): number {
   const share = (surface: number) =>
     wheels.filter((w) => w.surface === surface).length /
     Math.max(1, wheels.length);
-  const onRough = Math.min(
-    1,
-    Math.sqrt(2 * share(kerb)) + grassShare * Math.sqrt(2 * share(grass)),
+  const onRough = Math.max(
+    tyreRough,
+    Math.min(
+      1,
+      Math.sqrt(2 * share(kerb)) + grassShare * Math.sqrt(2 * share(grass)),
+    ),
   );
   return onRough * Math.min(1, Math.abs(speed) / fullSpeed);
 }
@@ -38,8 +45,14 @@ export function rumbleTarget(wheels: RumbleWheel[], speed: number): number {
 export class Rumble {
   private amount = 0;
 
-  update(wheels: RumbleWheel[], speed: number, dt: number, now: number): Shake {
-    const target = rumbleTarget(wheels, speed);
+  update(
+    wheels: RumbleWheel[],
+    speed: number,
+    dt: number,
+    now: number,
+    tyreRough = 0,
+  ): Shake {
+    const target = rumbleTarget(wheels, speed, tyreRough);
     const time = target > this.amount ? attack : release;
     this.amount +=
       (target - this.amount) * (1 - Math.exp(-Math.max(0, dt) / time));

@@ -25,7 +25,7 @@ export const choices = {
   tyreWear: [
     { id: "off", label: "Off" },
     { id: "real", label: "Real Life" },
-    { id: "scaled", label: "Race Length" },
+    { id: "raceLength", label: "Race Length" },
   ],
   session: [
     { id: "practice", label: "Practice" },
@@ -136,7 +136,7 @@ export const defaults: Settings = {
   laps: 5,
   fuel: 0,
   compound: "medium",
-  tyreWear: "scaled",
+  tyreWear: "real",
   ersMode: 1,
   fuelMix: 1,
   ersAssist: false,
@@ -193,6 +193,8 @@ export function loadSettings(params: URLSearchParams): Settings {
   if (!tracks.some((t) => t.id === settings.track))
     settings.track = defaults.track;
   if (!cars.some((c) => c.id === settings.car)) settings.car = defaults.car;
+  if (!choices.tyreWear.some((c) => c.id === settings.tyreWear))
+    settings.tyreWear = defaults.tyreWear;
   return settings;
 }
 

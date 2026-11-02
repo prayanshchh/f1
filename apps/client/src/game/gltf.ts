@@ -124,6 +124,12 @@ export function contactShadow(wheels: THREE.Vector3[]): THREE.Mesh {
   return shadow;
 }
 
+const flatSquash = 0.22;
+
+function tyreSquash(leak: number): number {
+  return 1 - flatSquash * leak;
+}
+
 export class GltfCar {
   readonly root = new THREE.Group();
   private readonly model = new THREE.Group();
@@ -192,6 +198,7 @@ export class GltfCar {
     this.mirrors.set(name, { target, camera });
     return target.texture;
   }
+  private deflation: number[] = [];
 
   static async load(
     team: string,
@@ -362,6 +369,10 @@ export class GltfCar {
     renderer.setRenderTarget(previous);
   }
 
+  setDeflation(leaks: number[]): void {
+    this.deflation = leaks;
+  }
+
   update(frame: Float64Array): void {
     this.root.matrix.fromArray(frame, frameIndex.posMat);
     this.root.matrix.elements[14] += this.lift + this.heave;
@@ -380,11 +391,15 @@ export class GltfCar {
     }
     this.wheels.forEach((w, i) => {
       w.restZ ??= wheel(i, 2);
+      const squash = tyreSquash(this.deflation[i] ?? 0);
       w.pivot.position.set(
         w.rest.x,
-        w.rest.y + (wheel(i, 2) - w.restZ),
+        w.rest.y +
+          (wheel(i, 2) - w.restZ) -
+          (1 - squash) * (this.radii[i] ?? 0),
         w.rest.z,
       );
+      w.pivot.scale.set(1, squash, squash);
       w.pivot.rotation.set(0, 0, 0);
       w.pivot.rotateY(wheel(i, 5));
       w.pivot.rotateZ(wheel(i, 3));

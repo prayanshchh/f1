@@ -24,9 +24,15 @@ import {
 } from "./game/engine.ts";
 import { Hud, lapTime, signed, type TrackMap } from "./game/hud.ts";
 import { sdlKeycode } from "./game/keys.ts";
+import {
+  retirementLabel,
+  tyreRoughness,
+  wingRequested,
+} from "./game/damage.ts";
 import { compoundIndex, wearScale } from "./game/tyres.ts";
 import { LapTrace } from "./game/laptrace.ts";
 import { Menu } from "./game/menu.ts";
+import type { CarStatus } from "./game/mfd.ts";
 import { type PadCommands, PadLink } from "./game/pad.ts";
 import { Atmosphere } from "./game/atmosphere.ts";
 import { Scene } from "./game/scene.ts";
@@ -155,6 +161,18 @@ function showResults(hud: Hud, title: string): void {
   });
 }
 
+function sessionTitle(
+  track: string,
+  settings: Settings,
+  status: CarStatus,
+): string {
+  const session = settings.session === "race" ? "Race" : "Practice";
+  const ended = status.stopped
+    ? ` - Session ended: ${retirementLabel(status.retired)}`
+    : "";
+  return `${track} - ${session}${ended}`;
+}
+
 function trackMap(engine: Engine): TrackMap {
   const length = engine.trackLength();
   const count = Math.max(64, Math.min(600, Math.round(length / 10)));
@@ -184,6 +202,12 @@ function raceControls(engine: Engine, hud: Hud, settings: Settings) {
   let padBoost = 0;
   let padErs = 0;
   let padPage = 0;
+  let padWing = 0;
+  let wingChoice: boolean | null = null;
+  const wingWanted = () => wingRequested(wingChoice, engine.carStatus());
+  const flipWing = () => {
+    wingChoice = !wingWanted();
+  };
   const cycleErs = () => {
     cruise = nextErsMode(engine.energyInfo().mode, cruise);
     engine.setErsMode(cruise);
@@ -211,6 +235,7 @@ function raceControls(engine: Engine, hud: Hud, settings: Settings) {
     y: () => {
       hud.nextMfdPage();
     },
+    n: flipWing,
     x: () => {
       engine.armStraight();
     },
@@ -233,9 +258,15 @@ function raceControls(engine: Engine, hud: Hud, settings: Settings) {
       if (pressed.boost !== padBoost) flipBoost();
       if (pressed.ers !== padErs) cycleErs();
       if (pressed.page !== padPage) hud.nextMfdPage();
+      if (pressed.wing !== padWing) flipWing();
       padPage = pressed.page;
+      padWing = pressed.wing;
       padBoost = pressed.boost;
       padErs = pressed.ers;
+    },
+    wingChange: wingWanted,
+    wingServed(): void {
+      wingChoice = null;
     },
   };
 }
@@ -411,6 +442,9 @@ async function main(): Promise<void> {
     padBrakeWas = brakeDown;
     pitPressed = false;
     const distance = frame[frameIndex.distFromStart] ?? 0;
+    const replaceWing = controls.wingChange();
+    hud.setWingChoice(replaceWing);
+    pit.requestWing(replaceWing);
     const control = pit.update(
       {
         distance,
@@ -426,9 +460,15 @@ async function main(): Promise<void> {
       control.drive ? steerToward(frame, control.drive) : padInput,
       control.drive !== null,
     );
-    if (control.serviceNow) engine.pitService(startFuel);
+    if (control.serviceNow) {
+      engine.pitService(startFuel, control.wingChange);
+      controls.wingServed();
+    }
     return control;
   };
+  const sessionOver = (frame: Float64Array, status: CarStatus) =>
+    status.stopped ||
+    (totalLaps !== null && (frame[frameIndex.laps] ?? 0) > totalLaps);
   const step = (now: number) => {
     controls.pad(pad.pressed());
     const frame = engine.update(now);
@@ -438,7 +478,12 @@ async function main(): Promise<void> {
     const energy = engine.energyInfo();
     const speedKph = Math.abs(frame[frameIndex.speed] ?? 0) * 3.6;
     const audio = engine.carAudio(frame);
-    const rumble = scene.feel(audio.wheels, audio.speed, now);
+    const rumble = scene.feel(
+      audio.wheels,
+      audio.speed,
+      now,
+      tyreRoughness(tyres),
+    );
     pad.feedback(
       now,
       speedKph,
@@ -458,7 +503,8 @@ async function main(): Promise<void> {
       audio.wheels.map((w) => w.surface),
     );
     sound.update(audio);
-    hud.update(frame, info, tyres, energy, engine.carStatus(), now);
+    const status = engine.carStatus();
+    hud.update(frame, info, tyres, energy, status, now);
     hud.updatePit(control);
     const bestTime = trace.bestTime ?? Infinity;
     if (bestTime < savedBest) {
@@ -468,14 +514,11 @@ async function main(): Promise<void> {
         JSON.stringify(trace.reference),
       );
     }
-    if (totalLaps !== null && (frame[frameIndex.laps] ?? 0) > totalLaps) {
+    if (sessionOver(frame, status)) {
       finished = true;
       sound.mute(true);
       window.setTimeout(() => {
-        showResults(
-          hud,
-          `${track.label} - ${settings.session === "race" ? "Race" : "Practice"}`,
-        );
+        showResults(hud, sessionTitle(track.label, settings, status));
       }, 1500);
     }
   };

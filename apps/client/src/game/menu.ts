@@ -1,5 +1,6 @@
 import { ersModes, fuelMixes, nominalFuelPerLap } from "./energy.ts";
 import { el } from "./dom.ts";
+import { carArt } from "./mfd.ts";
 import { ParamDoc } from "./params.ts";
 import { compounds } from "./tyres.ts";
 import { raceLapOptions, raceLaps } from "./weekend.ts";
@@ -128,6 +129,36 @@ const tabIntro: Record<string, string> = {
     "Adjust the strength of the brakes and how the braking force is split between the front and rear axles.",
   Tyres: "Adjust tyre pressures to manage grip and temperatures over a stint.",
 };
+
+const setupParts: Record<string, string> = {
+  Aerodynamics: '[data-part^="wing-"], [data-part="rear-wing"]',
+  Transmission: '[data-part="engine"], [data-part="diffuser"]',
+  "Suspension Geometry": '[data-part="wishbones"], [data-part^="suspension-"]',
+  Suspension: '[data-part="springs"]',
+  Brakes: '[data-part="brakes"]',
+  Tyres: ".tyre",
+};
+
+const sideArt = (side: string): string =>
+  `<g transform="scale(${side} 1)">
+    <path d="M-78 318 L-30 302 M-78 332 L-30 334 M-78 346 L-32 376 M-78 902 L-14 870 M-78 918 L-14 912 M-78 934 L-14 944"/>
+  </g>`;
+const springArt = (side: string): string =>
+  `<g transform="scale(${side} 1)">
+    <rect x="-24" y="300" width="12" height="56" rx="4"/>
+    <rect x="-30" y="808" width="12" height="56" rx="4"/>
+  </g>`;
+const brakeArt = (side: string): string =>
+  `<g transform="scale(${side} 1)">
+    <rect x="-128" y="298" width="16" height="66" rx="4"/>
+    <rect x="-134" y="306" width="28" height="18" rx="4"/>
+    <rect x="-132" y="880" width="16" height="70" rx="4"/>
+    <rect x="-138" y="888" width="28" height="18" rx="4"/>
+  </g>`;
+const setupArt = `
+  <g class="part setup" data-part="wishbones">${sideArt("1")}${sideArt("-1")}</g>
+  <g class="part setup" data-part="springs">${springArt("1")}${springArt("-1")}<path d="M-30 292 L30 292 M-34 800 L34 800"/></g>
+  <g class="part setup" data-part="brakes">${brakeArt("1")}${brakeArt("-1")}</g>`;
 
 const setupOrder = [
   "Aerodynamics",
@@ -538,7 +569,7 @@ export class Menu {
     const head = el("div", "info-head");
     head.append(el("h3", "", tab.label), el("p", "", tab.info));
     const parts: HTMLElement[] = [];
-    if (tab.setup) parts.push(this.carDrawing());
+    if (tab.setup) parts.push(this.carDrawing(tab.id));
     parts.push(head);
     if (row) {
       const detail = el("div", "info-row");
@@ -1098,10 +1129,14 @@ export class Menu {
     };
   }
 
-  private carDrawing(): HTMLElement {
+  private carDrawing(tab: string): HTMLElement {
     const box = el("div", "info-car");
-    box.innerHTML =
-      '<svg viewBox="0 0 520 130" aria-hidden="true"><path d="M8 96 L60 92 L72 78 L118 78 L132 70 L196 66 L228 46 L262 44 L282 58 L330 60 L372 56 L420 52 L470 40 L506 40 L510 86 L470 92 L440 98 L130 100 L60 104 Z"/><circle cx="118" cy="96" r="30"/><circle cx="118" cy="96" r="8"/><circle cx="440" cy="96" r="30"/><circle cx="440" cy="96" r="8"/><path d="M468 40 L470 20 L512 18 L512 40"/><path d="M8 96 L4 108 L64 108"/><path d="M232 46 Q250 24 272 28"/></svg>';
+    box.innerHTML = `<svg viewBox="100 -192 940 384" aria-hidden="true"><g transform="rotate(-90)">${carArt}${setupArt}</g></svg>`;
+    const focus = setupParts[tab];
+    if (focus)
+      box.querySelectorAll(focus).forEach((part) => {
+        part.classList.add("on");
+      });
     return box;
   }
 

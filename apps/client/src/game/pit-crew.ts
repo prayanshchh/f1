@@ -2,7 +2,8 @@ import * as THREE from "three/webgpu";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { clone as cloneRig } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { gltfToSdWorld } from "./gltf.ts";
-import { finish, surface } from "./road.ts";
+import { mergedMesh, placedCopy } from "./merge.ts";
+import { surface } from "./road.ts";
 
 const dark = 0x14161c;
 const steel = 0x8d9199;
@@ -18,7 +19,8 @@ const tyresOn = 0.62;
 const jackDown = 0.88;
 const liftHeight = 0.1;
 const moveTime = 0.26;
-const visibleRange = 180;
+const animatedRange = 400;
+const bakedAttributes = ["position", "normal", "uv"] as const;
 const runCycle = 0.55;
 const kneelStart = 0.25;
 const kneelEnd = 0.75;
@@ -30,7 +32,6 @@ const flat = (colour: number, roughness = 0.65) => {
     color: colour,
     roughness,
   });
-  finish(material);
   return material;
 };
 
@@ -96,6 +97,8 @@ function makeTyre(): THREE.Group {
 
 export class PitCrew {
   readonly root = new THREE.Group();
+  private readonly live = new THREE.Group();
+  private readonly far = new THREE.Group();
   private readonly members: Member[] = [];
   private readonly wheels: {
     x: number;
@@ -131,6 +134,7 @@ export class PitCrew {
     private readonly clips: THREE.AnimationClip[],
   ) {
     this.root.matrixAutoUpdate = false;
+    this.root.add(this.live, this.far);
     wheelX.forEach((x, i) => {
       const y = wheelY[i] ?? 0;
       const side = Math.sign(y);
@@ -151,7 +155,7 @@ export class PitCrew {
       const old = makeTyre();
       const fresh = makeTyre();
       old.visible = fresh.visible = false;
-      this.root.add(old, fresh);
+      this.live.add(old, fresh);
       this.wheels.push({ x, y: y + side * 0.04, old, fresh, off, on });
     });
     const front = this.addMember("jack_front", -faceWheel, 0, 1, {
@@ -197,7 +201,7 @@ export class PitCrew {
     });
     inner.add(body);
     root.add(inner);
-    this.root.add(root);
+    this.live.add(root);
     const mixer = new THREE.AnimationMixer(body);
     const actions = new Map<string, THREE.AnimationAction>();
     for (const clip of this.clips) {
@@ -265,7 +269,7 @@ export class PitCrew {
       flat(0xb9bdc4, 0.4),
     );
     mesh.castShadow = true;
-    this.root.add(mesh);
+    this.live.add(mesh);
     this.levers.push({ member, end, mesh });
   }
 
@@ -360,18 +364,12 @@ export class PitCrew {
     }
   }
 
-  update(
+  private pose(
     progress: number,
     active: boolean,
     carMatrix: THREE.Matrix4 | null,
-    eye: THREE.Vector3,
-    now: number,
-  ): { lift: number; wheelsOff: boolean } {
-    this.target.setFromMatrixPosition(this.anchor);
-    this.root.visible = this.target.distanceTo(eye) < visibleRange;
-    if (!this.root.visible) return { lift: 0, wheelsOff: false };
-    const delta = Math.min(0.1, Math.max(0, now - this.lastTime));
-    this.lastTime = now;
+    delta: number,
+  ): void {
     this.root.matrix.copy(carMatrix ?? this.anchor);
     this.root.matrixWorldNeedsUpdate = true;
     this.root.updateMatrixWorld(true);
@@ -380,6 +378,73 @@ export class PitCrew {
       this.poseMember(member, progress, active, delta);
     this.poseTyres(progress, active);
     this.poseLevers();
+  }
+
+  private bakedPart(mesh: THREE.Mesh): THREE.BufferGeometry {
+    const toRoot = new THREE.Matrix4().multiplyMatrices(
+      this.inverse,
+      mesh.matrixWorld,
+    );
+    const part = placedCopy(
+      mesh.geometry,
+      new THREE.Matrix4(),
+      bakedAttributes,
+    );
+    if (mesh instanceof THREE.SkinnedMesh) {
+      const position = part.getAttribute("position");
+      const point = new THREE.Vector3();
+      for (let i = 0; i < position.count; i++) {
+        mesh.applyBoneTransform(i, point.fromBufferAttribute(position, i));
+        position.setXYZ(i, point.x, point.y, point.z);
+      }
+    }
+    part.applyMatrix4(toRoot);
+    part.computeVertexNormals();
+    return part;
+  }
+
+  bake(): void {
+    this.pose(0, false, null, 0);
+    this.live.updateMatrixWorld(true);
+    const groups = new Map<THREE.Material, THREE.BufferGeometry[]>();
+    const add = (object: THREE.Object3D) => {
+      if (!object.visible) return;
+      if (object instanceof THREE.SkinnedMesh) object.skeleton.update();
+      if (object instanceof THREE.Mesh) {
+        const material = object.material as THREE.Material;
+        groups.set(material, [
+          ...(groups.get(material) ?? []),
+          this.bakedPart(object as THREE.Mesh),
+        ]);
+      }
+      object.children.forEach(add);
+    };
+    add(this.live);
+    for (const [material, parts] of groups) {
+      const mesh = mergedMesh(parts, material);
+      mesh.castShadow = true;
+      this.far.add(mesh);
+    }
+  }
+
+  update(
+    progress: number,
+    active: boolean,
+    carMatrix: THREE.Matrix4 | null,
+    eye: THREE.Vector3,
+    now: number,
+  ): { lift: number; wheelsOff: boolean } {
+    this.target.setFromMatrixPosition(this.anchor);
+    const near = this.target.distanceTo(eye) <= animatedRange;
+    this.live.visible = near;
+    this.far.visible = !near;
+    if (!near) {
+      this.root.matrix.copy(this.anchor);
+      return { lift: 0, wheelsOff: false };
+    }
+    const delta = Math.min(0.1, Math.max(0, now - this.lastTime));
+    this.lastTime = now;
+    this.pose(progress, active, carMatrix, delta);
     const jacked = active && progress > reachIn && progress < jackDown;
     return {
       lift: jacked ? liftHeight : 0,

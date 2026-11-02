@@ -4,26 +4,19 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
+import brands
 from palette import PALETTE, PALETTE_CELLS
 
 GRASS_HUE = 0.25
 GRASS_SATURATION = 1.5
 GRASS_VALUE = 0.7
-RUNOFF_GREEN = np.array([0.16, 0.46, 0.25])
+STREAKS = (2048, 512)
+STREAK_LAYERS = ((1.4, 60.0, 1.0), (3.5, 140.0, 0.8), (0.8, 18.0, 0.5))
 KERB_SIZE = (512, 1024)
 FONT = Path("apps/client/node_modules/@fontsource-variable/saira/files/saira-latin-wght-normal.woff2")
-BOARD = (2048, 512)
-BRANDS = [
-    ("NORTHWIND", "#0b1d45", "#ffffff", "#3fa9f5"),
-    ("VOLTARA", "#111111", "#ffd400", "#ffd400"),
-    ("AURELIA", "#0d6b6e", "#ffffff", "#9be3d6"),
-    ("KESTREL", "#b0101c", "#ffffff", "#ffffff"),
-]
 CHAINLINK = 256
-CHAINLINK_WIRE = 22
-CHAINLINK_COLOUR = (150, 154, 160)
-DECAL = (2048, 512)
-DECAL_WEAR = 0.22
+CHAINLINK_WIRE = 14
+CHAINLINK_COLOUR = (165, 168, 172)
 DISTANCES = ("300", "200", "100")
 PALETTE_SIZE = 256
 TEAMS = ["ATLAS", "CINDER", "HALCYON", "MERIDIAN", "NOVARA", "ORIEL", "QUILL", "RAVENNA", "SOLACE", "TEMPESTA"]
@@ -37,7 +30,7 @@ DISTANCE_BOARD = 512
 FACADE = (2048, 896)
 FACADE_METRES = (32.0, 14.0)
 TECPRO = (1024, 256)
-TECPRO_COLOURS = ["#c8202a", "#1f4fa8"]
+FENCE_METAL = (108, 112, 118)
 
 
 def load(path, mode="RGB"):
@@ -72,10 +65,19 @@ def kerb(source):
     return out * (1 - alpha * 0.9) + rubber[..., :3] * alpha * 0.9
 
 
-def runoff(source):
-    white = load(source / "circuit_paint_white.jpg")
-    luminance = white.mean(axis=2, keepdims=True)
-    return luminance / luminance.mean() * RUNOFF_GREEN
+def streaks():
+    rng = np.random.default_rng(23)
+    height, width = STREAKS
+    out = np.zeros((height, width), np.float32)
+    for across, along, gain in STREAK_LAYERS:
+        spectrum = np.fft.fft2(rng.normal(0, 1, (height, width)))
+        fy = np.fft.fftfreq(height)[:, None]
+        fx = np.fft.fftfreq(width)[None, :]
+        spectrum *= np.exp(-2 * np.pi**2 * ((fy * along) ** 2 + (fx * across) ** 2))
+        layer = np.real(np.fft.ifft2(spectrum))
+        out += layer / layer.std() * gain
+    out = np.clip(0.5 + out * 0.18, 0, 1)
+    return Image.fromarray(np.round(out * 255).astype(np.uint8), "L")
 
 
 def font(size, weight):
@@ -84,39 +86,18 @@ def font(size, weight):
     return face
 
 
-def boards():
-    width, height = BOARD
-    atlas = Image.new("RGB", (width, height * len(BRANDS)))
-    for index, (name, background, text, accent) in enumerate(BRANDS):
-        panel = Image.new("RGB", BOARD, background)
-        draw = ImageDraw.Draw(panel)
-        mark = int(height * 0.5)
-        size = int(height * 0.62)
-        while True:
-            face = font(size, 800)
-            box = draw.textbbox((0, 0), name, font=face)
-            tw, th = box[2] - box[0], box[3] - box[1]
-            if tw + mark + 60 <= width * 0.86:
-                break
-            size -= 8
-        x = (width - tw - mark - 60) // 2
-        draw.ellipse([x, (height - mark) // 2, x + mark, (height + mark) // 2], outline=accent, width=int(mark * 0.16))
-        draw.text((x + mark + 60 - box[0], (height - th) // 2 - box[1]), name, font=face, fill=text)
-        draw.rectangle([0, height - 18, width, height], fill=accent)
-        atlas.paste(panel, (0, index * height))
-    return np.asarray(atlas, np.float32) / 255.0
-
-
 def tecpro():
+    rng = np.random.default_rng(13)
     width, height = TECPRO
-    block = width // len(TECPRO_COLOURS)
-    image = Image.new("RGB", TECPRO)
-    draw = ImageDraw.Draw(image)
-    for index, colour in enumerate(TECPRO_COLOURS):
-        draw.rounded_rectangle([index * block + 6, 4, (index + 1) * block - 6, height - 4], radius=28, fill=colour)
-    out = np.asarray(image, np.float32) / 255.0
-    shade = 0.8 + 0.2 * np.sin(np.linspace(0.2, np.pi - 0.2, height))[:, None, None]
-    return out * shade
+    base = np.full((height, width, 3), 0.62, np.float32) * np.array([1.0, 0.99, 0.96], np.float32)
+    streak = np.asarray(Image.fromarray(np.uint8(rng.random((8, width // 8)) * 255)).resize((width, height), Image.BICUBIC), np.float32) / 255.0
+    base *= (0.94 + 0.09 * streak)[..., None]
+    ramp = np.linspace(0, 1, height)[:, None, None] ** 2
+    base = base * (1 - 0.5 * ramp) + np.array([0.24, 0.21, 0.18], np.float32) * 0.5 * ramp
+    base[:, :6] *= 0.45
+    base[:, -6:] *= 0.45
+    base[:10] *= 0.8
+    return np.clip(base + rng.normal(0, 0.012, (height, width, 1)), 0, 1)
 
 
 def chainlink():
@@ -127,29 +108,6 @@ def chainlink():
         draw.line([(shift, 0), (shift + size, size)], fill=(*CHAINLINK_COLOUR, 255), width=CHAINLINK_WIRE)
         draw.line([(shift + size, 0), (shift, size)], fill=(*CHAINLINK_COLOUR, 255), width=CHAINLINK_WIRE)
     return image
-
-
-def decals():
-    width, height = DECAL
-    atlas = Image.new("L", (width, height * len(BRANDS)), 0)
-    for index, (name, *_) in enumerate(BRANDS):
-        panel = Image.new("L", DECAL, 0)
-        draw = ImageDraw.Draw(panel)
-        size = int(height * 0.8)
-        while True:
-            face = font(size, 900)
-            box = draw.textbbox((0, 0), name, font=face)
-            if box[2] - box[0] <= width * 0.92:
-                break
-            size -= 8
-        draw.text(((width - box[2] - box[0]) // 2, (height - box[3] - box[1]) // 2), name, font=face, fill=255)
-        atlas.paste(panel, (0, index * height))
-    alpha = np.asarray(atlas, np.float32) / 255.0
-    noise = np.random.default_rng(7).random(alpha.shape)
-    worn = alpha * np.where(noise < DECAL_WEAR, 0.0, 0.9)
-    rgba = np.ones(alpha.shape + (4,), np.float32) * 0.94
-    rgba[..., 3] = worn
-    return Image.fromarray(np.round(rgba * 255).astype(np.uint8), "RGBA")
 
 
 def pit_decals():
@@ -418,6 +376,10 @@ def facade():
     return np.clip(out * sheen, 0, 1)
 
 
+def build_fonts(out):
+    return out.parent / "fonts"
+
+
 def main():
     root = Path(sys.argv[1] if len(sys.argv) > 1 else "content/tracks/cota")
     out = Path(sys.argv[2] if len(sys.argv) > 2 else "build/cota/textures")
@@ -425,13 +387,12 @@ def main():
     source = root / "textures" / "source"
     save(grass(source), out / "grass_base_color.jpg")
     save(kerb(source), out / "kerb_base_color.png")
-    save(runoff(source), out / "runoff_base_color.jpg")
-    save(boards(), out / "boards_base_color.png")
+    streaks().save(root / "textures" / "baked" / "asphalt_streaks.png")
+    save(brands.boards(build_fonts(out)), out / "boards_base_color.png")
     save(tecpro(), out / "tecpro_base_color.png")
     chainlink().save(out / "chainlink_base_color.png")
     save(distance_boards(), out / "distance_base_color.png")
     save(facade(), out / "facade_base_color.png")
-    decals().save(out / "decals_base_color.png")
     pit_decals().save(out / "pit_decals_base_color.png")
     palette().save(out / "palette_base_color.png")
     fascia().save(out / "fascia_base_color.png")

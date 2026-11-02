@@ -31,7 +31,7 @@ async function roadPositions(): Promise<{ rows: number; at: Accessor }> {
     .find((m) => m.getName() === "road");
   const position = mesh?.listPrimitives()[0]?.getAttribute("POSITION");
   if (!position) throw new Error("road.glb has no road mesh");
-  return { rows: track.centerline.length * 2, at: position };
+  return { rows: track.centerline.length * 2 + 1, at: position };
 }
 
 describe.skipIf(lfsPointer)("COTA road.glb", () => {

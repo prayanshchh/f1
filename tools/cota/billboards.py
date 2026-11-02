@@ -1,9 +1,9 @@
 import numpy as np
 
+from palette import BRAND_ASPECT, BRAND_ROWS
 from pitlane import Frame, lattice, limb
 from trackside import UNIT, Batch, corner_entries
 
-BRAND_ROWS = 4
 BANNER_HEIGHT = 2.3
 BANNER_LOW = 6.6
 TOWER_MARGIN = 2.2
@@ -27,7 +27,7 @@ def side_wall(track, row, side):
 
 def banner_span(boards, steel, frame, s, l0, l1, low, height, brand):
     run = l1 - l0
-    tiles = max(1.0, round(run / (height * 4)))
+    tiles = max(1.0, round(run / (height * BRAND_ASPECT)))
     v0, v1 = 1 - (brand + 1) / BRAND_ROWS, 1 - brand / BRAND_ROWS
     for shift, reading in ((-0.15, (l1, l0)), (0.15, (l0, l1))):
         a, b = reading
@@ -71,7 +71,7 @@ def hoarding(boards, posts, frame, track, s0, sign, brand):
         row = int((s % track.length) / track.length * track.count) % track.count
         lateral.append(sign * (side_wall(track, row, side) + HOARDING_BACK))
     run = 0.0
-    tile = HOARDING_HEIGHT * 4
+    tile = HOARDING_HEIGHT * BRAND_ASPECT
     for a, b, la, lb in zip(positions, positions[1:], lateral, lateral[1:]):
         length = float(np.linalg.norm(frame.at(b, lb)[:2] - frame.at(a, la)[:2]))
         u0, u1 = sign * run / tile, sign * (run + length) / tile
@@ -91,7 +91,7 @@ def build(track, smooth):
     entries = corner_entries(track, smooth)
     step = track.length / track.count
     placed = []
-    brand = 0
+    brand = 4
     clear = lambda s, spacing, used: all(min((s - p) % track.length, (p - s) % track.length) > spacing for p in used)
     for entry, sign, _ in entries:
         s = (entry * step - OVERHEAD_LEAD) % track.length

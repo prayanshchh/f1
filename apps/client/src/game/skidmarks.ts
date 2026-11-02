@@ -47,8 +47,8 @@ export class SkidMarks {
       depthWrite: false,
       side: THREE.DoubleSide,
       polygonOffset: true,
-      polygonOffsetFactor: -3,
-      polygonOffsetUnits: -12,
+      polygonOffsetFactor: 3,
+      polygonOffsetUnits: 12,
     });
     material.colorNode = rubber;
     material.opacityNode = attribute("strength", "float").mul(darkness);

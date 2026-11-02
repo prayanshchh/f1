@@ -2,8 +2,6 @@ import * as THREE from "three/webgpu";
 import {
   float,
   instancedBufferAttribute,
-  output,
-  renderOutput,
   smoothstep,
   uv,
   vec2,
@@ -89,19 +87,14 @@ export class RacingLineView {
       transparent: true,
       depthWrite: false,
       polygonOffset: true,
-      polygonOffsetFactor: -4,
-      polygonOffsetUnits: -16,
+      polygonOffsetFactor: 4,
+      polygonOffsetUnits: 16,
     });
     const tint = instancedBufferAttribute(this.tint, "vec4" as const);
     const edge = vec2(0.5).sub(uv().sub(0.5).abs());
     const soft = smoothstep(float(0), float(feather), edge.x.min(edge.y));
     material.colorNode = tint.xyz;
     material.opacityNode = tint.w.mul(soft);
-    material.outputNode = renderOutput(
-      output,
-      THREE.NoToneMapping,
-      THREE.SRGBColorSpace,
-    );
     return material;
   }
 

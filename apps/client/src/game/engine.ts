@@ -72,6 +72,29 @@ export interface RaceSystems {
   straightAssist: boolean;
   countdown: number;
   lightInterval: number;
+  rules: RaceRules;
+}
+
+interface RaceRules {
+  safetyCar: number;
+  redFlags: boolean;
+  formationLap: boolean;
+  rollingStart: boolean;
+}
+
+export interface RaceControlInfo {
+  state: number;
+  safetyCarShown: boolean;
+  signalTime: number;
+  countdown: number;
+  delta: number;
+  redSectors: number;
+  suspendedLeft: number;
+  lineups: number;
+  safetyCarLights: boolean;
+  vscEndingLeft: number;
+  restarts: number;
+  caught: boolean;
 }
 
 export interface SessionPlan {
@@ -153,6 +176,7 @@ export const carField = {
 const timingStride = 20;
 const sessionFields = 10;
 const messageBatch = 32;
+const raceControlFields = 16;
 const marshalSectors = 24;
 
 export async function loadSpeedDreams(): Promise<SpeedDreamsModule> {
@@ -230,6 +254,16 @@ function configureField(module: SpeedDreamsModule, plan: SessionPlan): void {
   module._sdSessionReference(plan.reference);
 }
 
+function configureRules(module: SpeedDreamsModule, race: RaceSystems): void {
+  module._sdStewardsLights(race.lightInterval);
+  module._sdRaceControlConfigure(
+    race.rules.safetyCar,
+    race.rules.redFlags ? 1 : 0,
+    race.rules.formationLap ? 1 : 0,
+    race.rules.rollingStart ? 1 : 0,
+  );
+}
+
 export class Engine {
   private carsMemory = 0;
   private timingMemory = 0;
@@ -254,7 +288,7 @@ export class Engine {
   ): Engine {
     if (session) configureField(module, session);
     module._sdRaceCountdown(race.countdown);
-    module._sdStewardsLights(race.lightInterval);
+    configureRules(module, race);
     module._sdInputAssist(assist ? 1 : 0);
     module._sdInputAntiLock(antiLock ? 1 : 0);
     module._sdTyresConfigure(race.compound, race.wearScale);
@@ -396,6 +430,37 @@ export class Engine {
     }
     this.module._free(pointer);
     return found;
+  }
+
+  raceControl(): RaceControlInfo {
+    const v = this.doubles(raceControlFields, (p) => {
+      this.module._sdRaceControlInfo(p);
+    });
+    const at = (i: number) => v[i] ?? 0;
+    return {
+      state: at(0),
+      safetyCarShown: at(1) !== 0,
+      signalTime: at(4),
+      countdown: at(5),
+      delta: at(6),
+      redSectors: at(7),
+      suspendedLeft: at(9),
+      lineups: at(10),
+      safetyCarLights: at(11) !== 0,
+      vscEndingLeft: at(12),
+      restarts: at(14),
+      caught: at(15) !== 0,
+    };
+  }
+
+  safetyCarPose(): number[] | null {
+    const pointer = this.module._malloc(16 * 8);
+    const shown = this.module._sdSafetyCarPose(pointer) !== 0;
+    const pose = Array.from(
+      new Float64Array(this.module.HEAPF64.buffer, pointer, 16),
+    );
+    this.module._free(pointer);
+    return shown ? pose : null;
   }
 
   stewardCar(index: number): StewardCar {

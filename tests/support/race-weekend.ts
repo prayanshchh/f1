@@ -54,6 +54,25 @@ export interface Weekend extends SpeedDreams {
   _sdSessionGrid: (out: number) => number;
   _sdQualifyingTimes: (index: number, out: number) => void;
   _sdTiming: (out: number) => void;
+  _sdRaceControlConfigure: (
+    safetyCar: number,
+    redFlags: number,
+    formationLap: number,
+    rollingStart: number,
+  ) => void;
+  _sdRaceControlDeploy: (which: number) => number;
+  _sdRaceControlInfo: (out: number) => void;
+}
+
+export function subset(plan: WeekendPlan, cars: number): WeekendPlan {
+  const kept = plan.entrants
+    .map((_, index) => index)
+    .sort((a, b) => (plan.slots[a] ?? 0) - (plan.slots[b] ?? 0))
+    .slice(0, cars);
+  return {
+    entrants: kept.flatMap((i) => plan.entrants[i] ?? []),
+    slots: kept.map((_, slot) => slot),
+  };
 }
 
 export interface FieldOptions {
@@ -63,11 +82,26 @@ export interface FieldOptions {
   wear?: number;
   plan?: WeekendPlan;
   autopilot?: boolean;
+  rules?: Rules;
+}
+
+export interface Rules {
+  safetyCar?: number;
+  redFlags?: boolean;
+  formationLap?: boolean;
+  rollingStart?: boolean;
 }
 
 export async function startField(options: FieldOptions): Promise<Weekend> {
   const plan = options.plan ?? planWeekend("corvus", 10, null);
+  const rules = options.rules ?? {};
   return startCota<Weekend>((m) => {
+    m._sdRaceControlConfigure(
+      rules.safetyCar ?? 2,
+      rules.redFlags === false ? 0 : 1,
+      rules.formationLap ? 1 : 0,
+      rules.rollingStart ? 1 : 0,
+    );
     m._sdTyresConfigure(1, options.wear ?? 1);
     m._sdEnergyConfigure(options.kind === sessionKind.race ? 1 : 0, 1, 1, 1);
     const add = m.cwrap("sdFieldAdd", "null", [

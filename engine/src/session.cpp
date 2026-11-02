@@ -878,6 +878,41 @@ bool sdSessionFinished(int index)
     return !timing.empty() && index < (int)timing.size() && timing[index].finished;
 }
 
+double sdSessionReferenceLap()
+{
+    return referenceLap;
+}
+
+int sdSessionStartSlot(int index)
+{
+    return index < (int)startSlots.size() ? startSlots[index] : index;
+}
+
+bool sdSessionChequered()
+{
+    return chequered;
+}
+
+void sdSessionRestartTiming(tSituation *s)
+{
+    int capacity = timingPoints * timingLaps;
+    double length = sdAiLength();
+    for (int i = 0; i < (int)timing.size(); i++)
+    {
+        Timing &t = timing[i];
+        tCarElt *car = s->cars[i];
+        t.points.assign(capacity, s->currentTime);
+        t.progress = carProgress(car, length);
+        t.lastPoint = std::max(-1, (int)floor((t.progress + 1.0) * timingPoints));
+        t.lastLaps = car->_laps;
+        t.laps = car->_laps;
+        t.gapLeader = 0;
+        t.gapAhead = 0;
+        t.lastDetect = car->_distFromStartLine;
+    }
+    previousOrder.clear();
+}
+
 int sdSessionPositionOf(int index)
 {
     return timing.empty() || index >= (int)timing.size() ? 1 : timing[index].position;

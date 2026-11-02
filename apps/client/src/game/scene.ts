@@ -25,6 +25,7 @@ import { releaseUploadedImages, uploadEverything } from "./preload.ts";
 import { PitGate } from "./pit-gate.ts";
 import type { PitControl, PitLayout } from "./pitstop.ts";
 import { SkidMarks } from "./skidmarks.ts";
+import { SafetyCar } from "./safety-car.ts";
 import type { StartLights } from "./start-lights.ts";
 import { SdSky } from "./sky.ts";
 import { SkyBox } from "./skybox.ts";
@@ -71,6 +72,9 @@ export class Scene {
   private readonly sunlight: Sunlight;
   private readonly smoke = new TyreSmoke();
   private readonly moving: THREE.Object3D[];
+  private readonly safetyCar = new SafetyCar();
+  private signalAt = 0;
+  private formation = false;
   private readonly viewFrustum = new THREE.Frustum();
   private mirrorViews: THREE.Frustum[] = [];
   private readonly seen = {
@@ -108,7 +112,7 @@ export class Scene {
     readonly crew: PitCrew,
     private readonly lapScale: number,
     private readonly field: FieldCars | null,
-    private readonly lights: StartLights,
+    private lights: StartLights,
   ) {
     this.camera.matrixAutoUpdate = false;
     this.camera.matrixWorldAutoUpdate = false;
@@ -134,8 +138,19 @@ export class Scene {
       horizon[2] ?? 1,
     );
     this.atmosphere.exposure = skyBox.exposure;
-    this.scene.add(this.marks.mesh, this.crew.root, this.gate.mesh);
-    this.moving = [skyBox.mesh, car.root, this.gate.mesh, ...extras];
+    this.scene.add(
+      this.marks.mesh,
+      this.crew.root,
+      this.gate.mesh,
+      this.safetyCar.root,
+    );
+    this.moving = [
+      skyBox.mesh,
+      car.root,
+      this.gate.mesh,
+      this.safetyCar.root,
+      ...extras,
+    ];
     this.scene.updateMatrixWorld(true);
     this.scene.matrixWorldAutoUpdate = false;
     culler.bake();
@@ -212,6 +227,23 @@ export class Scene {
 
   updateField(cars: Float64Array): void {
     this.field?.update(cars, this.camera);
+  }
+
+  updateSafetyCar(
+    pose: ArrayLike<number> | null,
+    lightsOn: boolean,
+    now: number,
+  ): void {
+    this.safetyCar.update(pose, lightsOn, now);
+  }
+
+  restartLights(lights: StartLights, signalAt: number): void {
+    this.lights = lights;
+    this.signalAt = signalAt;
+  }
+
+  setFormation(on: boolean): void {
+    this.formation = on;
   }
 
   feel(
@@ -375,7 +407,8 @@ export class Scene {
         onboardReach * onboardReach,
     );
     const time = frame[frameIndex.time] ?? 0;
-    setStartLights(this.cinematic ? 0 : this.lights.lit(time));
+    const lit = this.formation ? 0 : this.lights.lit(time - this.signalAt);
+    setStartLights(this.cinematic ? 0 : lit);
     const sky = this.sky.update(time, time, eyeX, eyeY);
     const [focusX, focusY, focusZ] = this.cinematic?.target ?? [
       eyeX,

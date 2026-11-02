@@ -351,6 +351,12 @@ export class PitStop {
     return control;
   }
 
+  abort(): void {
+    this.reset();
+    this.waiting = false;
+    this.garageReleased = false;
+  }
+
   private reset(): void {
     this.phase = "track";
     this.grade = null;

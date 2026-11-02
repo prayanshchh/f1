@@ -18,6 +18,10 @@ bool sdSessionRacing(int index);
 bool sdSessionFinished(int index);
 int sdSessionPositionOf(int index);
 void sdSessionDisqualify(int index);
+int sdSessionStartSlot(int index);
+double sdSessionReferenceLap();
+bool sdSessionChequered();
+void sdSessionRestartTiming(tSituation *s);
 void sdSessionClearPlans();
 
 #endif

@@ -65,13 +65,19 @@ import { loadReference, rememberReference } from "./game/reference.ts";
 import { fetchJson, Scene } from "./game/scene.ts";
 import { GameSound, openAudio } from "./game/sound/game-sound.ts";
 import { StartLights } from "./game/start-lights.ts";
-import { pitPenaltyFor, type StewardCar, type Turn } from "./game/stewards.ts";
+import {
+  pitPenaltyFor,
+  raceControlState,
+  type StewardCar,
+  type Turn,
+} from "./game/stewards.ts";
 import { surname } from "./game/tower.ts";
 import { Studio } from "./game/studio.ts";
 import { type PlayerSeat, startingGrid } from "./game/teams.ts";
 import {
   applySettings,
   carOf,
+  choices,
   loadSettings,
   type Settings,
   stageOf,
@@ -320,6 +326,14 @@ function raceSystems(
   return {
     countdown: lights.countdown,
     lightInterval: lights.interval,
+    rules: {
+      safetyCar: choices.safetyCar.findIndex(
+        (c) => c.id === settings.safetyCar,
+      ),
+      redFlags: settings.redFlags,
+      formationLap: settings.formationLap && stage === "race",
+      rollingStart: settings.startType === "rolling" && stage === "race",
+    },
     compound: stage === "qualifying" ? 0 : compoundIndex(settings.compound),
     wearScale: wearScale(
       stage === "qualifying" ? "real" : settings.tyreWear,
@@ -898,6 +912,24 @@ async function main(): Promise<void> {
   };
   let stewardSeen = 0;
   let stewardClock = 0;
+  let lineups = 0;
+  let restarts = 0;
+  const watchRaceControl = () => {
+    const rc = engine.raceControl();
+    hud.updateRaceControl(rc);
+    scene.setFormation(rc.state === raceControlState.formation);
+    if (rc.lineups !== lineups) {
+      lineups = rc.lineups;
+      pit.abort();
+    }
+    if (rc.restarts !== restarts) {
+      restarts = rc.restarts;
+      const restart = StartLights.restart(rc.countdown);
+      hud.restartLights(restart, rc.signalTime);
+      scene.restartLights(restart, rc.signalTime);
+    }
+    return rc;
+  };
   const watchStewards = (steward: StewardCar, now: number) => {
     if (now - stewardClock < stewardPeriod) return;
     stewardClock = now;
@@ -911,6 +943,8 @@ async function main(): Promise<void> {
     const steward = engine.stewardCar(0);
     const control = applyPit(frame, now, steward);
     watchStewards(steward, now);
+    const rc = watchRaceControl();
+    scene.updateSafetyCar(engine.safetyCarPose(), rc.safetyCarLights, now);
     if (flow) flow.update(now);
     else armOvertake(frame);
     const tyres = engine.tyreInfo();

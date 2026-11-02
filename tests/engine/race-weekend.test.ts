@@ -12,6 +12,7 @@ import {
   sessionKind,
   startField,
   statsOf,
+  subset,
   timingOf,
   type Weekend,
 } from "../support/race-weekend.ts";
@@ -23,17 +24,6 @@ const fieldSize = 22;
 const firstSegmentCars = 16;
 const lastSegmentCars = 10;
 const lapSeconds = 125;
-
-function subset(plan: WeekendPlan, cars: number): WeekendPlan {
-  const kept = plan.entrants
-    .map((_, index) => index)
-    .sort((a, b) => (plan.slots[a] ?? 0) - (plan.slots[b] ?? 0))
-    .slice(0, cars);
-  return {
-    entrants: kept.flatMap((i) => plan.entrants[i] ?? []),
-    slots: kept.map((_, slot) => slot),
-  };
-}
 
 function headToHead(leaderSpeed: number): WeekendPlan {
   const { entrants } = planWeekend("corvus", 0, null);
@@ -102,7 +92,7 @@ describe.runIf(existsSync(wasm))("race weekend on the real engine", () => {
     const m = await startField({
       kind: sessionKind.race,
       laps,
-      seed: 4,
+      seed: 6,
       wear: 2,
       plan,
     });

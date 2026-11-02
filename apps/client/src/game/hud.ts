@@ -14,6 +14,7 @@ import {
   type CarTiming,
   frameIndex,
   type HudInfo,
+  type RaceControlInfo,
   sessionPhase,
   type SessionInfo,
 } from "./engine.ts";
@@ -32,6 +33,7 @@ import {
   penalty,
   penaltyBadge,
   pitInstruction,
+  raceControlState,
   stage,
   type StewardCar,
   type StewardMessage,
@@ -207,6 +209,74 @@ function flagFor(
     : null;
 }
 
+interface RaceStatus {
+  state: string;
+  label: string;
+  detail: string;
+}
+
+const raceStatuses: Record<number, RaceStatus> = {
+  [raceControlState.formation]: {
+    state: "formation",
+    label: "Formation lap",
+    detail: "No overtaking",
+  },
+  [raceControlState.vsc]: {
+    state: "yellow",
+    label: "Virtual safety car",
+    detail: "Keep delta positive",
+  },
+  [raceControlState.vscEnding]: {
+    state: "yellow",
+    label: "VSC ending",
+    detail: "Green flag soon",
+  },
+  [raceControlState.safetyCar]: {
+    state: "yellow",
+    label: "Safety car",
+    detail: "No overtaking",
+  },
+  [raceControlState.safetyCarIn]: {
+    state: "yellow",
+    label: "Safety car",
+    detail: "In this lap",
+  },
+  [raceControlState.restart]: {
+    state: "green",
+    label: "Restart",
+    detail: "Overtake after the line",
+  },
+  [raceControlState.red]: {
+    state: "red",
+    label: "Red flag",
+    detail: "Slow down",
+  },
+  [raceControlState.suspended]: {
+    state: "red",
+    label: "Red flag",
+    detail: "Race suspended",
+  },
+};
+
+function raceStatus(rc: RaceControlInfo): RaceStatus | null {
+  return raceStatuses[rc.state] ?? null;
+}
+
+function neutralDelta(
+  rc: RaceControlInfo,
+): { label: string; value: number } | null {
+  const vsc =
+    rc.state === raceControlState.vsc ||
+    rc.state === raceControlState.vscEnding ||
+    rc.state === raceControlState.red;
+  const chasing =
+    (rc.state === raceControlState.safetyCar ||
+      rc.state === raceControlState.safetyCarIn) &&
+    !rc.caught;
+  if (vsc) return { label: "VSC Delta", value: rc.delta };
+  return chasing ? { label: "SC Delta", value: rc.delta } : null;
+}
+
 interface Toast {
   kind: string;
   title: string;
@@ -262,6 +332,11 @@ export class Hud {
   private flagKey = "";
   private mapFlags: SVGPathElement[] = [];
   private lastDistance = 0;
+  private start: StartLights;
+  private signalAt = 0;
+  private raceState: number = raceControlState.green;
+  private neutralDelta: { label: string; value: number } | null = null;
+  private lineupsSeen = 0;
 
   constructor(
     private readonly root: HTMLElement,
@@ -298,6 +373,7 @@ export class Hud {
       sectors.append(cell);
       this.sectorCells.push(cell);
     }
+    this.start = options.start;
     this.mfd = new Mfd(this.find("mfd"), this.find);
     putText(this.find("steward-logo"), federation.short);
     putText(this.find("session"), options.session);
@@ -833,8 +909,16 @@ export class Hud {
   }
 
   private updateDelta(laps: number, distance: number, current: number): void {
-    const delta = this.trace.delta(distance, current);
     const widget = this.find("delta");
+    const neutral = this.neutralDelta;
+    putData(widget, "mode", neutral ? "neutral" : "");
+    putText(this.find("delta-label"), neutral?.label ?? "Delta");
+    if (neutral) {
+      putData(widget, "state", neutral.value >= 0 ? "ahead" : "behind");
+      putText(this.find("delta-value"), signed(neutral.value));
+      return;
+    }
+    const delta = this.trace.delta(distance, current);
     if (delta === null) {
       putData(widget, "state", "idle");
       putText(this.find("delta-value"), laps > 0 ? "--.---" : "");
@@ -945,16 +1029,49 @@ export class Hud {
     );
   }
 
-  private updateLights(time: number): void {
+  restartLights(lights: StartLights, signalAt: number): void {
+    this.start = lights;
+    this.signalAt = signalAt;
+    this.countdown = false;
+  }
+
+  private updateLights(raceTime: number): void {
     if (this.options.qualifying) return;
     const gantry = this.find("lights");
-    const lit = this.options.start.lit(time);
+    const time = raceTime - this.signalAt;
+    const formation = this.raceState === raceControlState.formation;
+    const lit = formation ? 0 : this.start.lit(time);
     this.lights.forEach((light, i) => {
       light.classList.toggle("on", i < lit);
     });
-    if (time < 0) this.countdown = true;
+    if (time < 0 && !formation) this.countdown = true;
     gantry.classList.toggle("show", this.countdown && time < 1);
     gantry.classList.toggle("out", time >= 0);
+  }
+
+  updateRaceControl(rc: RaceControlInfo): void {
+    this.raceState = rc.state;
+    const status = raceStatus(rc);
+    const strip = this.find("rc-status");
+    putHidden(strip, !status);
+    if (status) {
+      putData(strip, "state", status.state);
+      putText(this.find("rc-label"), status.label);
+      putText(this.find("rc-detail"), status.detail);
+    }
+    const screen = this.find("rc-screen");
+    const suspended = rc.state === raceControlState.suspended;
+    putHidden(screen, !suspended);
+    if (suspended)
+      putText(
+        this.find("rc-screen-detail"),
+        `Race suspended - restart in ${String(Math.ceil(rc.suspendedLeft + rc.countdown))}s`,
+      );
+    this.neutralDelta = neutralDelta(rc);
+    if (rc.lineups !== this.lineupsSeen) {
+      this.lineupsSeen = rc.lineups;
+      replay(this.find("lineup-fade"), "play");
+    }
   }
 
   private updateWarnings(

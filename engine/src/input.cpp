@@ -8,6 +8,7 @@
 #include <playerpref.h>
 
 #include "game.h"
+#include "race-control.h"
 
 static const double axisScale = 20000.0;
 static const double frontSlipLimit = 8.0 * PI / 180.0;
@@ -219,9 +220,10 @@ static void applySpeedLimit(tCarElt *car)
 
 void sdInputLaunch(tCarElt *car, tSituation *s)
 {
-    if (!assist)
+    if (!assist || sdRaceControlFormation())
         return;
-    if (s->currentTime > launchWindow || (s->currentTime > 0 && fabs(car->_speed_x) > launchSpeed))
+    double since = sdRaceControlSinceSignal(s);
+    if (since > launchWindow || (since > 0 && fabs(car->_speed_x) > launchSpeed))
         launching = false;
     if (!launching)
         return;
@@ -233,6 +235,11 @@ void sdInputLaunch(tCarElt *car, tSituation *s)
     car->_accelCmd = (tdble)wanted;
     car->_brakeCmd = (tdble)std::max(held, launchBrake);
     car->_gearCmd = 1;
+}
+
+void sdInputRelaunch()
+{
+    launching = true;
 }
 
 void sdInputApplyHold(tCarElt *car)

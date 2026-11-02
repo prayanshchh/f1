@@ -80,6 +80,7 @@ const sources = [
   path.join(glue, "ai.cpp"),
   path.join(glue, "session.cpp"),
   path.join(glue, "stewards.cpp"),
+  path.join(glue, "race-control.cpp"),
   path.join(root, "engine/third_party/OpenSceneGraph/src/osg/Matrixd.cpp"),
   path.join(root, "engine/third_party/OpenSceneGraph/src/osg/Quat.cpp"),
 ];

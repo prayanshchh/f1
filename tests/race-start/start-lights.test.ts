@@ -67,7 +67,7 @@ describe.runIf(existsSync(wasm))("engine race start", () => {
   const start = async () => {
     const m = (await startField({
       kind: sessionKind.race,
-      laps: 3,
+      laps: 6,
       seed: 4,
       plan: duel(),
       autopilot: false,

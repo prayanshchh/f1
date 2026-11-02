@@ -19,6 +19,7 @@
 #include "game.h"
 #include "session.h"
 #include "stewards.h"
+#include "race-control.h"
 #include "sim.h"
 
 tRmInfo *ReInfo = nullptr;
@@ -252,6 +253,7 @@ void sdCarTeleport(int index, double distance, double lateral)
     ReInfo->_reCarInfo[index].prevTrkPos = elt->_trkPos;
     ReInfo->_reCarInfo[index].sTime = (tdble)ReInfo->s->currentTime;
     ReInfo->_reCarInfo[index].lapFlag = 0;
+    sdCarStatusTeleported(index);
 }
 
 void sdServiceCar(int index, int compound)
@@ -347,6 +349,7 @@ static void runOneStep(double deltaTimeIncrement)
     {
         s->deltaTime = s->currentTime - pCurrReInfo->_reLastRobTime;
         sdStewardsTick(s, s->deltaTime);
+        sdRaceControlTick(s, s->deltaTime);
         sdSessionTick(s, s->deltaTime);
         bool playerOnAi = playerAutopilot && sdFieldActive();
         if (!playerOnAi)
@@ -368,7 +371,7 @@ static void runOneStep(double deltaTimeIncrement)
             sdInputLaunch(s->cars[0], s);
             sdInputApplyHold(s->cars[0]);
         }
-        if (s->currentTime < 0)
+        if (sdRaceControlHolding(s))
             for (int i = playerOnAi ? 0 : 1; i < s->_ncars; i++)
             {
                 s->cars[i]->_brakeCmd = 1.0f;
@@ -420,8 +423,8 @@ static void startRace()
         SimUpdate(s, RCM_MAX_DT_SIMU);
 
     ReInfo->_reTimeMult = 1.0;
-    ReInfo->_reLastRobTime = -1.0;
-    s->currentTime = raceCountdown > 0.0 ? -raceCountdown : sdSessionStartClock();
+    s->currentTime = (raceCountdown > 0.0 ? -raceCountdown : sdSessionStartClock()) - sdRaceControlStartOffset(sdSessionKindOf());
+    ReInfo->_reLastRobTime = s->currentTime - RCM_MAX_DT_ROBOTS;
     s->deltaTime = RCM_MAX_DT_SIMU;
     s->_raceState = RM_RACE_STARTING;
     ReInfo->_reRunning = 1;
@@ -690,6 +693,7 @@ EMSCRIPTEN_KEEPALIVE int sdInit(const char *trackCategory, const char *trackName
     }
     sdSessionBegin(s);
     sdStewardsBegin(s, sdSessionKindOf(), sdSessionTotalLaps());
+    sdRaceControlBegin(s, sdSessionKindOf());
     sdCameraReset();
     fillFrame();
     return 0;

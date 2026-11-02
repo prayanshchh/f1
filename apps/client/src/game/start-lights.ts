@@ -17,6 +17,10 @@ export class StartLights {
     return new StartLights(startLightCount * raceInterval + hold, raceInterval);
   }
 
+  static restart(countdown: number): StartLights {
+    return new StartLights(countdown, raceInterval);
+  }
+
   static quick(): StartLights {
     return new StartLights(quickCountdown, quickInterval);
   }

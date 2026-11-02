@@ -97,6 +97,14 @@ declare module "*/wasm/speed-dreams.js" {
     _sdStewardsMessages(out: number, max: number, after: number): number;
     _sdStewardsCar(index: number, out: number): void;
     _sdStewardsFlags(out: number, max: number): number;
+    _sdRaceControlConfigure(
+      safetyCar: number,
+      redFlags: number,
+      formationLap: number,
+      rollingStart: number,
+    ): void;
+    _sdRaceControlInfo(out: number): void;
+    _sdSafetyCarPose(out: number): number;
     _sdCars(out: number): void;
     _sdTimeScale(scale: number): void;
     _sdKey(key: number, state: number): void;

@@ -12,6 +12,7 @@
 
 #include "sim.h"
 #include "ai.h"
+#include "race-control.h"
 #include "game.h"
 
 namespace
@@ -111,6 +112,7 @@ const double slideCatchSpan = 0.15;
 const double slideCatchGain = 1.2;
 const double slideCatchSpeed = 5.0;
 const double slowCornerFloor = 8.0;
+const double launchRevs = 2.0;
 
 struct PitLayout
 {
@@ -167,7 +169,6 @@ struct Driver
     double steer = 0;
     double wheelBrake[4] = {1, 1, 1, 1};
     double tractionLimit = 1;
-    double launch = 0;
     double reaction = 0;
     int defendSide = 0;
     double defendTimer = 0;
@@ -196,6 +197,7 @@ struct Driver
     int deferredCompound = 0;
     double deferredTime = 0;
     double caution = 1.0;
+    double speedCap = 1e9;
     double holdClock = 0;
     double stuckClock = 0;
     double crawlClock = 0;
@@ -799,7 +801,7 @@ double candidateCost(const Driver &driver, tCarElt *car, const std::vector<Rival
     }
     double travelled = pos - start;
     double offLine = fabs(candidate) * offLineCost * (driver.task == AI_PUSH_LAP ? pushLapLineWeight : 1.0);
-    double firstLap = car->_laps <= 1 && s->currentTime < 12.0 ? 3.0 : 1.0;
+    double firstLap = sdRaceControlSinceSignal(s) < 12.0 ? 3.0 : 1.0;
     double change = fabs(candidate - driver.laneTarget) * laneChangeCost * firstLap;
     return -travelled + offLine + change + penalty;
 }
@@ -985,7 +987,7 @@ double conflictSpeed(int index, tCarElt *car, tSituation *s, double target)
         bool rivalLeads = gap > 0.6 || (gap > -0.6 && i < index);
         if (!rivalLeads || gap > 200.0)
             continue;
-        bool rivalGivesRoom = !inPit && (i > 0 || sdFieldPlayerOnAi()) && drivers[i].pit == PIT_NONE && s->currentTime > openingLapTime;
+        bool rivalGivesRoom = !inPit && (i > 0 || sdFieldPlayerOnAi()) && drivers[i].pit == PIT_NONE && sdRaceControlSinceSignal(s) > openingLapTime;
         double claimReach = (me.halfLong[0] + f.halfLong[0] + 3.0) / alongScale(f.s[0], f.l[0]);
         double claimSide = me.halfLat[0] + f.halfLat[0] + hardClearance + slowMargin(f.v[0]);
         if (rivalGivesRoom && gap < claimReach && fabs(f.l[0] - me.l[0]) >= claimSide)
@@ -1183,7 +1185,7 @@ bool recover(int index, Driver &driver, tCarElt *car, tSituation *s, double dt, 
     double angle = relativeYaw(car);
     double v = (double)car->_speed_x;
     bool wrongWay = fabs(angle) > 1.2;
-    bool stopped = fabs(v) < 2.0 && s->currentTime > 0;
+    bool stopped = fabs(v) < 2.0 && sdRaceControlSinceSignal(s) > 0;
     driver.stuckClock = stopped || wrongWay ? driver.stuckClock + dt : 0.0;
     bool lost = wrongWay || (driver.reverseClock > 0);
     driver.rejoinClock = lost ? driver.rejoinClock + dt : 0.0;
@@ -1645,6 +1647,45 @@ void sdAiExtendStop(int index, double seconds)
         driver.pitTime += seconds;
 }
 
+void sdAiSetSpeedCap(int index, double metresPerSecond)
+{
+    drivers[index].speedCap = metresPerSecond;
+}
+
+double sdAiLineSpeed(double distance)
+{
+    return model.ready ? sampled(model.laneSpeed[laneCentre], distance) : 60.0;
+}
+
+double sdAiPitEntry()
+{
+    return model.pit.entry;
+}
+
+double sdAiFastLane(double distance)
+{
+    return model.ready ? sampled(model.pitLateral, distance) : 0.0;
+}
+
+void sdAiResetRunning(int index)
+{
+    Driver &driver = drivers[index];
+    driver.pit = PIT_NONE;
+    driver.pitPending = false;
+    driver.deferredPit = false;
+    driver.driveThrough = false;
+    driver.noService = false;
+    driver.lane = 0;
+    driver.laneTarget = 0;
+    driver.steer = 0;
+    driver.stuckClock = 0;
+    driver.crawlClock = 0;
+    driver.stuckTotal = 0;
+    driver.reverseClock = 0;
+    driver.rejoinClock = 0;
+    driver.slide = 0;
+}
+
 void sdAiSetCaution(int index, double factor)
 {
     drivers[index].caution = factor;
@@ -1805,17 +1846,11 @@ void sdAiDrive(int index, tCarElt *car, tSituation *s)
         driver.weight = 1.0 - 0.09 * fuelShare;
     }
     updateForecasts(s);
-    if (s->currentTime < 0)
+    double sinceSignal = sdRaceControlSinceSignal(s);
+    if (sdRaceControlHolding(s) || (!sdRaceControlFormation() && sinceSignal < driver.reaction))
     {
         hold(car);
-        car->_accelCmd = 0.7f;
-        driver.launch = s->currentTime;
-        return;
-    }
-    if (s->currentTime < driver.reaction)
-    {
-        hold(car);
-        car->_accelCmd = 0.7f;
+        car->_accelCmd = sinceSignal > -launchRevs && sinceSignal < driver.reaction ? 0.7f : 0.0f;
         return;
     }
     if (driver.task == AI_PARKED || driver.task == AI_GARAGE)
@@ -1858,7 +1893,7 @@ void sdAiDrive(int index, tCarElt *car, tSituation *s)
     if (driver.task == AI_RACE && targetSpeedAt(driver, pos + v * 2.0, driver.lane) > slowCornerSpeed && holdsInside(index, car, s))
         speedFactor = std::max(speedFactor, insideLateBrake);
     double beyond = std::max((double)car->_trkPos.toMiddle - sampled(model.leftBound, pos), sampled(model.rightBound, pos) - (double)car->_trkPos.toMiddle);
-    if (car->_laps <= 1 && pos < firstLapDistance && s->currentTime < 60.0)
+    if (pos < firstLapDistance && sdRaceControlSinceSignal(s) < 60.0)
         speedFactor = std::min(speedFactor, firstLapCaution);
     if (beyond > 1.0)
     {
@@ -1883,14 +1918,16 @@ void sdAiDrive(int index, tCarElt *car, tSituation *s)
         target *= hurry;
         upcoming *= hurry;
     }
+    target = std::min(target, driver.speedCap);
+    upcoming = std::min(upcoming, driver.speedCap);
     double safe = conflictSpeed(index, car, s, target);
-    if (fabs(v) < 3.0 && s->currentTime > 2.0)
+    if (fabs(v) < 3.0 && sdRaceControlSinceSignal(s) > 2.0)
         driver.crawlClock += dt;
     else
         driver.crawlClock = 0;
     if (driver.crawlClock > 3.0)
         safe = std::max(safe, 7.0);
-    driver.stuckTotal = fabs(v) < 4.0 && s->currentTime > 1.0 ? driver.stuckTotal + dt : std::max(0.0, driver.stuckTotal - dt);
+    driver.stuckTotal = fabs(v) < 4.0 && sdRaceControlSinceSignal(s) > 1.0 ? driver.stuckTotal + dt : std::max(0.0, driver.stuckTotal - dt);
     target = std::min(target, safe);
     upcoming = std::min(upcoming, safe);
     double offset = lateral - laneLateralAt(pos, driver.lane);

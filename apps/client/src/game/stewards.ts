@@ -24,6 +24,42 @@ export const offence = {
   movingUnderBraking: 15,
   penaltyNotServed: 16,
   penaltyImproper: 17,
+  vscDelta: 18,
+  safetyCarDelta: 19,
+  neutralisedOvertake: 20,
+  safetyCarPass: 21,
+  safetyCarGap: 22,
+  restartOvertake: 23,
+  redFlag: 24,
+  formationOvertake: 25,
+  unsafeRelease: 26,
+} as const;
+
+export const raceControlState = {
+  green: 0,
+  formation: 1,
+  lights: 2,
+  vsc: 3,
+  vscEnding: 4,
+  safetyCar: 5,
+  safetyCarIn: 6,
+  restart: 7,
+  red: 8,
+  suspended: 9,
+} as const;
+
+const controlEvent = {
+  formation: 0,
+  vsc: 1,
+  vscEnding: 2,
+  safetyCar: 3,
+  safetyCarIn: 4,
+  green: 5,
+  red: 6,
+  suspended: 7,
+  resume: 8,
+  rolling: 9,
+  lineup: 10,
 } as const;
 
 export const stage = {
@@ -36,6 +72,7 @@ export const stage = {
   returned: 6,
   flag: 7,
   clear: 8,
+  control: 9,
 } as const;
 
 export const penalty = {
@@ -51,6 +88,7 @@ export const penalty = {
   grid: 9,
   disqualified: 10,
   lapDeleted: 11,
+  backOfGrid: 12,
 } as const;
 
 export interface StewardMessage {
@@ -129,6 +167,15 @@ const offenceNames: Record<number, string> = {
   [offence.movingUnderBraking]: "Moving under braking",
   [offence.penaltyNotServed]: "Penalty not served",
   [offence.penaltyImproper]: "Penalty not served correctly",
+  [offence.vscDelta]: "Exceeding the VSC delta time",
+  [offence.safetyCarDelta]: "Exceeding the safety car delta time",
+  [offence.neutralisedOvertake]: "Overtaking under the safety car",
+  [offence.safetyCarPass]: "Overtaking the safety car",
+  [offence.safetyCarGap]: "Not within ten car lengths behind the safety car",
+  [offence.restartOvertake]: "Overtaking before the line at the restart",
+  [offence.redFlag]: "Failing to slow for the red flag",
+  [offence.formationOvertake]: "Overtaking on the formation lap",
+  [offence.unsafeRelease]: "Unsafe release",
 };
 
 function offenceName(code: number): string {
@@ -145,6 +192,7 @@ const penaltyNames: Record<number, string> = {
   [penalty.disqualified]: "Disqualified",
   [penalty.lapDeleted]: "Lap time deleted",
   [penalty.warning]: "Warning",
+  [penalty.backOfGrid]: "Start from the back of the grid",
 };
 
 function penaltyName(code: number, value: number): string {
@@ -311,12 +359,83 @@ function aboutVictim(
   };
 }
 
+const controlNotices: Record<number, (value: number) => Notice> = {
+  [controlEvent.formation]: () => ({
+    kind: "flag",
+    title: "Formation lap",
+    detail: "Keep your grid position - no overtaking",
+    seconds: 6,
+  }),
+  [controlEvent.vsc]: () => ({
+    kind: "flag",
+    title: "Virtual safety car",
+    detail: "Keep your delta positive - no overtaking",
+    seconds: 6,
+  }),
+  [controlEvent.vscEnding]: () => ({
+    kind: "flag",
+    title: "VSC ending",
+    detail: "Green flag in a few seconds",
+    seconds: 5,
+  }),
+  [controlEvent.safetyCar]: () => ({
+    kind: "flag",
+    title: "Safety car deployed",
+    detail: "Slow down and close up behind - no overtaking",
+    seconds: 6,
+  }),
+  [controlEvent.safetyCarIn]: () => ({
+    kind: "flag",
+    title: "Safety car in this lap",
+    detail: "No overtaking until the control line",
+    seconds: 6,
+  }),
+  [controlEvent.green]: () => ({
+    kind: "info",
+    title: "Green flag",
+    detail: "Track clear - racing resumes",
+    seconds: 4,
+  }),
+  [controlEvent.red]: () => ({
+    kind: "penalty",
+    title: "Red flag",
+    detail: "Session suspended - slow down, no overtaking",
+    seconds: 7,
+  }),
+  [controlEvent.suspended]: (value) => ({
+    kind: "warning",
+    title: "Race suspended",
+    detail: `Cars lined up on the grid - restart in ${String(Math.round(value))} seconds`,
+    seconds: 6,
+  }),
+  [controlEvent.resume]: () => ({
+    kind: "flag",
+    title: "Race resumes",
+    detail: "Standing restart from the grid",
+    seconds: 5,
+  }),
+  [controlEvent.rolling]: () => ({
+    kind: "flag",
+    title: "Rolling start",
+    detail: "Follow the safety car - racing starts at the control line",
+    seconds: 6,
+  }),
+  [controlEvent.lineup]: () => ({
+    kind: "info",
+    title: "Lined up on the grid",
+    detail: "Lights out and away we go",
+    seconds: 4,
+  }),
+};
+
 export function noticeFor(
   message: StewardMessage,
   name: (car: number) => string,
   turns: Turn[],
   racing: boolean,
 ): Notice | null {
+  if (message.stage === stage.control)
+    return controlNotices[message.offence]?.(message.value) ?? null;
   if (message.stage === stage.flag || message.stage === stage.clear)
     return null;
   if (message.car === 0) return aboutPlayer(message, name, turns, racing);

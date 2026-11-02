@@ -12,6 +12,7 @@
 #include "game.h"
 #include "session.h"
 #include "stewards.h"
+#include "race-control.h"
 
 namespace
 {
@@ -22,57 +23,6 @@ enum Kind
     KIND_RACE,
     KIND_QUALIFYING,
     KIND_LAPPING
-};
-
-enum Offence
-{
-    O_JUMP_START,
-    O_GRID_POSITION,
-    O_TRACK_LIMITS,
-    O_LEFT_TRACK_POSITION,
-    O_LEFT_TRACK_TIME,
-    O_UNSAFE_REJOIN,
-    O_COLLISION,
-    O_FORCING_OFF,
-    O_BLUE_FLAGS,
-    O_YELLOW_SINGLE,
-    O_YELLOW_DOUBLE,
-    O_YELLOW_OVERTAKE,
-    O_IMPEDING,
-    O_PIT_SPEEDING,
-    O_DIRECTION_CHANGES,
-    O_MOVING_UNDER_BRAKING,
-    O_PENALTY_NOT_SERVED,
-    O_PENALTY_IMPROPER
-};
-
-enum Stage
-{
-    STAGE_NOTED,
-    STAGE_DECISION,
-    STAGE_NO_ACTION,
-    STAGE_WARNING,
-    STAGE_INSTRUCTION,
-    STAGE_SERVED,
-    STAGE_RETURNED,
-    STAGE_FLAG,
-    STAGE_CLEAR
-};
-
-enum Penalty
-{
-    P_NONE,
-    P_WARNING,
-    P_BLACK_WHITE,
-    P_REPRIMAND,
-    P_TIME5,
-    P_TIME10,
-    P_DRIVE_THROUGH,
-    P_STOP_GO,
-    P_TIME_ADDED,
-    P_GRID,
-    P_DISQUALIFIED,
-    P_LAP_DELETED
 };
 
 const int historySize = 256;
@@ -137,6 +87,7 @@ const double blueSectors = 3.0;
 const double troubleSpeed = 3.0;
 const double troubleShare = 0.5;
 const double holdBehind = 0.7;
+const double referenceSettle = 60.0;
 const double stoppedSpeed = 2.0;
 const double troubleConfirm = 1.0;
 const double stoppedConfirm = 2.0;
@@ -156,6 +107,10 @@ const double impedeSlow = 0.9;
 const double impedeCooldown = 30.0;
 const double overspeedTolerance = 1.0 / 3.6;
 const double speedLineOffset = 15.0;
+const double releaseStop = 1.0;
+const double releaseLane = 2.5;
+const double releaseGap = 12.0;
+const double releaseSpeed = 8.0;
 const double overspeedDriveThrough = 6.0 / 3.6;
 const double overspeedStopGo = 15.0 / 3.6;
 const double defendBehind = 15.0;
@@ -355,6 +310,7 @@ Kind kind = KIND_SOLO;
 int totalLaps = 0;
 double lightInterval = defaultLightInterval;
 double startClock = 0;
+double signalTime = 0;
 bool started = false;
 bool thirdTaken = false;
 double length = 1;
@@ -401,10 +357,18 @@ double progress(tCarElt *car)
     return car->_distRaced;
 }
 
+int leaderLap()
+{
+    int lap = 1;
+    for (int i = 0; i < ReInfo->s->_ncars; i++)
+        lap = std::max(lap, ReInfo->s->cars[i]->_laps);
+    return lap;
+}
+
 void post(int car, int other, int offence, int stage, int penalty, double value, double distance, int count, int points)
 {
-    tCarElt *elt = ReInfo->s->cars[car];
-    messages.push_back({nextMessage++, now, std::max(1, elt->_laps), car, other, offence, stage, penalty, value, distance, count, points});
+    int lap = car >= 0 ? std::max(1, ReInfo->s->cars[car]->_laps) : leaderLap();
+    messages.push_back({nextMessage++, now, lap, car, other, offence, stage, penalty, value, distance, count, points});
     if ((int)messages.size() > messageCapacity)
         messages.pop_front();
 }
@@ -574,6 +538,11 @@ void apply(const Decision &d)
     }
     else if (penalty == P_DRIVE_THROUGH || penalty == P_STOP_GO)
         c.queue.push_back({penalty, d.offence, crossingsAllowed, now});
+    else if (penalty == P_BACK_OF_GRID)
+    {
+        post(d.car, d.other, d.offence, STAGE_DECISION, penalty, value, d.distance, 0, d.points);
+        return;
+    }
     else if (penalty == P_DISQUALIFIED)
     {
         disqualify(d.car, d.offence);
@@ -1192,7 +1161,7 @@ void startProcedure(tSituation *s)
     if (kind != KIND_RACE || started)
         return;
     double third = startClock + thirdLight * lightInterval;
-    if (!thirdTaken && now >= third)
+    if (!thirdTaken && now >= third && now < signalTime)
     {
         thirdTaken = true;
         for (int i = 0; i < s->_ncars; i++)
@@ -1201,13 +1170,15 @@ void startProcedure(tSituation *s)
             cars[i].thirdY = s->cars[i]->_pos_Y;
         }
     }
-    if (now < 0)
+    if (now < signalTime)
         return;
     started = true;
     for (int i = 0; i < s->_ncars; i++)
     {
         tCarElt *car = s->cars[i];
         Car &c = cars[i];
+        if (!racing(i))
+            continue;
         double moved = thirdTaken ? hypot(car->_pos_X - c.thirdX, car->_pos_Y - c.thirdY) : 0.0;
         double forward = signedGap(c.startDistance, car->_distFromStartLine);
         int penalty = P_NONE;
@@ -1227,6 +1198,24 @@ void startProcedure(tSituation *s)
     }
 }
 
+void unsafeRelease(tSituation *s, int i)
+{
+    tCarElt *car = s->cars[i];
+    for (int k = 0; k < s->_ncars; k++)
+    {
+        tCarElt *other = s->cars[k];
+        if (k == i || !racing(k) || !inLaneAt(other))
+            continue;
+        double behind = signedGap(other->_distFromStartLine, car->_distFromStartLine);
+        bool fastLane = fabs(other->_trkPos.toMiddle - sdAiFastLane(other->_distFromStartLine)) < releaseLane;
+        if (!fastLane || behind <= 0 || behind > releaseGap || other->_speed_x < releaseSpeed)
+            continue;
+        int penalty = kind == KIND_RACE ? P_TIME5 : P_REPRIMAND;
+        decide(i, O_UNSAFE_RELEASE, penalty, 0, k, car->_distFromStartLine, decisionDelay, 0);
+        return;
+    }
+}
+
 void updateVisit(tSituation *s, int i, double dt)
 {
     Car &c = cars[i];
@@ -1237,6 +1226,9 @@ void updateVisit(tSituation *s, int i, double dt)
         v = Visit{true, now, 0, 0, -1, false, false, 0};
     if (lane)
     {
+        bool released = v.stopClock > releaseStop && fabs(car->_speed_x) >= stoppedService;
+        if (released)
+            unsafeRelease(s, i);
         if (fabs(car->_speed_x) < stoppedService)
             v.stopClock += dt;
         else
@@ -1324,7 +1316,8 @@ int troubleOf(tSituation *s, int i, double dt)
 {
     Car &c = cars[i];
     tCarElt *car = s->cars[i];
-    bool watched = now > startGrace && (racing(i) || (car->_state & RM_CAR_STATE_NO_SIMU) == 0) && !inLaneAt(car) && !c.visit.inLane && !sdSessionFinished(i);
+    bool settled = sdRaceControlSinceSignal(s) > startGrace && !sdRaceControlHolding(s) && !sdRaceControlFormation();
+    bool watched = settled && (racing(i) || (car->_state & RM_CAR_STATE_NO_SIMU) == 0) && !inLaneAt(car) && !c.visit.inLane && !sdSessionFinished(i);
     double v = fabs(car->_speed_x);
     int lap = car->_laps - 1;
     int slot = ((lap % lapsKept) + lapsKept) % lapsKept;
@@ -1397,9 +1390,11 @@ void yellowCompliance(tSituation *s, int i)
     Car &c = cars[i];
     tCarElt *car = s->cars[i];
     int k = sectorOf(car->_distFromStartLine);
-    if (!racing(i))
+    if (!racing(i) || sdRaceControlNeutralised())
     {
         c.sector = -1;
+        if (i != 0 || sdPlayerAutopilot())
+            sdAiSetCaution(i, 1.0);
         return;
     }
     double ahead = car->_distFromStartLine + cautionLook;
@@ -1446,9 +1441,10 @@ void yellowCompliance(tSituation *s, int i)
     c.sectorClean = !c.ex.active && !c.visit.inLane && c.trouble == 0;
     if (left < 0)
         return;
+    bool launched = c.sectorEnter - signalTime > referenceSettle;
     if (flag == 0)
     {
-        if (clean && !c.ex.active && c.trouble == 0)
+        if (clean && launched && !c.ex.active && c.trouble == 0)
             c.sectorRef[left] = c.sectorRef[left] > 0 ? std::min(c.sectorRef[left], (float)time) : (float)time;
         c.passes.clear();
         return;
@@ -1483,7 +1479,7 @@ void blueFlags(tSituation *s, double dt)
     tCarElt *car = s->cars[0];
     double travelled = wrap(car->_distFromStartLine - c.lastDistance);
     c.lastDistance = car->_distFromStartLine;
-    if (kind != KIND_RACE || sdPlayerAutopilot() || !racing(0) || now <= 0)
+    if (kind != KIND_RACE || sdPlayerAutopilot() || !racing(0) || now <= 0 || sdRaceControlNeutralised())
     {
         c.blue = false;
         return;
@@ -1579,7 +1575,7 @@ void defending(tSituation *s, int d)
 {
     Car &c = cars[d];
     tCarElt *car = s->cars[d];
-    if (kind != KIND_RACE || !racing(d) || now < startGrace || lapOne(d))
+    if (kind != KIND_RACE || !racing(d) || now < startGrace || lapOne(d) || sdRaceControlNeutralised())
         return;
     int attacker = attackerOf(s, d, defendBehind);
     double here = car->_distFromStartLine;
@@ -1645,6 +1641,7 @@ void sdStewardsBegin(tSituation *s, int sessionKind, int laps)
     carCount = s->_ncars;
     length = std::max(1.0, (double)ReInfo->track->length);
     startClock = s->currentTime;
+    signalTime = 0;
     started = kind != KIND_RACE;
     thirdTaken = false;
     now = s->currentTime;
@@ -1668,10 +1665,12 @@ void sdStewardsBegin(tSituation *s, int sessionKind, int laps)
         c.laps = car->_laps;
         c.startX = car->_pos_X;
         c.startY = car->_pos_Y;
-        c.startDistance = car->_distFromStartLine;
+        const tTrkLocPos &at = car->_trkPos;
+        double along = at.seg->lgfromstart + (at.seg->type == TR_STR ? at.toStart : at.toStart * at.seg->radius);
+        c.startDistance = along;
         c.thirdX = car->_pos_X;
         c.thirdY = car->_pos_Y;
-        c.lastDistance = car->_distFromStartLine;
+        c.lastDistance = along;
         for (int l = 0; l < lapsKept; l++)
             for (int b = 0; b < bins; b++)
             {
@@ -1736,6 +1735,56 @@ void sdStewardsNoteService(int index)
         return;
     v.serviced = true;
     v.stopAtService = v.stopClock;
+}
+
+void sdStewardsDecide(int car, int offence, int penalty, double value, int other, double distance, double delay, int points)
+{
+    if (car < 0 || car >= (int)cars.size() || cars[car].disqualified)
+        return;
+    now = ReInfo->s->currentTime;
+    decide(car, offence, penalty, value, other, distance, delay, points);
+}
+
+void sdStewardsAnnounce(int event, double value, double distance)
+{
+    if (cars.empty())
+        return;
+    now = ReInfo->s->currentTime;
+    post(-1, -1, event, STAGE_CONTROL, P_NONE, value, distance, 0, 0);
+}
+
+void sdStewardsArmStart(tSituation *s, double signal, double countdown)
+{
+    if (cars.empty())
+        return;
+    now = s->currentTime;
+    signalTime = signal;
+    startClock = signal - countdown;
+    started = false;
+    thirdTaken = false;
+    for (int i = 0; i < s->_ncars; i++)
+    {
+        Car &c = cars[i];
+        tCarElt *car = s->cars[i];
+        const tTrkLocPos &at = car->_trkPos;
+        double along = at.seg->lgfromstart + (at.seg->type == TR_STR ? at.toStart : at.toStart * at.seg->radius);
+        c.startDistance = along;
+        c.thirdX = car->_pos_X;
+        c.thirdY = car->_pos_Y;
+        c.lastDistance = along;
+        c.laps = car->_laps;
+        c.lapInvalid = car->_laps > 0;
+        c.nextInvalid = false;
+        c.visit = Visit();
+        c.ex = Excursion();
+        c.settling = false;
+        c.giveBackTo = -1;
+        c.sector = -1;
+        c.passes.clear();
+        c.slowClock = 0;
+        c.stoppedClock = 0;
+    }
+    incidents.clear();
 }
 
 void sdStewardsLapCompleted(int index)

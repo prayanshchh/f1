@@ -10,6 +10,7 @@ import {
   rmSync,
 } from "node:fs";
 import path from "node:path";
+import { writeTrackData } from "./ai/track-data.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
 const sd = path.join(root, "engine/speed-dreams");
@@ -76,6 +77,8 @@ const sources = [
   path.join(glue, "tyres.cpp"),
   path.join(glue, "energy.cpp"),
   path.join(glue, "car-status.cpp"),
+  path.join(glue, "ai.cpp"),
+  path.join(glue, "session.cpp"),
   path.join(root, "engine/third_party/OpenSceneGraph/src/osg/Matrixd.cpp"),
   path.join(root, "engine/third_party/OpenSceneGraph/src/osg/Quat.cpp"),
 ];
@@ -249,13 +252,15 @@ const defines = [
 ];
 const flags = ["-O3", "-sUSE_SDL=2", "-Wno-everything"];
 
-const headerStamp = Math.max(
-  ...[glue, path.join(glue, "include")].flatMap((dir) =>
-    readdirSync(dir)
+const headerStampOf = (dir) =>
+  Math.max(
+    0,
+    ...readdirSync(dir)
       .filter((f) => f.endsWith(".h"))
       .map((f) => statSync(path.join(dir, f)).mtimeMs),
-  ),
-);
+  );
+const sharedStamp = headerStampOf(path.join(glue, "include"));
+const glueStamp = headerStampOf(glue);
 
 const objectFiles = [];
 for (const source of sources) {
@@ -264,10 +269,14 @@ for (const source of sources) {
     `${path.relative(root, source).replaceAll(/[\\/]/g, "_")}.o`,
   );
   objectFiles.push(object);
+  const ownStamp =
+    source.startsWith(glue) || source.startsWith(generated)
+      ? Math.max(sharedStamp, glueStamp)
+      : sharedStamp;
   const fresh =
     existsSync(object) &&
     statSync(object).mtimeMs > statSync(source).mtimeMs &&
-    statSync(object).mtimeMs > headerStamp;
+    statSync(object).mtimeMs > ownStamp;
   if (fresh) continue;
   const compiler = source.endsWith(".c") ? "emcc" : "em++";
   const std = source.endsWith(".c") ? [] : ["-std=c++17"];
@@ -305,9 +314,42 @@ function stage(from, to) {
   }
 }
 for (const [from, to] of files) stage(from, path.join(data, to));
+stage(
+  path.join(root, "engine/data/local/drivers/human/cars"),
+  path.join(data, "/sd/data/aisetup"),
+);
+writeTrackData(root, path.join(data, "/sd/data/tracks/circuit/cota/ai.dat"));
 
 const exported = [
   "_sdInit",
+  "_sdFieldClear",
+  "_sdFieldAdd",
+  "_sdFieldPlayer",
+  "_sdFieldAutopilot",
+  "_sdFieldPlayerBox",
+  "_sdFieldCount",
+  "_sdCars",
+  "_sdTimeScale",
+  "_sdAiPlayerLaneClear",
+  "_sdAiLine",
+  "_sdAiLineCount",
+  "_sdAiRebuild",
+  "_sdAiFuel",
+  "_sdAiGainSet",
+  "_sdSessionConfigure",
+  "_sdSessionInfo",
+  "_sdTiming",
+  "_sdSessionStats",
+  "_sdSessionPlayerGarage",
+  "_sdSessionAdvance",
+  "_sdSessionSimulate",
+  "_sdSessionPitCompound",
+  "_sdSessionGrid",
+  "_sdSessionReference",
+  "_sdQualifyingTimes",
+  "_sdFieldPlan",
+  "_sdFieldRun",
+  "_sdFieldStint",
   "_sdRaceCountdown",
   "_sdKey",
   "_sdUpdate",

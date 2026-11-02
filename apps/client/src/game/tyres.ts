@@ -31,6 +31,10 @@ export function compoundIndex(id: string): number {
   );
 }
 
+export function nextCompound(current: number): number {
+  return current === 2 ? 1 : 2;
+}
+
 interface WheelTyre {
   surface: number;
   carcass: number;

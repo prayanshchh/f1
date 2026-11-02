@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cmath>
+#include <vector>
 #include <emscripten/emscripten.h>
 
 #include "sim.h"
@@ -75,6 +76,7 @@ const double slideWearMax = 2.0;
 const double peakSlipStep = 0.002;
 const double peakSlipMax = 0.6;
 const double puncturedGrip = 0.2;
+const double wornOutGrip = 0.32;
 const double cutLeak = 0.35;
 const double slowLeakRate = 0.02;
 const double blowTime = 0.7;
@@ -121,14 +123,20 @@ struct Tyre
     double surface, carcass, wear, flat, lock, spin, grip, baseMu, cut, leak, dirt, peakSlip, baseSpring;
 };
 
-Tyre tyres[4];
-int fitted = 1;
+struct CarTyres
+{
+    Tyre tyres[4];
+    int fitted = 1;
+    int age = 0;
+    int lastLap = 0;
+    int baseRearDiff = 0;
+    double flailClock = 0;
+};
+
+std::vector<CarTyres> field(1);
 int startCompound = 1;
-int age;
-int lastLap;
 double wearScale = 1.0;
-double flailClock;
-int baseRearDiff;
+double trackGrip = 1.0;
 
 double clamp01(double value)
 {
@@ -282,7 +290,7 @@ void updateDirt(Tyre &tyre, const tWheel &wheel, double speed, double dt)
         tyre.dirt = std::max(0.0, tyre.dirt - speed * dt / dirtDistance);
 }
 
-void applyFlat(tCar *car, Tyre &tyre, tWheel &wheel, bool front, double speed, double dt)
+void applyFlat(int index, double clock, tCar *car, Tyre &tyre, tWheel &wheel, bool front, double speed, double dt)
 {
     wheel.susp.spring.x0 = (tdble)(tyre.baseSpring - tyre.leak * flatDrop * wheel.susp.spring.bellcrank);
     double deflated = tyre.leak * tyre.leak;
@@ -291,9 +299,9 @@ void applyFlat(tCar *car, Tyre &tyre, tWheel &wheel, bool front, double speed, d
         return;
     double fade = std::min(1.0, speed / flatDragFade);
     sdCarPush(car, -drag * fade * wheel.bodyVel.x / speed, -drag * fade * wheel.bodyVel.y / speed, wheel.staticPos.x, wheel.staticPos.y, dt);
-    double flail = sin(twoPi * flailHertz * flailClock) + flailSecondShare * sin(twoPi * flailSecondHertz * flailClock + 1.0);
+    double flail = sin(twoPi * flailHertz * clock) + flailSecondShare * sin(twoPi * flailSecondHertz * clock + 1.0);
     sdCarPush(car, 0.0, deflated * flailForce * speed / flailSpeed * flail, wheel.staticPos.x, wheel.staticPos.y, dt);
-    sdDamageScrape((front ? scrapeFront : scrapeRear) * tyre.leak * speed * dt);
+    sdDamageScrape(index, (front ? scrapeFront : scrapeRear) * tyre.leak * speed * dt);
 }
 
 double surfaceRatio(const tWheel &wheel)
@@ -302,7 +310,7 @@ double surfaceRatio(const tWheel &wheel)
     return surface && surface->kFrictionDry > 0 ? surface->kFriction / surface->kFrictionDry : 1.0;
 }
 
-void applyGrip(tCar *car, int index, Tyre &tyre, tWheel &wheel, const Compound &c, double temperature, double pressure, double target, double water, double speed)
+void applyGrip(int carIndex, int index, Tyre &tyre, tWheel &wheel, const Compound &c, double temperature, double pressure, double target, double water, double speed)
 {
     double delta = pressure - target;
     double pressureGrip = 1.0 - std::min(0.12, pressureGripLoss * delta * delta);
@@ -310,86 +318,156 @@ void applyGrip(tCar *car, int index, Tyre &tyre, tWheel &wheel, const Compound &
     double condition = thermalGrip(c, temperature) * (1.0 - wearLoss(tyre.wear, c.cliff)) * pressureGrip * surfaceState;
     double chemistry = compoundGrip(c, water) * aquaplaning(c, water, speed);
     double deflated = tyre.leak * tyre.leak;
-    tyre.grip = chemistry * condition * (1.0 - deflated) + puncturedGrip * deflated;
-    wheel.mu = (tdble)(tyre.baseMu * tyre.grip * sdDamageWheelGrip(car, index) / surfaceRatio(wheel));
+    double fresh = chemistry * condition;
+    double rival = tyre.wear >= 1.0 ? wornOutGrip : fresh;
+    tyre.grip = (carIndex == 0 ? fresh * (1.0 - deflated) + puncturedGrip * deflated : rival) * trackGrip;
+    wheel.mu = (tdble)(tyre.baseMu * tyre.grip * sdDamageWheelGrip(carIndex, index) / surfaceRatio(wheel));
 }
 
-void fit(int compound, double temperature, double wear)
+void fit(CarTyres &car, int compound, double temperature, double wear)
 {
-    fitted = std::max(0, std::min(4, compound));
-    double start = temperature > 0 ? temperature : compounds[fitted].blanket;
-    for (Tyre &tyre : tyres)
+    car.fitted = std::max(0, std::min(4, compound));
+    double start = temperature > 0 ? temperature : compounds[car.fitted].blanket;
+    for (Tyre &tyre : car.tyres)
     {
         tyre.surface = tyre.carcass = start;
         tyre.wear = wear;
         tyre.flat = tyre.lock = tyre.spin = tyre.cut = tyre.leak = tyre.dirt = 0;
     }
-    age = 0;
+    car.age = 0;
+}
+
+bool isFlat(const Tyre &tyre)
+{
+    return tyre.leak >= flatLeak;
+}
+
+double worstLeak(const CarTyres &car, int right, int left)
+{
+    return std::max(car.tyres[right].leak, car.tyres[left].leak);
 }
 
 }
 
 void sdTyresReset(tCarElt *car)
 {
+    if ((int)field.size() <= car->index)
+        field.resize(car->index + 1);
+    CarTyres &state = field[car->index];
     for (int i = 0; i < 4; i++)
     {
         const tWheel &wheel = SimCarTable[car->index].wheel[i];
-        tyres[i].baseMu = wheel.mu;
-        tyres[i].baseSpring = wheel.susp.spring.x0;
-        tyres[i].peakSlip = findPeakSlip(wheel);
+        state.tyres[i].baseMu = wheel.mu;
+        state.tyres[i].baseSpring = wheel.susp.spring.x0;
+        state.tyres[i].peakSlip = findPeakSlip(wheel);
     }
-    baseRearDiff = SimCarTable[car->index].transmission.differential[TRANS_REAR_DIFF].type;
-    lastLap = car->_laps;
-    fit(startCompound, 0, 0);
+    state.baseRearDiff = SimCarTable[car->index].transmission.differential[TRANS_REAR_DIFF].type;
+    state.lastLap = car->_laps;
+    fit(state, startCompound, 0, 0);
 }
 
-void sdTyresService()
+void sdTyresService(int index, int compound)
 {
-    fit(fitted, 0, 0);
+    CarTyres &state = field[index];
+    fit(state, compound >= 0 ? compound : state.fitted, 0, 0);
 }
 
-void sdTyreContact(int wheel, double amount)
+void sdTyresSetTrackGrip(double grip)
 {
-    tyres[wheel].cut = std::min(1.0, tyres[wheel].cut + amount);
+    trackGrip = grip;
+}
+
+double sdTyresGrip(int index)
+{
+    const CarTyres &state = field[index];
+    double total = 0;
+    for (const Tyre &tyre : state.tyres)
+        total += tyre.grip;
+    return total / 4.0;
+}
+
+double sdTyresWeakestAxle(int index)
+{
+    const CarTyres &state = field[index];
+    double front = (state.tyres[0].grip + state.tyres[1].grip) / 2.0;
+    double rear = (state.tyres[2].grip + state.tyres[3].grip) / 2.0;
+    return std::min(front, rear);
+}
+
+double sdTyresHeat(int index)
+{
+    const CarTyres &state = field[index];
+    const Compound &c = compounds[state.fitted];
+    double hottest = -100;
+    for (const Tyre &tyre : state.tyres)
+        hottest = std::max(hottest, surfaceShare * tyre.surface + (1.0 - surfaceShare) * tyre.carcass - c.high);
+    return hottest;
+}
+
+double sdTyresWorstWear(int index)
+{
+    double worst = 0;
+    for (const Tyre &tyre : field[index].tyres)
+        worst = std::max(worst, tyre.wear);
+    return worst;
+}
+
+int sdTyresCompound(int index)
+{
+    return field[index].fitted;
+}
+
+int sdTyresAge(int index)
+{
+    return field[index].age;
+}
+
+void sdTyreContact(int index, int wheel, double amount)
+{
+    Tyre &tyre = field[index].tyres[wheel];
+    tyre.cut = std::min(1.0, tyre.cut + amount);
 }
 
 bool sdTyreFlat(int wheel)
 {
-    return tyres[wheel].leak >= flatLeak;
+    return isFlat(field[0].tyres[wheel]);
 }
 
-double sdTyresFrontLift()
+double sdTyresFrontLift(int index)
 {
-    double front = std::max(tyres[FRNT_RGT].leak, tyres[FRNT_LFT].leak);
-    double rear = std::max(tyres[REAR_RGT].leak, tyres[REAR_LFT].leak);
+    double front = worstLeak(field[index], FRNT_RGT, FRNT_LFT);
+    double rear = worstLeak(field[index], REAR_RGT, REAR_LFT);
     return 1.0 - frontFlatFrontLift * front * front - rearFlatFrontLift * rear * rear;
 }
 
-double sdTyresRearLift()
+double sdTyresRearLift(int index)
 {
-    double front = std::max(tyres[FRNT_RGT].leak, tyres[FRNT_LFT].leak);
-    double rear = std::max(tyres[REAR_RGT].leak, tyres[REAR_LFT].leak);
+    double front = worstLeak(field[index], FRNT_RGT, FRNT_LFT);
+    double rear = worstLeak(field[index], REAR_RGT, REAR_LFT);
     return 1.0 - frontFlatRearLift * front * front - rearFlatRearLift * rear * rear;
 }
 
 void sdTyresStep(tCarElt *elt, double dt)
 {
-    if (elt->_laps != lastLap)
+    CarTyres &state = field[elt->index];
+    if (elt->_laps != state.lastLap)
     {
-        if (elt->_laps > lastLap && lastLap >= 1)
-            age++;
-        lastLap = elt->_laps;
+        if (elt->_laps > state.lastLap && state.lastLap >= 1)
+            state.age++;
+        state.lastLap = elt->_laps;
     }
     tCar *car = &SimCarTable[elt->index];
-    const Compound &c = compounds[fitted];
+    const Compound &c = compounds[state.fitted];
     double water = wetness();
-    flailClock += dt;
-    bool rearFlat = sdTyreFlat(REAR_RGT) || sdTyreFlat(REAR_LFT);
-    car->transmission.differential[TRANS_REAR_DIFF].type = rearFlat ? DIFF_SPOOL : baseRearDiff;
+    state.flailClock += dt;
+    bool rearFlat = isFlat(state.tyres[REAR_RGT]) || isFlat(state.tyres[REAR_LFT]);
+    bool player = elt->index == 0;
+    if (player)
+        car->transmission.differential[TRANS_REAR_DIFF].type = rearFlat ? DIFF_SPOOL : state.baseRearDiff;
     for (int i = 0; i < 4; i++)
     {
         tWheel &wheel = car->wheel[i];
-        Tyre &tyre = tyres[i];
+        Tyre &tyre = state.tyres[i];
         double speed = hypot(wheel.bodyVel.x, wheel.bodyVel.y);
         double power = slipPower(wheel, speed);
         double target = optimalPressure(i);
@@ -398,10 +476,13 @@ void sdTyresStep(tCarElt *elt, double dt)
         updateThermal(tyre, wheel, c, i < 2 ? frontHeatGain : 1.0, power, pressure, target, speed, water, dt);
         double temperature = surfaceShare * tyre.surface + (1.0 - surfaceShare) * tyre.carcass;
         updateWear(tyre, wheel, c, i < 2 ? frontWearGain : rearWearGain, power, temperature, pressure, target, speed, dt);
-        updateLeak(tyre, dt);
-        updateDirt(tyre, wheel, speed, dt);
-        applyFlat(car, tyre, wheel, i < 2, speed, dt);
-        applyGrip(car, i, tyre, wheel, c, temperature, pressure, target, water, speed);
+        if (player)
+        {
+            updateLeak(tyre, dt);
+            updateDirt(tyre, wheel, speed, dt);
+            applyFlat(elt->index, state.flailClock, car, tyre, wheel, i < 2, speed, dt);
+        }
+        applyGrip(elt->index, i, tyre, wheel, c, temperature, pressure, target, water, speed);
     }
 }
 
@@ -415,26 +496,28 @@ EMSCRIPTEN_KEEPALIVE void sdTyresConfigure(int compound, double scale)
 
 EMSCRIPTEN_KEEPALIVE void sdTyresFit(int compound, double temperature, double wear)
 {
-    fit(compound, temperature, wear);
+    fit(field[0], compound, temperature, wear);
 }
 
 EMSCRIPTEN_KEEPALIVE void sdTyreDamage(int wheel, double cut, double flat)
 {
-    tyres[wheel].cut = cut;
-    tyres[wheel].flat = flat;
+    Tyre &tyre = field[0].tyres[wheel];
+    tyre.cut = cut;
+    tyre.flat = flat;
 }
 
 EMSCRIPTEN_KEEPALIVE void sdTyresInfo(double *out)
 {
+    const CarTyres &state = field[0];
     tCar *car = &SimCarTable[0];
-    const Compound &c = compounds[fitted];
-    out[0] = fitted;
-    out[1] = age;
+    const Compound &c = compounds[state.fitted];
+    out[0] = state.fitted;
+    out[1] = state.age;
     out[2] = c.low;
     out[3] = c.high;
     for (int i = 0; i < 4; i++)
     {
-        const Tyre &tyre = tyres[i];
+        const Tyre &tyre = state.tyres[i];
         double *w = &out[4 + i * 10];
         w[0] = tyre.surface;
         w[1] = tyre.carcass;

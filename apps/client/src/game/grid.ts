@@ -4,7 +4,6 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { frameIndex } from "./engine.ts";
 import { type CarEnvironment, useEnvironment } from "./carpaint.ts";
 import { contactShadow, gltfToSdCar, wheelRest } from "./gltf.ts";
-import { finishAll } from "./display.ts";
 import { mergedMesh, placedCopy } from "./merge.ts";
 import { loaded } from "./preload.ts";
 import { carFile, gridTeamOrder, teams } from "./teams.ts";
@@ -152,7 +151,6 @@ export async function teamModel(
   addParts(batches, team, await teamParts(team), new THREE.Matrix4(), env);
   const model = new THREE.Group();
   model.add(...batches.meshes());
-  finishAll(model);
   await loaded();
   return model;
 }

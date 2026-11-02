@@ -1,6 +1,6 @@
 import * as THREE from "three/webgpu";
 import { carEnvironment } from "./carpaint.ts";
-import { withDisplayOutput } from "./display.ts";
+import { finishAll, withDisplayOutput } from "./display.ts";
 import { gltfToSdCar } from "./gltf.ts";
 import { teamModel } from "./grid.ts";
 import { teams } from "./teams.ts";
@@ -81,6 +81,7 @@ export async function carPortraits(
   for (const team of teams) {
     const model = await teamModel(team.id, env).catch(() => null);
     if (!model) continue;
+    finishAll(model);
     const axes = new THREE.Group();
     axes.matrixAutoUpdate = false;
     axes.matrix.copy(gltfToSdCar);

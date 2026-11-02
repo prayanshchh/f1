@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cmath>
+#include <vector>
 #include <emscripten/emscripten.h>
 
 #include "sim.h"
@@ -115,21 +116,29 @@ const double fuelReserve = 0.001;
 const double retiredBrake = 0.5;
 const double stoppedSpeed = 1.0;
 const double stopTimeout = 12.0;
+const double barrierWingShare = 0.7;
+const double barrierSidepodShare = 0.3;
+const double barrierDiffuserShare = 0.35;
 
-double parts[PART_COUNT];
-WingLift baseWing[2];
-double baseLift[2];
-double baseToe[4];
-double baseCamber[4];
-double brakes[4];
-double engineTemp;
-int lastDamage;
-double previousVelX, previousVelY;
-double contactTotal;
-double contactQuiet;
-int retirement;
-double retiredFor;
-bool stopped;
+struct CarStatus
+{
+    double parts[PART_COUNT];
+    WingLift baseWing[2];
+    double baseLift[2];
+    double baseToe[4];
+    double baseCamber[4];
+    double brakes[4];
+    double engineTemp;
+    int lastDamage;
+    double previousVelX, previousVelY;
+    double contactTotal;
+    double contactQuiet;
+    int retirement;
+    double retiredFor;
+    bool stopped;
+};
+
+std::vector<CarStatus> field(1);
 
 double clamp01(double value)
 {
@@ -141,20 +150,20 @@ double rampAt(const Ramp &ramp, double impact)
     return pow(clamp01((impact - ramp.from) / ramp.span), rampPower);
 }
 
-double share(int part)
+double share(const CarStatus &state, int part)
 {
-    return std::min(1.0, parts[part]);
+    return std::min(1.0, state.parts[part]);
 }
 
-void retire(int reason)
+void retire(CarStatus &state, int reason)
 {
-    if (retirement == RUNNING)
-        retirement = reason;
+    if (state.retirement == RUNNING)
+        state.retirement = reason;
 }
 
-void hurt(int part, const Ramp &ramp, double before, double after, double amount)
+void hurt(CarStatus &state, int part, const Ramp &ramp, double before, double after, double amount)
 {
-    parts[part] = std::min(1.0, parts[part] + (rampAt(ramp, after) - rampAt(ramp, before)) * amount);
+    state.parts[part] = std::min(1.0, state.parts[part] + (rampAt(ramp, after) - rampAt(ramp, before)) * amount);
 }
 
 int cornerWheel(bool front, bool left)
@@ -162,68 +171,68 @@ int cornerWheel(bool front, bool left)
     return (front ? FRNT_RGT : REAR_RGT) + (left ? 1 : 0);
 }
 
-void hitWheel(int wheel, double before, double after, double tyreAmount, double suspensionAmount)
+void hitWheel(CarStatus &state, int index, int wheel, double before, double after, double tyreAmount, double suspensionAmount)
 {
-    sdTyreContact(wheel, (rampAt(tyreRamp, after) - rampAt(tyreRamp, before)) * tyreAmount);
-    hurt(SUSPENSION + wheel, suspensionRamp, before, after, suspensionAmount);
+    sdTyreContact(index, wheel, (rampAt(tyreRamp, after) - rampAt(tyreRamp, before)) * tyreAmount);
+    hurt(state, SUSPENSION + wheel, suspensionRamp, before, after, suspensionAmount);
 }
 
-void hitNose(bool left, const Share &s, double before, double after)
+void hitNose(CarStatus &state, int index, bool left, const Share &s, double before, double after)
 {
     int near = left ? WING_LEFT : WING_RIGHT;
     int far = left ? WING_RIGHT : WING_LEFT;
-    hurt(near, wingRamp, before, after, s.frontal + sideWingShare * s.lateral);
-    hurt(far, wingRamp, before, after, otherWingShare * s.frontal);
-    hitWheel(cornerWheel(true, left), before, after, s.lateral + frontalTyreShare * s.frontal, s.lateral + frontalSuspensionShare * s.frontal);
-    hurt(left ? SIDEPOD_LEFT : SIDEPOD_RIGHT, sidepodRamp, before, after, glancingPodShare * s.lateral);
-    hurt(FLOOR, floorRamp, before, after, endFloorShare);
+    hurt(state, near, wingRamp, before, after, s.frontal + sideWingShare * s.lateral);
+    hurt(state, far, wingRamp, before, after, otherWingShare * s.frontal);
+    hitWheel(state, index, cornerWheel(true, left), before, after, s.lateral + frontalTyreShare * s.frontal, s.lateral + frontalSuspensionShare * s.frontal);
+    hurt(state, left ? SIDEPOD_LEFT : SIDEPOD_RIGHT, sidepodRamp, before, after, glancingPodShare * s.lateral);
+    hurt(state, FLOOR, floorRamp, before, after, endFloorShare);
 }
 
-void hitTail(bool left, const Share &s, double before, double after)
+void hitTail(CarStatus &state, int index, bool left, const Share &s, double before, double after)
 {
-    hurt(REAR_WING, rearWingRamp, before, after, s.rear + rearLateralWingShare * s.lateral);
-    hurt(DIFFUSER, diffuserRamp, before, after, s.rear + rearLateralDiffuserShare * s.lateral);
-    hitWheel(cornerWheel(false, left), before, after, s.lateral + rearTyreShare * s.rear, s.lateral + frontalSuspensionShare * s.rear);
-    hurt(left ? SIDEPOD_LEFT : SIDEPOD_RIGHT, sidepodRamp, before, after, glancingPodShare * s.lateral);
-    hurt(FLOOR, floorRamp, before, after, endFloorShare);
+    hurt(state, REAR_WING, rearWingRamp, before, after, s.rear + rearLateralWingShare * s.lateral);
+    hurt(state, DIFFUSER, diffuserRamp, before, after, s.rear + rearLateralDiffuserShare * s.lateral);
+    hitWheel(state, index, cornerWheel(false, left), before, after, s.lateral + rearTyreShare * s.rear, s.lateral + frontalSuspensionShare * s.rear);
+    hurt(state, left ? SIDEPOD_LEFT : SIDEPOD_RIGHT, sidepodRamp, before, after, glancingPodShare * s.lateral);
+    hurt(state, FLOOR, floorRamp, before, after, endFloorShare);
 }
 
-void hitFlank(bool front, bool left, const Share &s, double before, double after)
+void hitFlank(CarStatus &state, int index, bool front, bool left, const Share &s, double before, double after)
 {
-    hurt(left ? SIDEPOD_LEFT : SIDEPOD_RIGHT, sidepodRamp, before, after, s.lateral);
-    hurt(FLOOR, floorRamp, before, after, midFloorShare);
-    hitWheel(cornerWheel(front, left), before, after, midTyreShare * s.lateral, midTyreShare * s.lateral);
+    hurt(state, left ? SIDEPOD_LEFT : SIDEPOD_RIGHT, sidepodRamp, before, after, s.lateral);
+    hurt(state, FLOOR, floorRamp, before, after, midFloorShare);
+    hitWheel(state, index, cornerWheel(front, left), before, after, midTyreShare * s.lateral, midTyreShare * s.lateral);
 }
 
-void addImpact(double forward, double left, double dvForward, double dvLeft)
+void addImpact(CarStatus &state, int index, double forward, double left, double dvForward, double dvLeft)
 {
     double size = hypot(dvForward, dvLeft);
     if (size <= 0.0)
         return;
-    double before = contactTotal;
-    contactTotal += size;
-    contactQuiet = 0.0;
+    double before = state.contactTotal;
+    state.contactTotal += size;
+    state.contactQuiet = 0.0;
     Share s = {std::max(0.0, -dvForward) / size, std::max(0.0, dvForward) / size, fabs(dvLeft) / size};
     bool onLeft = left > 0.0;
     if (forward > wheelZone)
-        hitNose(onLeft, s, before, contactTotal);
+        hitNose(state, index, onLeft, s, before, state.contactTotal);
     else if (forward < -wheelZone)
-        hitTail(onLeft, s, before, contactTotal);
+        hitTail(state, index, onLeft, s, before, state.contactTotal);
     else
-        hitFlank(forward >= 0.0, onLeft, s, before, contactTotal);
-    if (contactTotal >= destroyedImpact)
-        retire(RETIRED_ACCIDENT);
+        hitFlank(state, index, forward >= 0.0, onLeft, s, before, state.contactTotal);
+    if (state.contactTotal >= destroyedImpact)
+        retire(state, RETIRED_ACCIDENT);
 }
 
-void detectImpact(tCar *car, double dt)
+void detectImpact(CarStatus &state, int index, tCar *car, double dt)
 {
-    double dvx = car->DynGCg.vel.x - previousVelX;
-    double dvy = car->DynGCg.vel.y - previousVelY;
-    previousVelX = car->DynGCg.vel.x;
-    previousVelY = car->DynGCg.vel.y;
-    contactQuiet += dt;
-    if (contactQuiet > contactGap)
-        contactTotal = 0.0;
+    double dvx = car->DynGCg.vel.x - state.previousVelX;
+    double dvy = car->DynGCg.vel.y - state.previousVelY;
+    state.previousVelX = car->DynGCg.vel.x;
+    state.previousVelY = car->DynGCg.vel.y;
+    state.contactQuiet += dt;
+    if (state.contactQuiet > contactGap)
+        state.contactTotal = 0.0;
     if (hypot(dvx, dvy) < impactFloor)
         return;
     double c = cos(car->DynGCg.pos.az);
@@ -240,7 +249,24 @@ void detectImpact(tCar *car, double dt)
         forward = dx * c + dy * s;
         left = -dx * s + dy * c;
     }
-    addImpact(forward, left, dvForward, dvLeft);
+    addImpact(state, index, forward, left, dvForward, dvLeft);
+}
+
+void addBarrierHit(CarStatus &state, tCar *car, double amount)
+{
+    double dx = car->collpos.x - car->DynGCg.pos.x;
+    double dy = car->collpos.y - car->DynGCg.pos.y;
+    double forward = dx * cos(car->DynGCg.pos.az) + dy * sin(car->DynGCg.pos.az);
+    double left = -dx * sin(car->DynGCg.pos.az) + dy * cos(car->DynGCg.pos.az);
+    double *parts = state.parts;
+    parts[left > 0 ? SIDEPOD_LEFT : SIDEPOD_RIGHT] += amount * barrierSidepodShare;
+    if (forward > 0)
+    {
+        parts[left > 0 ? WING_LEFT : WING_RIGHT] += amount * barrierWingShare;
+        return;
+    }
+    parts[REAR_WING] += amount * barrierWingShare;
+    parts[DIFFUSER] += amount * barrierDiffuserShare;
 }
 
 void scaleWing(tWing &wing, const WingLift &base, double factor)
@@ -251,61 +277,61 @@ void scaleWing(tWing &wing, const WingLift &base, double factor)
     wing.Kz3 = (tdble)(base.kz3 * factor);
 }
 
-double frontLift()
+double frontLift(const CarStatus &state, int index)
 {
-    double wings = (share(WING_LEFT) + share(WING_RIGHT)) / 2.0;
-    double pods = (share(SIDEPOD_LEFT) + share(SIDEPOD_RIGHT)) / 2.0;
-    return std::max(minimumLift, sdTyresFrontLift() - frontWingFrontLoss * wings - floorFrontLoss * share(FLOOR) - sidepodAxleLoss * pods);
+    double wings = (share(state, WING_LEFT) + share(state, WING_RIGHT)) / 2.0;
+    double pods = (share(state, SIDEPOD_LEFT) + share(state, SIDEPOD_RIGHT)) / 2.0;
+    return std::max(minimumLift, sdTyresFrontLift(index) - frontWingFrontLoss * wings - floorFrontLoss * share(state, FLOOR) - sidepodAxleLoss * pods);
 }
 
-double rearLift()
+double rearLift(const CarStatus &state, int index)
 {
-    double pods = (share(SIDEPOD_LEFT) + share(SIDEPOD_RIGHT)) / 2.0;
-    return std::max(minimumLift, sdTyresRearLift() - rearWingRearLoss * share(REAR_WING) - floorRearLoss * share(FLOOR) - diffuserRearLoss * share(DIFFUSER) - sidepodAxleLoss * pods);
+    double pods = (share(state, SIDEPOD_LEFT) + share(state, SIDEPOD_RIGHT)) / 2.0;
+    return std::max(minimumLift, sdTyresRearLift(index) - rearWingRearLoss * share(state, REAR_WING) - floorRearLoss * share(state, FLOOR) - diffuserRearLoss * share(state, DIFFUSER) - sidepodAxleLoss * pods);
 }
 
-void applyAero(tCar *car)
+void applyAero(const CarStatus &state, int index, tCar *car)
 {
-    double front = frontLift();
-    double rear = rearLift();
-    scaleWing(car->wing[0], baseWing[0], front);
-    scaleWing(car->wing[1], baseWing[1], rear);
-    car->aero.Clift[0] = (tdble)(baseLift[0] * front);
-    car->aero.Clift[1] = (tdble)(baseLift[1] * rear);
+    double front = frontLift(state, index);
+    double rear = rearLift(state, index);
+    scaleWing(car->wing[0], state.baseWing[0], front);
+    scaleWing(car->wing[1], state.baseWing[1], rear);
+    car->aero.Clift[0] = (tdble)(state.baseLift[0] * front);
+    car->aero.Clift[1] = (tdble)(state.baseLift[1] * rear);
 }
 
-double wreckage()
+double wreckage(const CarStatus &state)
 {
-    double wings = (share(WING_LEFT) + share(WING_RIGHT)) / 2.0;
-    double pods = (share(SIDEPOD_LEFT) + share(SIDEPOD_RIGHT)) / 2.0;
+    double wings = (share(state, WING_LEFT) + share(state, WING_RIGHT)) / 2.0;
+    double pods = (share(state, SIDEPOD_LEFT) + share(state, SIDEPOD_RIGHT)) / 2.0;
     double suspension = 0.0;
     for (int i = 0; i < 4; i++)
-        suspension = std::max(suspension, share(SUSPENSION + i));
-    return wings + pods + suspension + share(FLOOR) + share(DIFFUSER) + share(REAR_WING);
+        suspension = std::max(suspension, share(state, SUSPENSION + i));
+    return wings + pods + suspension + share(state, FLOOR) + share(state, DIFFUSER) + share(state, REAR_WING);
 }
 
-void applySuspension(tCar *car)
+void applySuspension(CarStatus &state, tCar *car)
 {
     for (int i = 0; i < 4; i++)
     {
-        double bent = share(SUSPENSION + i);
+        double bent = share(state, SUSPENSION + i);
         double outward = i == FRNT_LFT || i == REAR_LFT ? 1.0 : -1.0;
-        car->wheel[i].staticPos.az = (tdble)(baseToe[i] + outward * (i < 2 ? bentToeFront : bentToeRear) * bent);
-        car->wheel[i].staticPos.ax = (tdble)(baseCamber[i] + bentCamber * bent);
+        car->wheel[i].staticPos.az = (tdble)(state.baseToe[i] + outward * (i < 2 ? bentToeFront : bentToeRear) * bent);
+        car->wheel[i].staticPos.ax = (tdble)(state.baseCamber[i] + bentCamber * bent);
         if (bent >= 1.0)
-            retire(RETIRED_SUSPENSION);
+            retire(state, RETIRED_SUSPENSION);
     }
 }
 
-void applyYawPull(tCar *car, double dt)
+void applyYawPull(const CarStatus &state, tCar *car, double dt)
 {
-    double wings = wingYawDrag * (share(WING_LEFT) - share(WING_RIGHT));
-    double pods = sidepodYawDrag * (share(SIDEPOD_LEFT) - share(SIDEPOD_RIGHT));
+    double wings = wingYawDrag * (share(state, WING_LEFT) - share(state, WING_RIGHT));
+    double pods = sidepodYawDrag * (share(state, SIDEPOD_LEFT) - share(state, SIDEPOD_RIGHT));
     double drag = car->aero.CdBody * car->airSpeed2 * (wings + pods);
     sdCarPush(car, -fabs(drag), 0.0, 0.0, drag > 0 ? yawArm : -yawArm, dt);
 }
 
-void updateBrakes(tCar *car, double dt)
+void updateBrakes(CarStatus &state, tCar *car, double dt)
 {
     double air = Tair - kelvin;
     for (int i = 0; i < 4; i++)
@@ -313,30 +339,53 @@ void updateBrakes(tCar *car, double dt)
         const tWheel &wheel = car->wheel[i];
         double speed = fabs(wheel.spinVel * wheel.radius);
         double power = wheel.brake.Tq * fabs(wheel.spinVel);
-        double cooling = (brakeStill + brakeSpeed * speed) * (brakes[i] - air);
-        brakes[i] += (power / brakeCapacity - cooling) * dt;
+        double cooling = (brakeStill + brakeSpeed * speed) * (state.brakes[i] - air);
+        state.brakes[i] += (power / brakeCapacity - cooling) * dt;
     }
 }
 
-void updateEngine(tCar *car, double dt)
+void updateEngine(CarStatus &state, tCar *car, double dt)
 {
     double load = engineIdle + (1.0 - engineIdle) * clamp01(car->ctrl->accelCmd);
     double airflow = engineCoolBase + fabs(car->DynGC.vel.x) / engineCoolSpeed;
-    double radiators = 1.0 - sidepodCoolingLoss * (share(SIDEPOD_LEFT) + share(SIDEPOD_RIGHT));
-    engineTemp += (engineHeat * load - engineCool * airflow * radiators * (engineTemp - (Tair - kelvin))) * dt;
-    if (engineTemp >= engineFailure)
-        retire(RETIRED_ENGINE);
+    double radiators = 1.0 - sidepodCoolingLoss * (share(state, SIDEPOD_LEFT) + share(state, SIDEPOD_RIGHT));
+    state.engineTemp += (engineHeat * load - engineCool * airflow * radiators * (state.engineTemp - (Tair - kelvin))) * dt;
+    if (state.engineTemp >= engineFailure)
+        retire(state, RETIRED_ENGINE);
 }
 
-void updateRetirement(tCarElt *elt, double dt)
+void updateRetirement(CarStatus &state, tCarElt *elt, double dt)
 {
-    if (retirement == RUNNING)
+    if (state.retirement == RUNNING)
         return;
-    retiredFor += dt;
-    if (elt->_speed_xy >= stoppedSpeed && retiredFor < stopTimeout)
+    state.retiredFor += dt;
+    if (elt->_speed_xy >= stoppedSpeed && state.retiredFor < stopTimeout)
         return;
-    stopped = true;
-    elt->_state |= retirement == RETIRED_FUEL ? RM_CAR_STATE_OUTOFGAS : RM_CAR_STATE_BROKEN;
+    state.stopped = true;
+    elt->_state |= state.retirement == RETIRED_FUEL ? RM_CAR_STATE_OUTOFGAS : RM_CAR_STATE_BROKEN;
+}
+
+void playerDamage(CarStatus &state, tCar *car, int delta, double dt)
+{
+    if (delta > 0 && (car->collision & SEM_COLLISION_Z))
+        state.parts[FLOOR] = std::min(1.0, state.parts[FLOOR] + delta / partFull);
+    if (car->dammage > sdDamageLimit() || wreckage(state) >= wreckedCar)
+        retire(state, RETIRED_ACCIDENT);
+    if (car->collision & SEM_COLLISION_Z_CRASH)
+        for (int i = 0; i < 4; i++)
+            if (car->wheel[i].susp.state & SIM_SUSP_COMP)
+                sdTyreContact(0, i, verticalCrashCut);
+    detectImpact(state, 0, car, dt);
+}
+
+void fieldDamage(CarStatus &state, tCar *car, int delta)
+{
+    if (delta <= 0)
+        return;
+    if (car->collision & SEM_COLLISION_XYSCENE)
+        addBarrierHit(state, car, delta / partFull);
+    else
+        state.parts[FLOOR] += delta / partFull;
 }
 
 }
@@ -351,72 +400,95 @@ void sdCarPush(tCar *car, double forward, double left, double armForward, double
     car->DynGCg.vel.az += (tdble)((armForward * left - armLeft * forward) * car->Iinv.z * dt);
 }
 
-double sdDamageDrag()
+double sdDamageDrag(int index)
 {
-    double wings = wingDrag * (share(WING_LEFT) + share(WING_RIGHT));
-    double pods = sidepodDrag * (share(SIDEPOD_LEFT) + share(SIDEPOD_RIGHT));
-    return 1.0 + wings + pods + floorDrag * share(FLOOR) - rearWingDragDrop * share(REAR_WING);
+    const CarStatus &state = field[index];
+    double wings = wingDrag * (share(state, WING_LEFT) + share(state, WING_RIGHT));
+    double pods = sidepodDrag * (share(state, SIDEPOD_LEFT) + share(state, SIDEPOD_RIGHT));
+    return 1.0 + wings + pods + floorDrag * share(state, FLOOR) - rearWingDragDrop * share(state, REAR_WING);
 }
 
-double sdDamagePower()
+double sdCarDamageShare(int index)
 {
-    return 1.0 - derateMax * clamp01((engineTemp - derateFrom) / derateSpan);
+    const CarStatus &state = field[index];
+    double worst = 0;
+    for (int i = 0; i < PART_COUNT; i++)
+        worst = std::max(worst, share(state, i));
+    return worst;
 }
 
-bool sdDamageStraightAllowed()
+double sdDamagePower(int index)
 {
-    return share(REAR_WING) < straightWingLimit;
+    return 1.0 - derateMax * clamp01((field[index].engineTemp - derateFrom) / derateSpan);
 }
 
-double sdDamageWheelGrip(tCar *car, int wheel)
+bool sdDamageStraightAllowed(int index)
 {
+    return share(field[index], REAR_WING) < straightWingLimit;
+}
+
+double sdDamageWheelGrip(int index, int wheel)
+{
+    const CarStatus &state = field[index];
+    tCar *car = &SimCarTable[index];
     double load = std::max(wheelLoadFloor, (double)car->wheel[wheel].forces.z);
     bool front = wheel == FRNT_RGT || wheel == FRNT_LFT;
     bool leftSide = wheel == FRNT_LFT || wheel == REAR_LFT;
     double axle = -(car->wing[front ? 0 : 1].forces.z + car->aero.lift[front ? 0 : 1]);
-    double base = std::max(0.0, axle) / (front ? frontLift() : rearLift());
-    double skew = sidepodAxleLoss * (share(SIDEPOD_LEFT) - share(SIDEPOD_RIGHT)) / 2.0;
+    double base = std::max(0.0, axle) / (front ? frontLift(state, index) : rearLift(state, index));
+    double skew = sidepodAxleLoss * (share(state, SIDEPOD_LEFT) - share(state, SIDEPOD_RIGHT)) / 2.0;
     if (front)
-        skew += wingGripSkew * frontWingFrontLoss * (share(WING_LEFT) - share(WING_RIGHT)) / 2.0;
+        skew += wingGripSkew * frontWingFrontLoss * (share(state, WING_LEFT) - share(state, WING_RIGHT)) / 2.0;
     double shift = (leftSide ? -1.0 : 1.0) * base * skew / 2.0;
-    double bent = 1.0 - bentGripLoss * share(SUSPENSION + wheel);
+    double bent = 1.0 - bentGripLoss * share(state, SUSPENSION + wheel);
     return std::max(wheelGripLow, std::min(wheelGripHigh, (load + shift) / load)) * bent;
 }
 
-void sdDamageScrape(double amount)
+void sdDamageScrape(int index, double amount)
 {
-    parts[FLOOR] = std::min(1.0, parts[FLOOR] + amount);
+    double &floor = field[index].parts[FLOOR];
+    floor = std::min(1.0, floor + amount);
 }
 
 void sdCarStatusReset(tCarElt *elt)
 {
+    if ((int)field.size() <= elt->index)
+        field.resize(elt->index + 1);
+    CarStatus &state = field[elt->index];
     tCar *car = &SimCarTable[elt->index];
-    std::fill(parts, parts + PART_COUNT, 0.0);
-    lastDamage = car->dammage;
+    std::fill(state.parts, state.parts + PART_COUNT, 0.0);
+    state.lastDamage = car->dammage;
     for (int i = 0; i < 2; i++)
     {
-        baseWing[i] = {car->wing[i].Kz, car->wing[i].Kz1, car->wing[i].Kz2, car->wing[i].Kz3};
-        baseLift[i] = car->aero.Clift[i];
+        state.baseWing[i] = {car->wing[i].Kz, car->wing[i].Kz1, car->wing[i].Kz2, car->wing[i].Kz3};
+        state.baseLift[i] = car->aero.Clift[i];
     }
     for (int i = 0; i < 4; i++)
     {
-        baseToe[i] = car->wheel[i].staticPos.az;
-        baseCamber[i] = car->wheel[i].staticPos.ax;
+        state.baseToe[i] = car->wheel[i].staticPos.az;
+        state.baseCamber[i] = car->wheel[i].staticPos.ax;
     }
-    for (double &brake : brakes)
+    for (double &brake : state.brakes)
         brake = brakeStart;
-    engineTemp = engineStart;
-    previousVelX = car->DynGCg.vel.x;
-    previousVelY = car->DynGCg.vel.y;
-    contactTotal = 0.0;
-    contactQuiet = 0.0;
-    retirement = RUNNING;
-    retiredFor = 0.0;
-    stopped = false;
+    state.engineTemp = engineStart;
+    state.previousVelX = car->DynGCg.vel.x;
+    state.previousVelY = car->DynGCg.vel.y;
+    state.contactTotal = 0.0;
+    state.contactQuiet = 0.0;
+    state.retirement = RUNNING;
+    state.retiredFor = 0.0;
+    state.stopped = false;
+}
+
+void sdCarStatusRepair(int index)
+{
+    CarStatus &state = field[index];
+    std::fill(state.parts, state.parts + PART_COUNT, 0.0);
 }
 
 double sdCarStatusReplaceWing()
 {
+    double *parts = field[0].parts;
     double total = 0.0;
     for (int i = 0; i < PART_COUNT; i++)
         total += parts[i];
@@ -427,7 +499,7 @@ double sdCarStatusReplaceWing()
 
 void sdCarStatusDriveLimit(tCarElt *elt)
 {
-    if (retirement == RUNNING)
+    if (field[elt->index].retirement == RUNNING)
         return;
     elt->_accelCmd = 0.0f;
     elt->_gearCmd = 0;
@@ -440,54 +512,53 @@ void sdCarStatusPrepare(tCarElt *elt)
     if (car->fuel > fuelReserve)
         return;
     car->fuel = (tdble)fuelReserve;
-    retire(RETIRED_FUEL);
+    retire(field[elt->index], RETIRED_FUEL);
 }
 
 void sdCarStatusStep(tCarElt *elt, double dt)
 {
+    CarStatus &state = field[elt->index];
     tCar *car = &SimCarTable[elt->index];
-    int delta = car->dammage - lastDamage;
-    lastDamage = car->dammage;
-    if (delta > 0 && (car->collision & SEM_COLLISION_Z))
-        parts[FLOOR] = std::min(1.0, parts[FLOOR] + delta / partFull);
-    if (car->dammage > sdDamageLimit() || wreckage() >= wreckedCar)
-        retire(RETIRED_ACCIDENT);
-    if (car->collision & SEM_COLLISION_Z_CRASH)
-        for (int i = 0; i < 4; i++)
-            if (car->wheel[i].susp.state & SIM_SUSP_COMP)
-                sdTyreContact(i, verticalCrashCut);
-    detectImpact(car, dt);
-    applyAero(car);
-    applySuspension(car);
-    applyYawPull(car, dt);
-    updateBrakes(car, dt);
-    updateEngine(car, dt);
-    updateRetirement(elt, dt);
+    int delta = car->dammage - state.lastDamage;
+    state.lastDamage = car->dammage;
+    bool player = elt->index == 0;
+    if (player)
+        playerDamage(state, car, delta, dt);
+    else
+        fieldDamage(state, car, delta);
+    applyAero(state, elt->index, car);
+    applySuspension(state, car);
+    applyYawPull(state, car, dt);
+    updateBrakes(state, car, dt);
+    updateEngine(state, car, dt);
+    if (player)
+        updateRetirement(state, elt, dt);
 }
 
 extern "C" {
 
 EMSCRIPTEN_KEEPALIVE void sdCarStatus(double *out)
 {
-    out[0] = engineTemp;
+    const CarStatus &state = field[0];
+    out[0] = state.engineTemp;
     for (int i = 0; i < PART_COUNT; i++)
-        out[1 + i] = share(i);
+        out[1 + i] = share(state, i);
     for (int i = 0; i < 4; i++)
-        out[1 + PART_COUNT + i] = brakes[i];
-    out[5 + PART_COUNT] = retirement;
-    out[6 + PART_COUNT] = stopped ? 1 : 0;
-    out[7 + PART_COUNT] = sdDamagePower();
+        out[1 + PART_COUNT + i] = state.brakes[i];
+    out[5 + PART_COUNT] = state.retirement;
+    out[6 + PART_COUNT] = state.stopped ? 1 : 0;
+    out[7 + PART_COUNT] = sdDamagePower(0);
 }
 
 EMSCRIPTEN_KEEPALIVE void sdCarDamageSet(int part, double value)
 {
     if (part >= 0 && part < PART_COUNT)
-        parts[part] = clamp01(value);
+        field[0].parts[part] = clamp01(value);
 }
 
 EMSCRIPTEN_KEEPALIVE void sdCarImpact(double forward, double left, double dvForward, double dvLeft)
 {
-    addImpact(forward, left, dvForward, dvLeft);
+    addImpact(field[0], 0, forward, left, dvForward, dvLeft);
 }
 
 }

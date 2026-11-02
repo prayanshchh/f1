@@ -2,6 +2,7 @@ import { ersModes, fuelMixes, nominalFuelPerLap } from "./energy.ts";
 import { el } from "./dom.ts";
 import { ParamDoc } from "./params.ts";
 import { compounds } from "./tyres.ts";
+import { raceLapOptions, raceLaps } from "./weekend.ts";
 import {
   autoFuelLaps,
   carOf,
@@ -15,6 +16,7 @@ import {
   type Settings,
   type SetupItem,
   type SetupSource,
+  stageOf,
   trackOf,
   tracks,
 } from "./settings.ts";
@@ -144,6 +146,14 @@ function decimals(step: number): number {
 function infoKey(id: string): string {
   if (id.startsWith("gear-")) return "gear";
   return setupInfo[id] ? id : id.replace(/^(front|rear)-/, "");
+}
+
+function stripMode(s: Settings): string {
+  if (s.session === "race") return `Race - ${String(s.laps)} Laps`;
+  if (s.session === "qualifying") return "Qualifying - Q1 Q2 Q3";
+  if (s.session === "weekend")
+    return `Qualifying + Race - ${String(s.laps)} Laps`;
+  return "Practice";
 }
 
 export class Menu {
@@ -297,6 +307,9 @@ export class Menu {
             session: defaults.session,
             buildUp: defaults.buildUp,
             laps: defaults.laps,
+            difficulty: defaults.difficulty,
+            startSlot: defaults.startSlot,
+            qualifyingLength: defaults.qualifyingLength,
             timeOfDay: defaults.timeOfDay,
             clouds: defaults.clouds,
             rain: defaults.rain,
@@ -607,8 +620,7 @@ export class Menu {
     this.find("subtitle").textContent = tab.setup
       ? `${car.label} - ${custom ? "Custom Setup" : "Default Setup"}`
       : `${trackOf(s).label} - ${car.label}`;
-    this.find("strip-mode").textContent =
-      s.session === "race" ? `Race - ${String(s.laps)} Laps` : "Practice";
+    this.find("strip-mode").textContent = stripMode(s);
     this.find("strip-track").textContent = trackOf(s).label;
     const label = (options: readonly Option[], id: string) =>
       options.find((c) => c.id === id)?.label ?? id;
@@ -679,8 +691,8 @@ export class Menu {
         true,
       ),
       this.choice(
-        "Car",
-        cars.map((c) => `${c.label}: ${c.detail}`).join(". ") + ".",
+        "Team",
+        "The team you drive for. In qualifying and races you take its second seat, and your pit box and name on the timing tower follow it.",
         cars.map((c) => ({ id: c.id, label: c.label })),
         () => s.car,
         (id) => {
@@ -690,7 +702,7 @@ export class Menu {
       ),
       this.choice(
         "Session Type",
-        "Practice runs an open session to set lap times. Race runs a fixed number of laps and ends with the classification.",
+        "Practice runs an open session alone to set lap times. Qualifying runs Q1, Q2 and Q3 against the full grid. Race goes straight to the grid. Race Weekend runs qualifying and then starts the race from the position you earned.",
         choices.session,
         () => s.session,
         (id) => {
@@ -699,6 +711,34 @@ export class Menu {
         true,
       ),
     ];
+    if (s.session !== "practice")
+      rows.push({
+        kind: "number",
+        label: "AI Difficulty",
+        info: "How fast the other 21 drivers are. At 110 the best of them drive at the limit of the car; each step down costs them about a tenth of a second a lap. The gaps between them come from the real 2026 Austin weekend.",
+        min: 40,
+        max: 110,
+        step: 1,
+        base: defaults.difficulty,
+        get: () => s.difficulty,
+        set: (v) => {
+          s.difficulty = v;
+        },
+        format: (v) => String(v),
+        range: "Min 40 - 110 Max",
+      });
+    if (s.session === "qualifying" || s.session === "weekend")
+      rows.push(
+        this.choice(
+          "Qualifying Format",
+          "Full uses the 2026 session lengths: Q1 18 minutes with six knocked out, Q2 15 minutes with six more out, and a 13 minute Q3 for pole. Short halves every session. You can fast forward or skip the rest of a session from the garage.",
+          choices.qualifyingLength,
+          () => s.qualifyingLength,
+          (id) => {
+            s.qualifyingLength = id as Settings["qualifyingLength"];
+          },
+        ),
+      );
     rows.push(
       this.toggle(
         "Pre-Race Build-Up",
@@ -712,20 +752,38 @@ export class Menu {
     if (s.session === "race")
       rows.push({
         kind: "number",
-        label: "Race Distance",
-        info: "The number of laps in the race.",
+        label: "Starting Position",
+        info: "Where you start on the grid when you skip qualifying.",
         min: 1,
-        max: 99,
+        max: 22,
         step: 1,
-        base: defaults.laps,
-        get: () => s.laps,
+        base: defaults.startSlot + 1,
+        get: () => s.startSlot + 1,
         set: (v) => {
-          s.laps = v;
+          s.startSlot = v - 1;
         },
-        format: (v) => `${String(v)} Laps`,
-        range: "Min 1 - 99 Max",
-        rerender: true,
+        format: (v) => `P${String(v)}`,
+        range: "Pole - P22",
       });
+    if (s.session === "race" || s.session === "weekend")
+      rows.push(
+        this.choice(
+          "Race Distance",
+          `The number of laps in the race. The 2026 United States Grand Prix ran ${String(raceLaps)} laps, 308 km.`,
+          raceLapOptions().map((laps) => ({
+            id: String(laps),
+            label:
+              laps === raceLaps
+                ? `${String(laps)} Laps (Full)`
+                : `${String(laps)} Laps`,
+          })),
+          () => String(s.laps),
+          (id) => {
+            s.laps = Number(id);
+          },
+          true,
+        ),
+      );
     rows.push(
       this.choice(
         "Time of Day",
@@ -806,7 +864,7 @@ export class Menu {
         format: (v) =>
           v > 0
             ? `${String(v)} kg (${(v / nominalFuelPerLap).toFixed(1)} Laps)`
-            : `Auto (${String(autoFuelLaps(s))} Laps)`,
+            : `Auto (${String(autoFuelLaps(s, stageOf(s, "race")))} Laps)`,
         range: `Min 0 - ${String(tank)} Max`,
       },
       this.choice(

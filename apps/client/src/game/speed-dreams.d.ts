@@ -14,6 +14,31 @@ declare module "*/wasm/speed-dreams.js" {
       now: number,
     ) => number;
     cwrap(
+      name: "sdFieldAdd",
+      returns: null,
+      args: [
+        "string",
+        "string",
+        "string",
+        "number",
+        "number",
+        "number",
+        "number",
+        "number",
+        "number",
+      ],
+    ): (
+      name: string,
+      code: string,
+      team: string,
+      teamIndex: number,
+      seat: number,
+      slot: number,
+      speed: number,
+      raceSpeed: number,
+      racecraft: number,
+    ) => void;
+    cwrap(
       name: "sdCarParamStr",
       returns: "string",
       args: ["string", "string"],
@@ -39,6 +64,36 @@ declare module "*/wasm/speed-dreams.js" {
       returns: "number",
       args: ["string"],
     ): (path: string) => number;
+    _sdFieldClear(): void;
+    _sdFieldPlayer(teamIndex: number, seat: number, slot: number): void;
+    _sdFieldAutopilot(on: number): void;
+    _sdFieldPlayerBox(): number;
+    _sdFieldPlan(
+      index: number,
+      speed: number,
+      raceSpeed: number,
+      power: number,
+    ): void;
+    _sdFieldRun(index: number, segment: number, at: number): void;
+    _sdFieldStint(index: number, compound: number, from: number): void;
+    _sdSessionConfigure(
+      kind: number,
+      laps: number,
+      lengthScale: number,
+      difficulty: number,
+      seed: number,
+    ): void;
+    _sdSessionReference(lap: number): void;
+    _sdSessionInfo(out: number): void;
+    _sdAiPlayerLaneClear: () => number;
+    _sdSessionAdvance(): number;
+    _sdSessionSimulate(): void;
+    _sdSessionPlayerGarage(on: number): void;
+    _sdSessionPitCompound(compound: number): void;
+    _sdQualifyingTimes(index: number, out: number): void;
+    _sdTiming(out: number): void;
+    _sdCars(out: number): void;
+    _sdTimeScale(scale: number): void;
     _sdKey(key: number, state: number): void;
     _sdUpdate(now: number): number;
     _sdStep(count: number): number;

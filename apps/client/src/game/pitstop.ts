@@ -20,6 +20,7 @@ export interface PitCarState {
   distance: number;
   toMiddle: number;
   speed: number;
+  laneClear?: boolean;
 }
 
 export interface PitDrive {
@@ -57,7 +58,8 @@ const arrivalDistance = 0.5;
 const creepSpeed = 1.2;
 const creepDistance = 1.5;
 const releaseRun = 26;
-const releaseDone = 0.8;
+const releaseSettle = 20;
+const releaseDone = 0.5;
 const lanePad = 0.2;
 const entryClear = 15;
 const minimumLook = 6;
@@ -101,6 +103,9 @@ export class PitStop {
   private stopTime: number | null = null;
   private laneAt: number | null = null;
   private releaseAt = 0;
+  private garageMode = false;
+  private waiting = false;
+  private garageReleased = false;
   private wingRequest = false;
   private wingChange = false;
 
@@ -108,6 +113,27 @@ export class PitStop {
     private readonly layout: PitLayout,
     private readonly autoTurnIn: boolean,
   ) {}
+
+  startInGarage(): void {
+    this.garageMode = true;
+    this.waiting = true;
+    this.phase = "service";
+    this.grade = "optimal";
+    this.serviceAt = Infinity;
+    this.serviced = false;
+  }
+
+  useGarage(): void {
+    this.garageMode = true;
+  }
+
+  get atGarage(): boolean {
+    return this.waiting;
+  }
+
+  goToTrack(): void {
+    this.garageReleased = true;
+  }
 
   private ahead(from: number, to: number): number {
     const { length } = this.layout;
@@ -169,10 +195,22 @@ export class PitStop {
     };
   }
 
+  private updateGarage(car: PitCarState): number {
+    this.waiting = true;
+    if (!this.garageReleased || car.laneClear === false) return 0;
+    this.garageReleased = false;
+    this.waiting = false;
+    this.serviced = true;
+    this.phase = "release";
+    this.releaseAt = car.distance;
+    return 1;
+  }
+
   private updateService(car: PitCarState, now: number): number {
+    if (this.garageMode) return this.updateGarage(car);
     const duration = stopDuration(this.grade ?? "optimal", this.wingChange);
     const elapsed = now - this.serviceAt;
-    if (elapsed >= duration) {
+    if (elapsed >= duration && car.laneClear !== false) {
       this.stopTime = duration;
       this.serviced = true;
       this.phase = "release";
@@ -187,7 +225,9 @@ export class PitStop {
       this.ahead(this.releaseAt, car.distance + look) / releaseRun,
     );
     const lateral = car.toMiddle + this.shiftAt(car.distance);
-    if (blend >= 1 && Math.abs(lateral - fastLane) < releaseDone) {
+    const settled =
+      this.ahead(this.releaseAt, car.distance) > releaseRun + releaseSettle;
+    if (settled && Math.abs(lateral - fastLane) < releaseDone) {
       this.phase = "lane";
       return null;
     }

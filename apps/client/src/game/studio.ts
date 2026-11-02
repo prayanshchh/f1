@@ -206,6 +206,7 @@ export class Studio {
       teams.map(async (team) => {
         const model = await teamModel(team.id, this.env).catch(() => null);
         if (!model) return;
+        finishAll(model);
         this.lods.set(team.id, this.placed(model, 1));
         this.mirrored.set(team.id, this.placed(model.clone(), -1));
       }),

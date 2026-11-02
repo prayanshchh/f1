@@ -3,7 +3,7 @@
 
 #include "sim.h"
 
-double sdDamageWheelGrip(tCar *car, int wheel);
+double sdDamageWheelGrip(int index, int wheel);
 void sdCarPush(tCar *car, double forward, double left, double armForward, double armLeft, double dt);
 
 #endif

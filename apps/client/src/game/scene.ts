@@ -4,6 +4,7 @@ import frameUrl from "../../../../content/tracks/cota/sd-frame.json?url";
 import racingLineUrl from "../../../../content/tracks/cota/racing-line.json?url";
 import trackUrl from "../../../../content/tracks/cota/track.json?url";
 import roadUrl from "../../../../content/tracks/cota/road.glb?url";
+import { FieldCars } from "./field-cars.ts";
 import { frameIndex, type Engine, type HudInfo } from "./engine.ts";
 import { GltfCar, placeOnTrack, type TrackFrame } from "./gltf.ts";
 import { GridCars, type GridSlot } from "./grid.ts";
@@ -41,6 +42,12 @@ const kelvinOffset = 273.15;
 const cinematicNear = 0.5;
 const cinematicFar = 41000;
 const upAxis = new THREE.Vector3(0, 0, 1);
+
+function presentRoots(
+  ...items: ({ root: THREE.Object3D } | null)[]
+): THREE.Object3D[] {
+  return items.flatMap((item) => (item ? [item.root] : []));
+}
 
 export async function fetchJson<T>(url: string): Promise<T> {
   const response = await fetch(url);
@@ -91,19 +98,21 @@ export class Scene {
     private readonly skyBox: SkyBox,
     private readonly people: Crowd,
     private readonly car: GltfCar,
-    private readonly grid: GridCars,
+    private readonly grid: GridCars | null,
     track: THREE.Object3D,
     private readonly road: THREE.Object3D,
     private readonly culler: WorldCuller,
     private readonly racingLine: RacingLineView,
     readonly crew: PitCrew,
     private readonly lapScale: number,
+    private readonly field: FieldCars | null,
     private readonly lights: StartLights,
   ) {
     this.camera.matrixAutoUpdate = false;
     this.camera.matrixWorldAutoUpdate = false;
     this.scene.environment = skyBox.environment;
-    this.scene.add(skyBox.mesh, track, car.root, grid.root, this.smoke.root);
+    const extras = presentRoots(grid, field);
+    this.scene.add(skyBox.mesh, track, car.root, this.smoke.root, ...extras);
     const { sunColor, horizon } = skyBox.meta;
     const colour = new THREE.Color(
       sunColor[0] ?? 1,
@@ -127,9 +136,9 @@ export class Scene {
     this.moving = [
       skyBox.mesh,
       car.root,
-      grid.root,
       this.crew.root,
       this.gate.mesh,
+      ...extras,
     ];
     this.scene.updateMatrixWorld(true);
     this.scene.matrixWorldAutoUpdate = false;
@@ -141,6 +150,7 @@ export class Scene {
     team: string,
     renderer: THREE.WebGPURenderer,
     lineMode: RacingLineMode,
+    rivals: string[],
     lights: StartLights,
   ): Promise<Scene> {
     const anisotropy = renderer.getMaxAnisotropy();
@@ -163,15 +173,19 @@ export class Scene {
       fetchJson<{ length: number; grid: GridSlot[] }>(trackUrl),
     ]);
     const lengthScale = engine.trackLength() / gridData.length;
-    const grid = await GridCars.load(
-      team,
-      gridData.grid.map((slot) => ({
-        distance: slot.distance * lengthScale,
-        offset: slot.offset,
-      })),
-      point,
-      env,
-    );
+    const grid =
+      rivals.length > 0
+        ? null
+        : await GridCars.load(
+            team,
+            gridData.grid.map((slot) => ({
+              distance: slot.distance * lengthScale,
+              offset: slot.offset,
+            })),
+            point,
+            env,
+          );
+    const field = rivals.length > 0 ? await FieldCars.load(rivals, env) : null;
     const racingLine = new RacingLineView(data, data.profile, lineMode);
     const start = engine.trackPoint(0, 0);
     const placed = placeOnTrack(road, frame, start);
@@ -195,8 +209,13 @@ export class Scene {
       racingLine,
       crew,
       data.length / engine.trackLength(),
+      field,
       lights,
     );
+  }
+
+  updateField(cars: Float64Array): void {
+    this.field?.update(cars, this.camera);
   }
 
   feel(
@@ -263,7 +282,7 @@ export class Scene {
   }
 
   get playerSlot(): number {
-    return this.grid.playerSlot;
+    return this.grid?.playerSlot ?? 0;
   }
 
   get mirrored(): boolean {
@@ -346,7 +365,7 @@ export class Scene {
 
     const [, , , , , , , , , , , , eyeX, eyeY, eyeZ] =
       this.camera.matrixWorld.elements;
-    this.grid.update(frame);
+    this.grid?.update(frame);
     const shown = (k: number) =>
       this.cinematic !== null || (frame[frameIndex.camera + k] ?? 0) !== 0;
     this.car.setDraw(

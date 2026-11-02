@@ -647,6 +647,10 @@ button {
   animation: fade-in 1s 0.3s both;
 }
 
+.tower-full .map {
+  visibility: hidden;
+}
+
 .map.empty {
   display: none;
 }
@@ -2114,6 +2118,24 @@ kbd,
   background: rgb(255 255 255 / 5%);
 }
 
+.results-table.compact {
+  border-spacing: 0 1px;
+}
+
+.results-table.compact td {
+  height: 24px;
+  font-size: 18px;
+}
+
+.results:has(.results-table.compact) .results-card {
+  top: 150px;
+  bottom: 40px;
+}
+
+.results:has(.results-table.compact) .results-tag {
+  top: 94px;
+}
+
 .results-table tbody tr {
   animation: row-in 0.45s calc(0.3s + var(--i) * 60ms) var(--ease) both;
 }
@@ -2428,4 +2450,443 @@ kbd,
 .pit-turn[data-grade="early"] b,
 .pit-turn[data-grade="late"] b {
   color: #f2c230;
+}
+
+.car-labels {
+  inset: 0;
+  scale: 1;
+  pointer-events: none;
+}
+
+.car-label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  background: rgb(10 12 20 / 82%);
+  border-radius: 4px;
+  font-size: calc(19px * var(--s));
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.car-label[hidden] {
+  display: none;
+}
+
+.car-label span {
+  font-weight: 500;
+  color: #d6d8e2;
+}
+
+.car-label i {
+  width: 3px;
+  height: 1em;
+}
+
+.session-clock {
+  right: calc(52px * var(--s));
+  top: calc(205px * var(--s));
+  transform-origin: 100% 0;
+  display: flex;
+  height: 68px;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.session-clock[hidden] {
+  display: none;
+}
+
+.session-clock b {
+  display: grid;
+  place-items: center;
+  min-width: 180px;
+  padding: 0 18px;
+  background: var(--red);
+  font-size: 44px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.session-clock i {
+  display: grid;
+  place-items: center;
+  width: 68px;
+  background: rgb(14 16 24 / 92%);
+}
+
+.session-clock svg {
+  width: 40px;
+  height: 40px;
+  color: #fff;
+}
+
+.tower-rows li .row-name {
+  color: #fff;
+}
+
+.tower-rows li .row-name::before {
+  background: var(--team, #8c8fa0);
+}
+
+.tower-rows li:not([data-me="1"]) .row-name::before {
+  background: var(--team, #8c8fa0);
+}
+
+.tower-rows li[data-me="1"]::before,
+.tower-rows li[data-me="1"]::after {
+  background: rgb(230 232 240 / 94%);
+}
+
+.tower-rows li[data-me="1"] .row-pos,
+.tower-rows li[data-me="1"] .row-name,
+.tower-rows li[data-me="1"] .row-gap {
+  color: #10121a;
+}
+
+.tower-rows li.out {
+  opacity: 0.55;
+}
+
+.tower-rows li[hidden] {
+  display: none;
+}
+
+.tower-rows li {
+  animation: none;
+}
+
+.map-rival {
+  stroke: rgb(0 0 0 / 70%);
+  stroke-width: 1.5;
+}
+
+.garage,
+.grid-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+}
+
+.garage[hidden],
+.grid-screen[hidden] {
+  display: none;
+}
+
+.grid-screen {
+  background: linear-gradient(135deg, #0c0e1c, #1a1020 60%, #0c0e1c);
+}
+
+.garage-board {
+  position: absolute;
+  left: 60px;
+  top: 60px;
+  width: 760px;
+  padding: 20px 22px;
+  background: rgb(18 20 30 / 92%);
+  border-radius: 14px;
+  border: 2px solid rgb(255 255 255 / 10%);
+}
+
+.garage-board header {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: baseline;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+.garage-board h1 {
+  margin: 0;
+  font-size: 52px;
+  font-weight: 900;
+  font-stretch: 125%;
+}
+
+.garage-board header p {
+  margin: 0;
+  font-size: 20px;
+  color: var(--dim);
+  text-transform: uppercase;
+}
+
+.garage-clock {
+  padding: 2px 14px;
+  background: var(--red);
+  border-radius: 6px;
+  font-size: 40px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.garage-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0 2px;
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+}
+
+.garage-table td {
+  height: 34px;
+  padding: 0 10px;
+  background: rgb(255 255 255 / 5%);
+  white-space: nowrap;
+}
+
+.garage-table .pos {
+  width: 36px;
+  text-align: right;
+}
+
+.garage-table .name {
+  border-left: 4px solid var(--team, #888);
+  font-weight: 600;
+}
+
+.garage-table .state {
+  font-size: 16px;
+  color: var(--dim);
+  text-transform: uppercase;
+}
+
+.garage-table .time,
+.garage-table .gap {
+  text-align: right;
+}
+
+.garage-table tr.me td {
+  background: rgb(230 232 240 / 90%);
+  color: #10121a;
+}
+
+.garage-table tr.danger td {
+  background: rgb(225 6 0 / 22%);
+}
+
+.garage-table tr.danger.me td {
+  background: rgb(255 120 110 / 90%);
+}
+
+.garage-table tr.out td {
+  opacity: 0.45;
+}
+
+.garage-panel {
+  position: absolute;
+  right: 60px;
+  bottom: 60px;
+  width: 520px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 22px;
+  background: rgb(18 20 30 / 92%);
+  border-radius: 14px;
+  border: 2px solid rgb(255 255 255 / 10%);
+}
+
+.garage-panel h2 {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.garage-note {
+  margin: 0;
+  min-height: 48px;
+  font-size: 19px;
+  color: #d6d8e2;
+}
+
+.garage-tyres {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.garage-tyres button {
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 2px solid transparent;
+  background: rgb(255 255 255 / 7%);
+  font-size: 22px;
+}
+
+.garage-tyres button.active {
+  border-color: #fff;
+  background: rgb(255 255 255 / 16%);
+}
+
+.garage-tyres i {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 4px solid var(--tyre);
+  border-radius: 50%;
+  color: var(--tyre);
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 800;
+  box-sizing: border-box;
+}
+
+.garage-panel > button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 58px;
+  padding: 0 16px;
+  border: 2px solid transparent;
+  background: rgb(255 255 255 / 8%);
+  font-size: 22px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.garage-panel > button:hover,
+.garage-panel > button:focus-visible,
+.grid-go:hover {
+  border-color: #fff;
+  outline: none;
+}
+
+.garage-panel > button.primary,
+.grid-go {
+  background: var(--red);
+}
+
+.grid-screen h1 {
+  position: absolute;
+  left: 100px;
+  top: 50px;
+  margin: 0;
+  font-size: 44px;
+  font-weight: 800;
+  font-stretch: 125%;
+  text-transform: uppercase;
+}
+
+.grid-card {
+  position: absolute;
+  left: 100px;
+  right: 100px;
+  top: 130px;
+  bottom: 120px;
+  padding: 20px 40px;
+  background: rgb(10 12 28 / 80%);
+  border-radius: 16px;
+  border: 6px solid rgb(255 255 255 / 10%);
+}
+
+.grid-card h2 {
+  margin: 0 0 16px;
+  font-size: 56px;
+  font-weight: 900;
+  font-stretch: 125%;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.grid-rows {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-auto-rows: 58px;
+  column-gap: 40px;
+  justify-items: center;
+}
+
+.grid-slot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 330px;
+  border-bottom: 2px solid rgb(255 255 255 / 25%);
+  font-size: 26px;
+  animation: row-in 0.4s calc(var(--i) * 40ms) var(--ease) both;
+}
+
+.grid-slot:nth-child(even) {
+  transform: translateY(29px);
+}
+
+.grid-slot span {
+  width: 36px;
+  text-align: right;
+  font-size: 20px;
+  color: #cfd2dc;
+}
+
+.grid-slot i {
+  width: 5px;
+  height: 26px;
+}
+
+.grid-slot b {
+  font-weight: 700;
+}
+
+.grid-slot small {
+  margin-left: auto;
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+  color: #d6d8e2;
+}
+
+.grid-slot.me b {
+  color: #ffd21f;
+}
+
+.grid-go {
+  position: absolute;
+  right: 100px;
+  bottom: 44px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 58px;
+  padding: 0 24px;
+  border: 2px solid transparent;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.results-table tr.me td {
+  background: rgb(230 232 240 / 90%);
+  color: #10121a;
+}
+
+.results-table tr.danger td {
+  background: rgb(225 6 0 / 22%);
+}
+
+.results-table .team-cell {
+  border-left: 4px solid var(--team, #888);
+}
+
+.results-table .tyre-cell i {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 3px solid var(--tyre);
+  border-radius: 50%;
+  color: var(--tyre);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 800;
+  box-sizing: border-box;
+}
+
+.results-table tbody.settled tr {
+  animation: none;
 }

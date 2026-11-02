@@ -1,6 +1,7 @@
 import createSpeedDreams, {
   type SpeedDreamsModule,
 } from "../../wasm/speed-dreams.js";
+import type { WeekendPlan } from "./weekend.ts";
 import type { EnergyInfo } from "./energy.ts";
 import type { CarStatus } from "./mfd.ts";
 import type { TyreInfo } from "./tyres.ts";
@@ -64,6 +65,84 @@ export interface RaceSystems {
   countdown: number;
 }
 
+export interface SessionPlan {
+  kind: SessionKind;
+  laps: number;
+  lengthScale: number;
+  difficulty: number;
+  seed: number;
+  reference: number;
+  field: WeekendPlan;
+}
+
+export const sessionKinds = {
+  practice: 0,
+  race: 1,
+  qualifying: 2,
+} as const;
+
+type SessionKind = (typeof sessionKinds)[keyof typeof sessionKinds];
+
+export const sessionPhase = {
+  running: 0,
+  flag: 1,
+  complete: 2,
+  done: 3,
+} as const;
+
+export interface SessionInfo {
+  kind: number;
+  phase: number;
+  segment: number;
+  clock: number;
+  totalLaps: number;
+  startDelay: number;
+  chequered: boolean;
+  leaderLaps: number;
+  invalidLap: boolean;
+  offTracks: number;
+}
+
+export interface CarTiming {
+  index: number;
+  position: number;
+  status: number;
+  laps: number;
+  best: number;
+  last: number;
+  gapLeader: number;
+  gapAhead: number;
+  lapsDown: number;
+  compound: number;
+  tyreAge: number;
+  pits: number;
+  segmentBest: number;
+  finished: boolean;
+  retired: boolean;
+  finishTime: number;
+  eliminated: boolean;
+  contacts: number;
+  progress: number;
+  overtake: boolean;
+  inPit: boolean;
+  segments: number[];
+}
+
+export const carStride = 49;
+export const carField = {
+  speed: 40,
+  steer: 41,
+  brake: 42,
+  rpm: 43,
+  gear: 44,
+  compound: 45,
+  visible: 46,
+  toMiddle: 47,
+  distance: 48,
+} as const;
+const timingStride = 20;
+const sessionFields = 10;
+
 export async function loadSpeedDreams(): Promise<SpeedDreamsModule> {
   return createSpeedDreams({
     print: () => undefined,
@@ -93,8 +172,62 @@ export function setupSource(module: SpeedDreamsModule): SetupSource {
   };
 }
 
+function configureField(module: SpeedDreamsModule, plan: SessionPlan): void {
+  const add = module.cwrap("sdFieldAdd", null, [
+    "string",
+    "string",
+    "string",
+    "number",
+    "number",
+    "number",
+    "number",
+    "number",
+    "number",
+  ]);
+  module._sdFieldClear();
+  plan.field.entrants.forEach((entrant, index) => {
+    const slot = plan.field.slots[index] ?? index;
+    if (entrant.player)
+      module._sdFieldPlayer(entrant.teamIndex, entrant.seat, slot);
+    else
+      add(
+        entrant.name,
+        entrant.code,
+        entrant.team,
+        entrant.teamIndex,
+        entrant.seat,
+        slot,
+        entrant.speed,
+        entrant.raceSpeed,
+        1,
+      );
+    module._sdFieldPlan(index, entrant.speed, entrant.raceSpeed, entrant.power);
+    entrant.runs.forEach((runs, segment) => {
+      for (const at of runs) module._sdFieldRun(index, segment, at);
+    });
+    for (const stint of entrant.stints)
+      module._sdFieldStint(index, stint.compound, stint.from);
+  });
+  module._sdSessionConfigure(
+    plan.kind,
+    plan.laps,
+    plan.lengthScale,
+    plan.difficulty,
+    plan.seed,
+  );
+  module._sdSessionReference(plan.reference);
+}
+
 export class Engine {
-  private constructor(private readonly module: SpeedDreamsModule) {}
+  private carsMemory = 0;
+  private timingMemory = 0;
+  private sessionMemory = 0;
+  private qualifyingMemory = 0;
+
+  private constructor(
+    private readonly module: SpeedDreamsModule,
+    readonly carCount: number,
+  ) {}
 
   static start(
     module: SpeedDreamsModule,
@@ -105,7 +238,9 @@ export class Engine {
     antiLock: boolean,
     now: number,
     race: RaceSystems,
+    session: SessionPlan | null,
   ): Engine {
+    if (session) configureField(module, session);
     module._sdRaceCountdown(race.countdown);
     module._sdInputAssist(assist ? 1 : 0);
     module._sdInputAntiLock(antiLock ? 1 : 0);
@@ -136,7 +271,124 @@ export class Engine {
       );
     }
     module._sdEnergyStraight(race.straightAssist ? 1 : 0, 0);
-    return new Engine(module);
+    return new Engine(module, session ? session.field.entrants.length : 1);
+  }
+
+  cars(): Float64Array {
+    this.carsMemory ||= this.module._malloc(
+      this.carCount * carStride * Float64Array.BYTES_PER_ELEMENT,
+    );
+    this.module._sdCars(this.carsMemory);
+    return new Float64Array(
+      this.module.HEAPF64.buffer,
+      this.carsMemory,
+      this.carCount * carStride,
+    );
+  }
+
+  session(): SessionInfo {
+    this.sessionMemory ||= this.module._malloc(
+      sessionFields * Float64Array.BYTES_PER_ELEMENT,
+    );
+    this.module._sdSessionInfo(this.sessionMemory);
+    const v = new Float64Array(
+      this.module.HEAPF64.buffer,
+      this.sessionMemory,
+      sessionFields,
+    );
+    const at = (i: number) => v[i] ?? 0;
+    return {
+      kind: at(0),
+      phase: at(1),
+      segment: at(2),
+      clock: at(3),
+      totalLaps: at(4),
+      startDelay: at(5),
+      chequered: at(6) !== 0,
+      leaderLaps: at(7),
+      invalidLap: at(8) !== 0,
+      offTracks: at(9),
+    };
+  }
+
+  timing(): CarTiming[] {
+    this.timingMemory ||= this.module._malloc(
+      this.carCount * timingStride * Float64Array.BYTES_PER_ELEMENT,
+    );
+    this.qualifyingMemory ||= this.module._malloc(
+      3 * Float64Array.BYTES_PER_ELEMENT,
+    );
+    this.module._sdTiming(this.timingMemory);
+    const v = new Float64Array(
+      this.module.HEAPF64.buffer,
+      this.timingMemory,
+      this.carCount * timingStride,
+    ).slice();
+    return Array.from({ length: this.carCount }, (_, index) => {
+      const at = (k: number) => v[index * timingStride + k] ?? 0;
+      this.module._sdQualifyingTimes(index, this.qualifyingMemory);
+      const q = new Float64Array(
+        this.module.HEAPF64.buffer,
+        this.qualifyingMemory,
+        3,
+      );
+      return {
+        index,
+        position: at(0),
+        status: at(1),
+        laps: at(2),
+        best: at(3),
+        last: at(4),
+        gapLeader: at(5),
+        gapAhead: at(6),
+        lapsDown: at(7),
+        compound: at(8),
+        tyreAge: at(9),
+        pits: at(10),
+        segmentBest: at(11),
+        finished: at(12) === 1,
+        retired: at(12) === 2,
+        finishTime: at(13),
+        eliminated: at(14) !== 0,
+        contacts: at(15),
+        progress: at(16),
+        overtake: at(17) !== 0,
+        inPit: at(18) !== 0,
+        segments: [q[0] ?? 0, q[1] ?? 0, q[2] ?? 0],
+      };
+    });
+  }
+
+  pitLaneClear(): boolean {
+    return this.module._sdAiPlayerLaneClear() !== 0;
+  }
+
+  advanceSession(): number {
+    return this.module._sdSessionAdvance();
+  }
+
+  simulateSession(): void {
+    this.module._sdSessionSimulate();
+  }
+
+  playerInGarage(on: boolean): void {
+    this.module._sdSessionPlayerGarage(on ? 1 : 0);
+  }
+
+  timeScale(scale: number): void {
+    this.module._sdTimeScale(scale);
+  }
+
+  setPitCompound(compound: number): void {
+    this.module._sdSessionPitCompound(compound);
+  }
+
+  autopilot(on: boolean): void {
+    this.module._sdFieldAutopilot(on ? 1 : 0);
+  }
+
+  playerBox(): number {
+    return this.module._sdFieldPlayerBox();
   }
 
   speedLimit(metresPerSecond: number): void {

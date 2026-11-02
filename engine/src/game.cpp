@@ -2,7 +2,9 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 #include <unistd.h>
+#include <vector>
 #include <emscripten/emscripten.h>
 
 #include <tgf.h>
@@ -13,7 +15,10 @@
 #include <robot.h>
 #include <robottools.h>
 
+#include "ai.h"
 #include "game.h"
+#include "session.h"
+#include "sim.h"
 
 tRmInfo *ReInfo = nullptr;
 
@@ -38,9 +43,24 @@ void SdPhysicsEngine::configureCar(tCarElt *car)
 }
 
 
+struct FieldEntry
+{
+    std::string name, code, team;
+    int teamIndex, seat, slot;
+    double pace, racePace, racecraft;
+};
+
 static tSituation situation;
-static tReCarInfo carInfo[1];
+static std::vector<tReCarInfo> carInfo;
 static tModInfo humanModInfo[10];
+static std::vector<FieldEntry> fieldEntries;
+static FieldEntry playerEntry = {"You", "YOU", "", 0, 1, 0, 1.0, 1.0, 1.0};
+static bool playerAutopilot = false;
+
+bool sdPlayerAutopilot()
+{
+    return playerAutopilot;
+}
 static double frame[SD_FRAME_SIZE];
 static double simuTick = RCM_MAX_DT_SIMU;
 static double clockNow = 0.0;
@@ -51,6 +71,40 @@ int sdDamageLimit()
     return damageLimit;
 }
 
+static void *carParams(const char *carName, tCarElt *elt)
+{
+    char buf[256];
+    snprintf(buf, sizeof(buf), "cars/models/%s/%s.xml", carName, carName);
+    void *carhdle = GfParmReadFileBoth(buf, GFPARM_RMODE_STD);
+    const char *category = GfParmGetStr(carhdle, SECT_CAR, PRM_CATEGORY, NULL);
+    strncpy(elt->_category, category, MAX_NAME_LEN - 1);
+    snprintf(buf, sizeof(buf), "cars/categories/%s.xml", elt->_category);
+    void *cathdle = GfParmReadFile(buf, GFPARM_RMODE_STD | GFPARM_RMODE_CREAT);
+    if (GfParmCheckHandle(cathdle, carhdle))
+    {
+        GfLogError("Car %s NOT in category %s\n", elt->_carName, category);
+        return nullptr;
+    }
+    return GfParmMergeHandles(cathdle, carhdle,
+                              GFPARM_MMODE_SRC | GFPARM_MMODE_DST | GFPARM_MMODE_RELSRC | GFPARM_MMODE_RELDST);
+}
+
+static void prepareTiming(tCarElt *elt)
+{
+    elt->_currentSector = 0;
+    elt->_nbSectors = ReInfo->track->numberOfSectors;
+    elt->_curSplitTime = (double *)malloc(sizeof(double) * (elt->_nbSectors > 1 ? elt->_nbSectors - 1 : 1));
+    elt->_bestSplitTime = (double *)malloc(sizeof(double) * (elt->_nbSectors > 1 ? elt->_nbSectors - 1 : 1));
+    for (int xx = 0; xx < elt->_nbSectors - 1; ++xx)
+    {
+        elt->_curSplitTime[xx] = -1.0f;
+        elt->_bestSplitTime[xx] = -1.0f;
+    }
+    elt->_trackPositionCount = (int)(ReInfo->track->length + 1);
+    elt->_currLapTimeAtTrackPosition = (float *)malloc(elt->_trackPositionCount * sizeof(float));
+    elt->_bestLapTimeAtTrackPosition = (float *)malloc(elt->_trackPositionCount * sizeof(float));
+}
+
 static tCarElt *loadHumanCar(const char *carName)
 {
     const int robotIdx = humanModInfo[0].index;
@@ -58,7 +112,6 @@ static tCarElt *loadHumanCar(const char *carName)
     humanModInfo[0].fctInit(robotIdx, (void *)curRobot);
 
     char path[256];
-    char buf[256];
     void *robhdle = GfParmReadFileLocal("drivers/human/human.xml", GFPARM_RMODE_STD);
     snprintf(path, sizeof(path), "%s/%s/%d", ROB_SECT_ROBOTS, ROB_LIST_INDEX, robotIdx);
 
@@ -84,19 +137,9 @@ static tCarElt *loadHumanCar(const char *carName)
     elt->_pos = 1;
     elt->_remainingLaps = ReInfo->s->_totLaps;
 
-    snprintf(buf, sizeof(buf), "cars/models/%s/%s.xml", elt->_carName, elt->_carName);
-    void *carhdle = GfParmReadFileBoth(buf, GFPARM_RMODE_STD);
-    const char *category = GfParmGetStr(carhdle, SECT_CAR, PRM_CATEGORY, NULL);
-    strncpy(elt->_category, category, MAX_NAME_LEN - 1);
-    snprintf(buf, sizeof(buf), "cars/categories/%s.xml", elt->_category);
-    void *cathdle = GfParmReadFile(buf, GFPARM_RMODE_STD | GFPARM_RMODE_CREAT);
-    if (GfParmCheckHandle(cathdle, carhdle))
-    {
-        GfLogError("Car %s NOT in category %s\n", elt->_carName, category);
+    void *carhdle = carParams(carName, elt);
+    if (!carhdle)
         return nullptr;
-    }
-    carhdle = GfParmMergeHandles(cathdle, carhdle,
-                                 GFPARM_MMODE_SRC | GFPARM_MMODE_DST | GFPARM_MMODE_RELSRC | GFPARM_MMODE_RELDST);
 
     void *handle = GfParmReadFileLocal("drivers/curcarnames.xml", GFPARM_RMODE_CREAT);
     snprintf(path, sizeof(path), "drivers/%s/%d", "human", elt->_driverIndex);
@@ -121,20 +164,113 @@ static tCarElt *loadHumanCar(const char *carName)
         handle = carhdle;
     }
     elt->_carHandle = handle;
-
-    elt->_currentSector = 0;
-    elt->_nbSectors = ReInfo->track->numberOfSectors;
-    elt->_curSplitTime = (double *)malloc(sizeof(double) * (elt->_nbSectors > 1 ? elt->_nbSectors - 1 : 1));
-    elt->_bestSplitTime = (double *)malloc(sizeof(double) * (elt->_nbSectors > 1 ? elt->_nbSectors - 1 : 1));
-    for (int xx = 0; xx < elt->_nbSectors - 1; ++xx)
-    {
-        elt->_curSplitTime[xx] = -1.0f;
-        elt->_bestSplitTime[xx] = -1.0f;
-    }
-    elt->_trackPositionCount = (int)(ReInfo->track->length + 1);
-    elt->_currLapTimeAtTrackPosition = (float *)malloc(elt->_trackPositionCount * sizeof(float));
-    elt->_bestLapTimeAtTrackPosition = (float *)malloc(elt->_trackPositionCount * sizeof(float));
+    prepareTiming(elt);
     return elt;
+}
+
+static void aiNewRace(int, tCarElt *, tSituation *)
+{
+}
+
+static tCarElt *loadAiCar(int index, const FieldEntry &entry, const char *carName)
+{
+    tRobotItf *robot = (tRobotItf *)calloc(1, sizeof(tRobotItf));
+    robot->index = index;
+    robot->rbNewRace = aiNewRace;
+    tCarElt *elt = &(ReInfo->carList[index]);
+    GF_TAILQ_INIT(&(elt->_penaltyList));
+    elt->_driverType = RM_DRV_ROBOT;
+    elt->_networkPlayer = 0;
+    elt->index = index;
+    elt->robot = robot;
+    elt->_driverIndex = index;
+    elt->_moduleIndex = index;
+    strncpy(elt->_modName, "ai", MAX_NAME_LEN - 1);
+    strncpy(elt->_name, entry.name.c_str(), MAX_NAME_LEN - 1);
+    strncpy(elt->_sname, entry.name.c_str(), MAX_NAME_LEN - 1);
+    strncpy(elt->_cname, entry.code.c_str(), 3);
+    strncpy(elt->_teamname, entry.team.c_str(), MAX_NAME_LEN - 1);
+    elt->_driveSkill = -1.0f;
+    strncpy(elt->_carName, carName, MAX_NAME_LEN - 1);
+    elt->_skillLevel = ROOKIE;
+    elt->_startRank = index;
+    elt->_pos = index + 1;
+    elt->_remainingLaps = ReInfo->s->_totLaps;
+    void *carhdle = carParams(carName, elt);
+    if (!carhdle)
+        return nullptr;
+    char path[256];
+    snprintf(path, sizeof(path), "aisetup/%s/default.xml", carName);
+    void *setup = GfParmReadFile(path, GFPARM_RMODE_STD | GFPARM_RMODE_PRIVATE);
+    elt->_carHandle = setup ? GfParmMergeHandles(carhdle, setup, GFPARM_MMODE_SRC | GFPARM_MMODE_DST | GFPARM_MMODE_RELSRC | GFPARM_MMODE_RELDST) : carhdle;
+    prepareTiming(elt);
+    return elt;
+}
+
+static void placeCar(tCarElt *car, double distance, double lateral, double height)
+{
+    double along = sdAiWrap(distance);
+    tTrackSeg *seg = ReInfo->track->seg->next;
+    while (!(along >= seg->lgfromstart && along < seg->lgfromstart + seg->length))
+        seg = seg->next;
+    tTrkLocPos pos;
+    pos.seg = seg;
+    pos.type = TR_LPOS_MAIN;
+    double local = along - seg->lgfromstart;
+    pos.toStart = (tdble)(seg->type == TR_STR ? local : local / seg->radius);
+    pos.toMiddle = (tdble)lateral;
+    pos.toRight = seg->width / 2 + pos.toMiddle;
+    pos.toLeft = seg->width / 2 - pos.toMiddle;
+    car->_trkPos = pos;
+    RtTrackLocal2Global(&pos, &(car->_pos_X), &(car->_pos_Y), TR_TOMIDDLE);
+    car->_yaw = RtTrackSideTgAngleL(&pos);
+    car->_pos_Z = RtTrackHeightL(&pos) + height;
+    FLOAT_NORM0_2PI(car->_yaw);
+    car->_speed_x = 0;
+}
+
+void sdCarTeleport(int index, double distance, double lateral)
+{
+    tCarElt *elt = ReInfo->s->cars[index];
+    placeCar(elt, distance, lateral, 0.05);
+    tCar *car = &SimCarTable[index];
+    car->DynGCg.pos.x = elt->_pos_X;
+    car->DynGCg.pos.y = elt->_pos_Y;
+    car->DynGCg.pos.z = elt->_pos_Z;
+    car->DynGCg.pos.az = elt->_yaw;
+    car->DynGCg.pos.ax = 0;
+    car->DynGCg.pos.ay = 0;
+    memset(&car->DynGCg.vel, 0, sizeof(car->DynGCg.vel));
+    memset(&car->DynGCg.acc, 0, sizeof(car->DynGCg.acc));
+    car->DynGC.pos = car->DynGCg.pos;
+    memset(&car->DynGC.vel, 0, sizeof(car->DynGC.vel));
+    memset(&car->DynGC.acc, 0, sizeof(car->DynGC.acc));
+    car->trkPos = elt->_trkPos;
+    for (int i = 0; i < 4; i++)
+        car->wheel[i].spinVel = 0;
+    ReInfo->_reCarInfo[index].prevTrkPos = elt->_trkPos;
+    ReInfo->_reCarInfo[index].sTime = (tdble)ReInfo->s->currentTime;
+    ReInfo->_reCarInfo[index].lapFlag = 0;
+}
+
+void sdServiceCar(int index, int compound)
+{
+    tCarElt *car = ReInfo->s->cars[index];
+    car->pitcmd.fuel = 0;
+    car->pitcmd.repair = car->_dammage;
+    car->pitcmd.tireChange = tCarPitCmd::ALL;
+    car->pitcmd.tiresetChange = tCarPitCmd::NON_CHANGE;
+    SimReConfig(car);
+    sdTyresService(index, compound);
+    sdCarStatusRepair(index);
+    sdEnergyRestore(index);
+    car->pitcmd.repair = 0;
+    car->pitcmd.tireChange = tCarPitCmd::NONE;
+}
+
+void sdCarSetFuel(int index, double litres)
+{
+    SimCarTable[index].fuel = (tdble)std::min((double)SimCarTable[index].tank, litres);
 }
 
 static void manageCar(tCarElt *car)
@@ -207,30 +343,44 @@ static void runOneStep(double deltaTimeIncrement)
     if ((s->currentTime - pCurrReInfo->_reLastRobTime) >= RCM_MAX_DT_ROBOTS)
     {
         s->deltaTime = s->currentTime - pCurrReInfo->_reLastRobTime;
-        sdInputUpdate(s->cars[0], s->deltaTime);
+        sdSessionTick(s, s->deltaTime);
+        bool playerOnAi = playerAutopilot && sdFieldActive();
+        if (!playerOnAi)
+            sdInputUpdate(s->cars[0], s->deltaTime);
         for (int i = 0; i < s->_ncars; i++)
         {
-            if ((s->cars[i]->_state & RM_CAR_STATE_NO_SIMU) == 0)
+            if ((s->cars[i]->_state & RM_CAR_STATE_NO_SIMU) != 0)
+                continue;
+            if (i > 0 || playerOnAi)
             {
-                tRobotItf *robot = s->cars[i]->robot;
-                robot->rbDrive(robot->index, s->cars[i], s);
+                sdAiDrive(i, s->cars[i], s);
+                continue;
             }
+            tRobotItf *robot = s->cars[i]->robot;
+            robot->rbDrive(robot->index, s->cars[i], s);
         }
-        sdInputApplyHold(s->cars[0]);
+        if (!playerOnAi)
+            sdInputApplyHold(s->cars[0]);
         sdCarStatusDriveLimit(s->cars[0]);
         pCurrReInfo->_reLastRobTime = s->currentTime;
     }
 
-    sdTyresStep(s->cars[0], deltaTimeIncrement);
-    sdEnergyStep(s->cars[0], deltaTimeIncrement);
-    sdCarStatusPrepare(s->cars[0]);
-    SimUpdate(s, deltaTimeIncrement);
-    sdCarStatusStep(s->cars[0], deltaTimeIncrement);
     for (int i = 0; i < s->_ncars; i++)
+    {
+        sdTyresStep(s->cars[i], deltaTimeIncrement);
+        sdEnergyStep(s->cars[i], deltaTimeIncrement);
+        sdCarStatusPrepare(s->cars[i]);
+    }
+    SimUpdate(s, deltaTimeIncrement);
+    for (int i = 0; i < s->_ncars; i++)
+    {
+        sdCarStatusStep(s->cars[i], deltaTimeIncrement);
         manageCar(s->cars[i]);
+    }
+    sdSessionAfterStep(s);
 }
 
-static double raceCountdown = 2.0;
+static double raceCountdown = 0.0;
 
 static void startRace()
 {
@@ -257,7 +407,7 @@ static void startRace()
 
     ReInfo->_reTimeMult = 1.0;
     ReInfo->_reLastRobTime = -1.0;
-    s->currentTime = -raceCountdown;
+    s->currentTime = raceCountdown > 0.0 ? -raceCountdown : sdSessionStartClock();
     s->deltaTime = RCM_MAX_DT_SIMU;
     s->_raceState = RM_RACE_STARTING;
     ReInfo->_reRunning = 1;
@@ -348,6 +498,81 @@ int sdSurfaceClass(const tTrackSeg *seg)
 
 extern "C" {
 
+EMSCRIPTEN_KEEPALIVE void sdFieldClear()
+{
+    fieldEntries.clear();
+    playerAutopilot = false;
+    sdSessionClearPlans();
+}
+
+EMSCRIPTEN_KEEPALIVE void sdFieldAdd(const char *name, const char *code, const char *team, int teamIndex, int seat, int slot, double pace, double racePace, double racecraft)
+{
+    fieldEntries.push_back({name, code, team, teamIndex, seat, slot, pace, racePace, racecraft});
+}
+
+EMSCRIPTEN_KEEPALIVE void sdFieldPlayer(int teamIndex, int seat, int slot)
+{
+    playerEntry.teamIndex = teamIndex;
+    playerEntry.seat = seat;
+    playerEntry.slot = slot;
+}
+
+EMSCRIPTEN_KEEPALIVE void sdFieldAutopilot(int on)
+{
+    playerAutopilot = on != 0;
+    if (playerAutopilot && ReInfo && sdFieldActive() && ReInfo->s->currentTime > 0)
+        sdAiTakeOver(0);
+}
+
+EMSCRIPTEN_KEEPALIVE double sdFieldPlayerBox()
+{
+    double distance = 0, lateral = 0;
+    sdAiBoxOf(sdFieldBay(playerEntry.teamIndex, playerEntry.seat), &distance, &lateral);
+    return distance;
+}
+
+EMSCRIPTEN_KEEPALIVE int sdFieldCount()
+{
+    return (int)fieldEntries.size() + 1;
+}
+
+EMSCRIPTEN_KEEPALIVE void sdCars(double *out)
+{
+    tSituation *s = ReInfo->s;
+    for (int i = 0; i < s->_ncars; i++)
+    {
+        tCarElt *car = s->cars[i];
+        double *c = &out[i * SD_CAR_STRIDE];
+        for (int a = 0; a < 4; a++)
+            for (int b = 0; b < 4; b++)
+                c[a * 4 + b] = car->_posMat[a][b];
+        for (int w = 0; w < 4; w++)
+        {
+            double *wheel = &c[16 + w * 6];
+            wheel[0] = car->priv.wheel[w].relPos.x;
+            wheel[1] = car->priv.wheel[w].relPos.y;
+            wheel[2] = car->priv.wheel[w].relPos.z;
+            wheel[3] = car->priv.wheel[w].relPos.ax;
+            wheel[4] = car->priv.wheel[w].relPos.ay;
+            wheel[5] = car->priv.wheel[w].relPos.az;
+        }
+        c[40] = car->_speed_x;
+        c[41] = car->_steerCmd;
+        c[42] = car->_brakeCmd;
+        c[43] = car->_enginerpm;
+        c[44] = car->_gear;
+        c[45] = sdTyresCompound(i);
+        c[46] = sdSessionCarVisible(i) ? 1 : 0;
+        c[47] = car->_trkPos.toMiddle;
+        c[48] = car->_distFromStartLine;
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE void sdTimeScale(double scale)
+{
+    ReInfo->_reTimeMult = 1.0 / std::max(1.0, scale);
+}
+
 EMSCRIPTEN_KEEPALIVE void sdRaceCountdown(double seconds)
 {
     raceCountdown = seconds;
@@ -359,10 +584,12 @@ EMSCRIPTEN_KEEPALIVE int sdInit(const char *trackCategory, const char *trackName
     if (!initGf())
         return -10;
 
+    int carCount = 1 + (int)fieldEntries.size();
+    carInfo.assign(carCount, tReCarInfo());
     ReInfo = (tRmInfo *)calloc(1, sizeof(tRmInfo));
     ReInfo->s = &situation;
-    ReInfo->carList = (tCarElt *)calloc(1, sizeof(tCarElt));
-    ReInfo->_reCarInfo = carInfo;
+    ReInfo->carList = (tCarElt *)calloc(carCount, sizeof(tCarElt));
+    ReInfo->_reCarInfo = carInfo.data();
     ReInfo->params = GfParmReadFileBoth(raceFile, GFPARM_RMODE_STD);
     ReInfo->mainParams = ReInfo->params;
     ReInfo->_reRaceName = "Quick Race";
@@ -376,9 +603,10 @@ EMSCRIPTEN_KEEPALIVE int sdInit(const char *trackCategory, const char *trackName
     sdInitWeather();
 
     tSituation *s = ReInfo->s;
-    s->_ncars = 1;
-    s->cars = (tCarElt **)calloc(1, sizeof(tCarElt *));
-    s->cars[0] = &ReInfo->carList[0];
+    s->_ncars = carCount;
+    s->cars = (tCarElt **)calloc(carCount, sizeof(tCarElt *));
+    for (int i = 0; i < carCount; i++)
+        s->cars[i] = &ReInfo->carList[i];
     damageLimit = (int)GfParmGetNum(ReInfo->params, ReInfo->_reRaceName, RM_ATTR_MAX_DMG, NULL, 10000);
     s->_maxDammage = 0;
     s->_raceType = RM_TYPE_RACE;
@@ -405,16 +633,48 @@ EMSCRIPTEN_KEEPALIVE int sdInit(const char *trackCategory, const char *trackName
         GfParmSetStr(robhdle, buf, ROB_ATTR_CAR, carOverride);
         GfParmWriteFile(NULL, robhdle, "human");
     }
-    const char *carName = GfParmGetStr(robhdle, buf, ROB_ATTR_CAR, "22mp1-sector-mcl36");
-    if (!loadHumanCar(carName))
+    std::string carName = GfParmGetStr(robhdle, buf, ROB_ATTR_CAR, "22mp1-sector-mcl36");
+    if (!loadHumanCar(carName.c_str()))
         return -3;
+    for (int i = 1; i < carCount; i++)
+        if (!loadAiCar(i, fieldEntries[i - 1], carName.c_str()))
+            return -4;
 
     SimInit(s->_ncars, ReInfo->track);
-    sdInitStartingGrid();
+    bool hasModel = sdAiLoadTrack(ReInfo->track);
+    if (carCount > 1 && !hasModel)
+        return -5;
+    if (hasModel)
+        sdAiReset(carCount);
+    if (carCount > 1)
+    {
+        sdAiConfigure(0, 1.0, 1.0, 1.0, sdFieldBay(playerEntry.teamIndex, playerEntry.seat));
+        for (int i = 1; i < carCount; i++)
+        {
+            const FieldEntry &entry = fieldEntries[i - 1];
+            sdAiConfigure(i, entry.pace, entry.racePace, entry.racecraft, sdFieldBay(entry.teamIndex, entry.seat));
+        }
+        for (int i = 0; i < carCount; i++)
+        {
+            const FieldEntry &entry = i == 0 ? playerEntry : fieldEntries[i - 1];
+            double distance = 0, lateral = 0;
+            sdSessionStartPlace(i, entry.slot, sdFieldBay(entry.teamIndex, entry.seat), &distance, &lateral);
+            placeCar(s->cars[i], distance, lateral, 0.2);
+            RePhysicsEngine().configureCar(s->cars[i]);
+        }
+    }
+    else
+    {
+        sdInitStartingGrid();
+    }
     startRace();
-    sdTyresReset(s->cars[0]);
-    sdEnergyReset(s->cars[0]);
-    sdCarStatusReset(s->cars[0]);
+    for (int i = 0; i < carCount; i++)
+    {
+        sdTyresReset(s->cars[i]);
+        sdEnergyReset(s->cars[i]);
+        sdCarStatusReset(s->cars[i]);
+    }
+    sdSessionBegin(s);
     sdCameraReset();
     fillFrame();
     return 0;
@@ -487,7 +747,7 @@ EMSCRIPTEN_KEEPALIVE void sdPitService(double fuel, int frontWing)
     car->pitcmd.tireChange = tCarPitCmd::ALL;
     car->pitcmd.tiresetChange = tCarPitCmd::NON_CHANGE;
     SimReConfig(car);
-    sdTyresService();
+    sdTyresService(0, sdPitCompound());
     car->pitcmd.fuel = 0;
     car->pitcmd.repair = 0;
     car->pitcmd.tireChange = tCarPitCmd::NONE;

@@ -1,0 +1,576 @@
+{
+  "source": "OpenF1 sessions 11392 and 11396, 2026 United States Grand Prix",
+  "raceLaps": 56,
+  "raceDistanceKm": 308.405,
+  "poleTime": 94.035,
+  "pitLaneLoss": 24.227,
+  "stopTime": 2.8,
+  "overtakes": 220,
+  "qualifying": {
+    "segments": [
+      {
+        "name": "Q1",
+        "minutes": 18,
+        "knockedOut": 6
+      },
+      {
+        "name": "Q2",
+        "minutes": 15,
+        "knockedOut": 6
+      },
+      {
+        "name": "Q3",
+        "minutes": 13,
+        "knockedOut": 0
+      }
+    ]
+  },
+  "grid": [
+    {
+      "number": 1,
+      "code": "NOR",
+      "name": "L NORRIS",
+      "team": "McLaren",
+      "teamIndex": 0,
+      "seat": 0,
+      "colour": "#F47600",
+      "qualifyingGap": 0.181,
+      "raceGap": 0.115,
+      "realGrid": 8,
+      "runs": [[167, 888], [177], [104, 632]],
+      "stints": [
+        {
+          "compound": 1,
+          "from": 0
+        },
+        {
+          "compound": 2,
+          "from": 0.286
+        }
+      ]
+    },
+    {
+      "number": 81,
+      "code": "PIA",
+      "name": "O PIASTRI",
+      "team": "McLaren",
+      "teamIndex": 0,
+      "seat": 1,
+      "colour": "#F47600",
+      "qualifyingGap": 0.738,
+      "raceGap": 0.834,
+      "realGrid": 7,
+      "runs": [
+        [155, 938],
+        [183, 684],
+        [112, 638]
+      ],
+      "stints": [
+        {
+          "compound": 1,
+          "from": 0
+        },
+        {
+          "compound": 2,
+          "from": 0.268
+        }
+      ]
+    },
+    {
+      "number": 16,
+      "code": "LEC",
+      "name": "C LECLERC",
+      "team": "Ferrari",
+      "teamIndex": 1,
+      "seat": 0,
+      "colour": "#ED1131",
+      "qualifyingGap": 0.091,
+      "raceGap": 0.121,
+      "realGrid": 4,
+      "runs": [[75], [88, 683], [69, 595]],
+      "stints": [
+        {
+          "compound": 0,
+          "from": 0
+        },
+        {
+          "compound": 1,
+          "from": 0.268
+        },
+        {
+          "compound": 2,
+          "from": 0.696
+        }
+      ]
+    },
+    {
+      "number": 44,
+      "code": "HAM",
+      "name": "L HAMILTON",
+      "team": "Ferrari",
+      "teamIndex": 1,
+      "seat": 1,
+      "colour": "#ED1131",
+      "qualifyingGap": 0.32,
+      "raceGap": 0.309,
+      "realGrid": 5,
+      "runs": [[125], [91, 743], [90, 622]],
+      "stints": [
+        {
+          "compound": 0,
+          "from": 0
+        },
+        {
+          "compound": 1,
+          "from": 0.25
+        },
+        {
+          "compound": 2,
+          "from": 0.679
+        }
+      ]
+    },
+    {
+      "number": 3,
+      "code": "VER",
+      "name": "M VERSTAPPEN",
+      "team": "Red Bull Racing",
+      "teamIndex": 2,
+      "seat": 0,
+      "colour": "#4781D7",
+      "qualifyingGap": 0.194,
+      "raceGap": 0,
+      "realGrid": 2,
+      "runs": [[208], [111], [61, 599]],
+      "stints": [
+        {
+          "compound": 0,
+          "from": 0
+        },
+        {
+          "compound": 0,
+          "from": 0.232
+        },
+        {
+          "compound": 1,
+          "from": 0.554
+        }
+      ]
+    },
+    {
+      "number": 6,
+      "code": "HAD",
+      "name": "I HADJAR",
+      "team": "Red Bull Racing",
+      "teamIndex": 2,
+      "seat": 1,
+      "colour": "#4781D7",
+      "qualifyingGap": 0.251,
+      "raceGap": 0.872,
+      "realGrid": 3,
+      "runs": [[217], [136], [65, 609]],
+      "stints": [
+        {
+          "compound": 0,
+          "from": 0
+        },
+        {
+          "compound": 2,
+          "from": 0.446
+        }
+      ]
+    },
+    {
+      "number": 12,
+      "code": "ANT",
+      "name": "K ANTONELLI",
+      "team": "Mercedes",
+      "teamIndex": 3,
+      "seat": 0,
+      "colour": "#00D7B6",
+      "qualifyingGap": 0.043,
+      "raceGap": 0.025,
+      "realGrid": 1,
+      "runs": [[192], [203, 675], [54, 591]],
+      "stints": [
+        {
+          "compound": 1,
+          "from": 0
+        },
+        {
+          "compound": 2,
+          "from": 0.429
+        }
+      ]
+    },
+    {
+      "number": 63,
+      "code": "RUS",
+      "name": "G RUSSELL",
+      "team": "Mercedes",
+      "teamIndex": 3,
+      "seat": 1,
+      "colour": "#00D7B6",
+      "qualifyingGap": 0.291,
+      "raceGap": 0.808,
+      "realGrid": 6,
+      "runs": [[189], [199, 673], [51, 589]],
+      "stints": [
+        {
+          "compound": 1,
+          "from": 0
+        },
+        {
+          "compound": 2,
+          "from": 0.393
+        }
+      ]
+    },
+    {
+      "number": 14,
+      "code": "ALO",
+      "name": "F ALONSO",
+      "team": "Aston Martin",
+      "teamIndex": 4,
+      "seat": 0,
+      "colour": "#229971",
+      "qualifyingGap": 1.505,
+      "raceGap": 2.289,
+      "realGrid": 15,
+      "runs": [[45, 411, 915], [164, 714], []],
+      "stints": [
+        {
+          "compound": 0,
+          "from": 0
+        },
+        {
+          "compound": 1,
+          "from": 0.5
+        },
+        {
+          "compound": 0,
+          "from": 0.75
+        }
+      ]
+    },
+    {
+      "number": 18,
+      "code": "STR",
+      "name": "L STROLL",
+      "team": "Aston Martin",
+      "teamIndex": 4,
+      "seat": 1,
+      "colour": "#229971",
+      "qualifyingGap": 1.753,
+      "raceGap": 2.123,
+      "realGrid": 18,
+      "runs": [[18, 376, 858], [], []],
+      "stints": [
+        {
+          "compound": 0,
+          "from": 0
+        },
+        {
+          "compound": 0,
+          "from": 0.732
+        }
+      ]
+    },
+    {
+      "number": 10,
+      "code": "GAS",
+      "name": "P GASLY",
+      "team": "Alpine",
+      "teamIndex": 5,
+      "seat": 0,
+      "colour": "#00A1E8",
+      "qualifyingGap": 0.969,
+      "raceGap": 1.38,
+      "realGrid": 11,
+      "runs": [[279, 869], [126, 722], []],
+      "stints": [
+        {
+          "compound": 0,
+          "from": 0
+        },
+        {
+          "compound": 2,
+          "from": 0.429
+        }
+      ]
+    },
+    {
+      "number": 43,
+      "code": "COL",
+      "name": "F COLAPINTO",
+      "team": "Alpine",
+      "teamIndex": 5,
+      "seat": 1,
+      "colour": "#00A1E8",
+      "qualifyingGap": 1.272,
+      "raceGap": 3.317,
+      "realGrid": 14,
+      "runs": [[271, 863], [116, 690], []],
+      "stints": [
+        {
+          "compound": 2,
+          "from": 0
+        },
+        {
+          "compound": 0,
+          "from": 0.536
+        }
+      ]
+    },
+    {
+      "number": 31,
+      "code": "OCO",
+      "name": "E OCON",
+      "team": "Haas F1 Team",
+      "teamIndex": 6,
+      "seat": 0,
+      "colour": "#9C9FA2",
+      "qualifyingGap": 1.597,
+      "raceGap": 2.363,
+      "realGrid": 17,
+      "runs": [[52, 461, 904], [], []],
+      "stints": [
+        {
+          "compound": 0,
+          "from": 0
+        },
+        {
+          "compound": 2,
+          "from": 0.375
+        }
+      ]
+    },
+    {
+      "number": 87,
+      "code": "BEA",
+      "name": "O BEARMAN",
+      "team": "Haas F1 Team",
+      "teamIndex": 6,
+      "seat": 1,
+      "colour": "#9C9FA2",
+      "qualifyingGap": 1.584,
+      "raceGap": 3.289,
+      "realGrid": 16,
+      "runs": [[13, 902], [168, 698], []],
+      "stints": [
+        {
+          "compound": 0,
+          "from": 0
+        },
+        {
+          "compound": 2,
+          "from": 0.232
+        },
+        {
+          "compound": 1,
+          "from": 0.393
+        }
+      ]
+    },
+    {
+      "number": 30,
+      "code": "LAW",
+      "name": "L LAWSON",
+      "team": "Racing Bulls",
+      "teamIndex": 7,
+      "seat": 0,
+      "colour": "#6C98FF",
+      "qualifyingGap": 0.794,
+      "raceGap": 1.269,
+      "realGrid": 10,
+      "runs": [[287], [153, 738], []],
+      "stints": [
+        {
+          "compound": 0,
+          "from": 0
+        },
+        {
+          "compound": 2,
+          "from": 0.446
+        }
+      ]
+    },
+    {
+      "number": 41,
+      "code": "LIN",
+      "name": "A LINDBLAD",
+      "team": "Racing Bulls",
+      "teamIndex": 7,
+      "seat": 1,
+      "colour": "#6C98FF",
+      "qualifyingGap": 0.786,
+      "raceGap": 1.569,
+      "realGrid": 9,
+      "runs": [[293, 894], [143, 730], [83]],
+      "stints": [
+        {
+          "compound": 0,
+          "from": 0
+        },
+        {
+          "compound": 1,
+          "from": 0.321
+        },
+        {
+          "compound": 0,
+          "from": 0.714
+        }
+      ]
+    },
+    {
+      "number": 23,
+      "code": "ALB",
+      "name": "A ALBON",
+      "team": "Williams",
+      "teamIndex": 8,
+      "seat": 0,
+      "colour": "#1868DB",
+      "qualifyingGap": 2.061,
+      "raceGap": 2.918,
+      "realGrid": 20,
+      "runs": [[26, 385, 822], [], []],
+      "stints": [
+        {
+          "compound": 0,
+          "from": 0
+        },
+        {
+          "compound": 0,
+          "from": 0.286
+        },
+        {
+          "compound": 2,
+          "from": 0.554
+        }
+      ]
+    },
+    {
+      "number": 55,
+      "code": "SAI",
+      "name": "C SAINZ",
+      "team": "Williams",
+      "teamIndex": 8,
+      "seat": 1,
+      "colour": "#1868DB",
+      "qualifyingGap": 1.851,
+      "raceGap": 2.234,
+      "realGrid": 19,
+      "runs": [[30, 396, 853], [], []],
+      "stints": [
+        {
+          "compound": 0,
+          "from": 0
+        },
+        {
+          "compound": 2,
+          "from": 0.304
+        },
+        {
+          "compound": 0,
+          "from": 0.679
+        }
+      ]
+    },
+    {
+      "number": 5,
+      "code": "BOR",
+      "name": "G BORTOLETO",
+      "team": "Audi",
+      "teamIndex": 9,
+      "seat": 0,
+      "colour": "#F50537",
+      "qualifyingGap": 1.114,
+      "raceGap": 2.196,
+      "realGrid": 13,
+      "runs": [[306, 900], [84, 584], []],
+      "stints": [
+        {
+          "compound": 0,
+          "from": 0
+        },
+        {
+          "compound": 2,
+          "from": 0.464
+        },
+        {
+          "compound": 0,
+          "from": 0.893
+        }
+      ]
+    },
+    {
+      "number": 27,
+      "code": "HUL",
+      "name": "N HULKENBERG",
+      "team": "Audi",
+      "teamIndex": 9,
+      "seat": 1,
+      "colour": "#F50537",
+      "qualifyingGap": 0.869,
+      "raceGap": 2.041,
+      "realGrid": 12,
+      "runs": [[261, 881], [105, 591], []],
+      "stints": [
+        {
+          "compound": 0,
+          "from": 0
+        },
+        {
+          "compound": 2,
+          "from": 0.518
+        }
+      ]
+    },
+    {
+      "number": 11,
+      "code": "PER",
+      "name": "S PEREZ",
+      "team": "Cadillac",
+      "teamIndex": 10,
+      "seat": 0,
+      "colour": "#909090",
+      "qualifyingGap": 2.556,
+      "raceGap": 3.7,
+      "realGrid": 21,
+      "runs": [[1, 417, 911], [], []],
+      "stints": [
+        {
+          "compound": 0,
+          "from": 0
+        },
+        {
+          "compound": 2,
+          "from": 0.411
+        }
+      ]
+    },
+    {
+      "number": 77,
+      "code": "BOT",
+      "name": "V BOTTAS",
+      "team": "Cadillac",
+      "teamIndex": 10,
+      "seat": 1,
+      "colour": "#909090",
+      "qualifyingGap": 2.652,
+      "raceGap": 3.852,
+      "realGrid": 22,
+      "runs": [[1, 350, 917], [], []],
+      "stints": [
+        {
+          "compound": 2,
+          "from": 0
+        },
+        {
+          "compound": 0,
+          "from": 0.518
+        }
+      ]
+    }
+  ]
+}

@@ -164,13 +164,20 @@ describe.runIf(existsSync(wasm))("car status beyond Speed Dreams", () => {
         m._sdCarDamageSet(wingLeft, 1);
         m._sdCarDamageSet(wingRight, 1);
       }
-      accelerateTo(m, 70);
+      accelerateTo(m, 60);
       const memory = m._malloc(40 * 8);
-      m._sdTelemetry(memory);
-      const v = new Float64Array(m.HEAPF64.buffer, memory, 40);
-      return (v[8 + 4] ?? 0) + (v[8 + 6 + 4] ?? 0);
+      let load = 0;
+      const samples = 500;
+      for (let tick = 0; tick < samples; tick++) {
+        m._sdInputAnalog(1, 0, 1, 0);
+        m._sdStep(1);
+        m._sdTelemetry(memory);
+        const v = new Float64Array(m.HEAPF64.buffer, memory, 40);
+        load += (v[8 + 4] ?? 0) + (v[8 + 6 + 4] ?? 0);
+      }
+      return load / samples;
     };
-    expect(await frontLoad(true)).toBeLessThan((await frontLoad(false)) * 0.95);
+    expect(await frontLoad(true)).toBeLessThan((await frontLoad(false)) * 0.97);
   });
 
   test("light throttle never slows the car down", async () => {

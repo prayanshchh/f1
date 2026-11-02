@@ -61,6 +61,7 @@ interface TowerRow {
   name: HTMLElement;
   tyre: HTMLElement;
   gap: HTMLElement;
+  pen: HTMLElement;
   shown: string;
 }
 
@@ -87,10 +88,13 @@ export class Tower {
     tyre.className = "row-tyre";
     const gap = document.createElement("b");
     gap.className = "row-gap";
-    root.append(pos, name, tyre, gap);
+    const pen = document.createElement("em");
+    pen.className = "row-pen";
+    pen.hidden = true;
+    root.append(pos, name, tyre, gap, pen);
     root.hidden = true;
     this.list.append(root);
-    return { root, pos, name, tyre, gap, shown: "" };
+    return { root, pos, name, tyre, gap, pen, shown: "" };
   }
 
   toggleFull(): boolean {
@@ -106,7 +110,7 @@ export class Tower {
     return ranked.slice(from, from + aroundRows);
   }
 
-  update(timing: CarTiming[]): void {
+  update(timing: CarTiming[], penalties: string[]): void {
     const ranked = [...timing].sort((a, b) => a.position - b.position);
     const player = timing[0];
     const leaderBest = ranked[0]?.segmentBest ?? 0;
@@ -125,7 +129,8 @@ export class Tower {
         ? qualifyingGapText(data, leaderBest)
         : raceGapText(data, player, isPlayer);
       const compound = compounds[data.compound] ?? compounds[1];
-      const key = `${String(data.position)}|${entrant.code}|${gap}|${compound.letter}`;
+      const pen = penalties[data.index] ?? "";
+      const key = `${String(data.position)}|${entrant.code}|${gap}|${compound.letter}|${pen}`;
       if (key === row.shown) return;
       row.shown = key;
       row.pos.textContent = String(data.position);
@@ -136,6 +141,8 @@ export class Tower {
       row.tyre.textContent = compound.letter;
       row.tyre.style.setProperty("--tyre", compound.colour);
       row.gap.textContent = gap;
+      row.pen.textContent = pen;
+      row.pen.hidden = pen === "";
     });
   }
 }

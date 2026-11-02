@@ -9,6 +9,7 @@ import type { PitStop } from "./pitstop.ts";
 import type { Scene } from "./scene.ts";
 import type { Settings } from "./settings.ts";
 import type { GameSound } from "./sound/game-sound.ts";
+import { penaltyBadge } from "./stewards.ts";
 import { CarLabels } from "./tower.ts";
 import {
   saveWeekend,
@@ -94,10 +95,16 @@ export class WeekendFlow {
     this.timingClock = now;
     this.timing = engine.timing();
     const info = engine.session();
-    hud.updateField(cars, this.timing, info, now);
+    hud.updateField(cars, this.timing, info, now, this.penalties());
     if (this.garage.open) this.garage.update(this.timing, info);
     if (this.ctx.stage === "qualifying") this.updateQualifying();
     else if (!this.finished && this.playerDone()) this.raceFinished();
+  }
+
+  private penalties(): string[] {
+    return this.timing.map((row) =>
+      penaltyBadge(this.ctx.engine.stewardCar(row.index)),
+    );
   }
 
   private playerDone(): boolean {
@@ -171,6 +178,7 @@ export class WeekendFlow {
       this.timing,
       "qualifying",
       info.segment,
+      this.penalties(),
       [
         {
           label: next ? `Advance To ${next}` : "Advance To Grid",
@@ -209,9 +217,7 @@ export class WeekendFlow {
   private finishQualifying(): void {
     const { field, trackLabel, settings, restart } = this.ctx;
     const codeOf = (index: number) => field.entrants[index]?.code ?? "";
-    const codes = [...this.timing]
-      .sort((a, b) => a.position - b.position)
-      .map((row) => codeOf(row.index));
+    const codes = this.ctx.engine.grid().map(codeOf);
     const times = new Map(
       this.timing.map((row) => [codeOf(row.index), row.best]),
     );
@@ -242,6 +248,7 @@ export class WeekendFlow {
       this.timing,
       "race",
       0,
+      this.penalties(),
       [
         {
           label: "Restart Race",
@@ -259,7 +266,7 @@ export class WeekendFlow {
     );
     window.setInterval(() => {
       this.timing = engine.timing();
-      updateClassificationRows(field.entrants, this.timing);
+      updateClassificationRows(field.entrants, this.timing, this.penalties());
     }, resultsRefresh);
   }
 }

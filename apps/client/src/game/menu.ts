@@ -116,6 +116,8 @@ const tabIntro: Record<string, string> = {
     "Choose the tyre you start on, how fast tyres wear, how much fuel you carry and how the battery deploys. These follow the 2026 regulations and the F1 25 2026 Season Pack.",
   assists:
     "Contains driver assist settings that allow you to make controlling the car easier or more authentic.",
+  rules:
+    "Choose how the International Motor Racing Federation runs the race: safety cars, red flags, the formation lap and the type of start.",
   osd: "Contains settings that allow you to customise the way the on-screen display is shown.",
   Aerodynamics:
     "Adjust the front and rear wings in order to achieve the desired level of aerodynamic performance and balance.",
@@ -387,6 +389,22 @@ export class Menu {
             steerSensitivity: defaults.steerSensitivity,
             steerSpeedSensitivity: defaults.steerSpeedSensitivity,
             steerDeadZone: defaults.steerDeadZone,
+          });
+        },
+      },
+      {
+        id: "rules",
+        label: "Rules & Flags",
+        title: "Rules & Flags",
+        info: tabIntro["rules"] ?? "",
+        setup: false,
+        rows: () => this.rulesRows(),
+        reset: () => {
+          Object.assign(this.settings, {
+            safetyCar: defaults.safetyCar,
+            redFlags: defaults.redFlags,
+            formationLap: defaults.formationLap,
+            startType: defaults.startType,
           });
         },
       },
@@ -706,6 +724,46 @@ export class Menu {
       },
       rerender,
     );
+  }
+
+  private rulesRows(): Row[] {
+    const s = this.settings;
+    return [
+      this.choice(
+        "Safety Car",
+        "How readily Race Control neutralises the race. A car stopped beside the track brings out the Virtual Safety Car; a car stopped on the racing surface brings out the Safety Car. Reduced waits longer before stepping in, Increased steps in sooner, Off never deploys either.",
+        choices.safetyCar,
+        () => s.safetyCar,
+        (id) => {
+          s.safetyCar = id as Settings["safetyCar"];
+        },
+      ),
+      this.toggle(
+        "Red Flags",
+        "When several cars are stranded on track, or the track stays blocked for a minute, the race is suspended. Cars line up on the grid in race order, may change tyres and repair damage, and restart from a standing start.",
+        () => s.redFlags,
+        (v) => {
+          s.redFlags = v;
+        },
+      ),
+      this.toggle(
+        "Formation Lap",
+        "Drive a slow lap behind the field to warm your tyres and brakes before the start. No overtaking: anyone still ahead of a car they passed when the grid forms up starts from the back.",
+        () => s.formationLap,
+        (v) => {
+          s.formationLap = v;
+        },
+      ),
+      this.choice(
+        "Race Start",
+        "Standing starts from the grid when the five red lights go out. Rolling starts behind the safety car: it peels into the pit lane after one lap and racing begins at the control line.",
+        choices.startType,
+        () => s.startType,
+        (id) => {
+          s.startType = id as Settings["startType"];
+        },
+      ),
+    ];
   }
 
   private sessionRows(): Row[] {

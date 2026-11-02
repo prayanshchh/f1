@@ -8,6 +8,7 @@
 #include <playerpref.h>
 
 #include "game.h"
+#include "race-control.h"
 
 static const double axisScale = 20000.0;
 static const double frontSlipLimit = 8.0 * PI / 180.0;
@@ -46,6 +47,10 @@ static const double trailBrakeSteer = 0.1;
 static const double limiterGain = 0.5;
 static const double limiterMargin = 0.3;
 static const double limiterBrake = 0.15;
+static const double launchWindow = 20.0;
+static const double launchSpeed = 3.0;
+static const double launchBrake = 0.05;
+static const double launchThrottle = 0.02;
 
 static bool assist = true;
 static bool antiLock = false;
@@ -56,6 +61,7 @@ static bool left, right, up, down;
 static double steer, throttle, brake, traction = 1.0, braking = 1.0;
 static double speedLimit;
 static bool pitHold;
+static bool launching = true;
 
 static double approach(double value, double target, double rate, double dt)
 {
@@ -212,6 +218,30 @@ static void applySpeedLimit(tCarElt *car)
         brake = std::max(brake, std::min(1.0, -room * limiterBrake));
 }
 
+void sdInputLaunch(tCarElt *car, tSituation *s)
+{
+    if (!assist || sdRaceControlFormation())
+        return;
+    double since = sdRaceControlSinceSignal(s);
+    if (since > launchWindow || (since > 0 && fabs(car->_speed_x) > launchSpeed))
+        launching = false;
+    if (!launching)
+        return;
+    double wanted = analog ? analogThrottle : throttle;
+    double held = analog ? analogBrake : brake;
+    if (held < launchBrake && wanted >= launchThrottle)
+        return;
+    car->_clutchCmd = 1.0f;
+    car->_accelCmd = (tdble)wanted;
+    car->_brakeCmd = (tdble)std::max(held, launchBrake);
+    car->_gearCmd = 1;
+}
+
+void sdInputRelaunch()
+{
+    launching = true;
+}
+
 void sdInputApplyHold(tCarElt *car)
 {
     if (!pitHold)
@@ -253,6 +283,7 @@ void sdInputConfigure()
     steer = throttle = brake = 0;
     traction = 1.0;
     braking = 1.0;
+    launching = true;
 }
 
 void sdInputState(double *out)

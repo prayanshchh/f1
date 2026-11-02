@@ -60,6 +60,7 @@ export interface LapRow {
   timeMs: number;
   sectorsMs: (number | null)[];
   compound: string | null;
+  valid: boolean;
 }
 
 export interface SessionDetail extends SessionSummary {

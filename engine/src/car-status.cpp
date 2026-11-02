@@ -480,6 +480,16 @@ void sdCarStatusReset(tCarElt *elt)
     state.stopped = false;
 }
 
+void sdCarStatusTeleported(int index)
+{
+    if (index < 0 || index >= (int)field.size())
+        return;
+    CarStatus &state = field[index];
+    state.previousVelX = SimCarTable[index].DynGCg.vel.x;
+    state.previousVelY = SimCarTable[index].DynGCg.vel.y;
+    state.contactTotal = 0.0;
+}
+
 void sdCarStatusRepair(int index)
 {
     CarStatus &state = field[index];

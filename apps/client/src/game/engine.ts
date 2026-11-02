@@ -8,6 +8,14 @@ import type { TyreInfo } from "./tyres.ts";
 import type { SetupSource } from "./settings.ts";
 import type { CarAudio } from "./sound/sound-state.ts";
 import type { TrackLocal } from "./sky.ts";
+import {
+  carFields,
+  messageFields,
+  parseCar,
+  parseMessages,
+  type StewardCar,
+  type StewardMessage,
+} from "./stewards.ts";
 
 export const frameIndex = {
   time: 0,
@@ -63,6 +71,30 @@ export interface RaceSystems {
   ersAssist: boolean;
   straightAssist: boolean;
   countdown: number;
+  lightInterval: number;
+  rules: RaceRules;
+}
+
+interface RaceRules {
+  safetyCar: number;
+  redFlags: boolean;
+  formationLap: boolean;
+  rollingStart: boolean;
+}
+
+export interface RaceControlInfo {
+  state: number;
+  safetyCarShown: boolean;
+  signalTime: number;
+  countdown: number;
+  delta: number;
+  redSectors: number;
+  suspendedLeft: number;
+  lineups: number;
+  safetyCarLights: boolean;
+  vscEndingLeft: number;
+  restarts: number;
+  caught: boolean;
 }
 
 export interface SessionPlan {
@@ -119,6 +151,7 @@ export interface CarTiming {
   segmentBest: number;
   finished: boolean;
   retired: boolean;
+  disqualified: boolean;
   finishTime: number;
   eliminated: boolean;
   contacts: number;
@@ -142,6 +175,9 @@ export const carField = {
 } as const;
 const timingStride = 20;
 const sessionFields = 10;
+const messageBatch = 32;
+const raceControlFields = 16;
+const marshalSectors = 24;
 
 export async function loadSpeedDreams(): Promise<SpeedDreamsModule> {
   return createSpeedDreams({
@@ -218,6 +254,16 @@ function configureField(module: SpeedDreamsModule, plan: SessionPlan): void {
   module._sdSessionReference(plan.reference);
 }
 
+function configureRules(module: SpeedDreamsModule, race: RaceSystems): void {
+  module._sdStewardsLights(race.lightInterval);
+  module._sdRaceControlConfigure(
+    race.rules.safetyCar,
+    race.rules.redFlags ? 1 : 0,
+    race.rules.formationLap ? 1 : 0,
+    race.rules.rollingStart ? 1 : 0,
+  );
+}
+
 export class Engine {
   private carsMemory = 0;
   private timingMemory = 0;
@@ -242,6 +288,7 @@ export class Engine {
   ): Engine {
     if (session) configureField(module, session);
     module._sdRaceCountdown(race.countdown);
+    configureRules(module, race);
     module._sdInputAssist(assist ? 1 : 0);
     module._sdInputAntiLock(antiLock ? 1 : 0);
     module._sdTyresConfigure(race.compound, race.wearScale);
@@ -347,7 +394,8 @@ export class Engine {
         pits: at(10),
         segmentBest: at(11),
         finished: at(12) === 1,
-        retired: at(12) === 2,
+        retired: at(12) === 2 || at(12) === 3,
+        disqualified: at(12) === 3,
         finishTime: at(13),
         eliminated: at(14) !== 0,
         contacts: at(15),
@@ -357,6 +405,86 @@ export class Engine {
         segments: [q[0] ?? 0, q[1] ?? 0, q[2] ?? 0],
       };
     });
+  }
+
+  stewardMessages(after: number): StewardMessage[] {
+    const pointer = this.module._malloc(messageBatch * messageFields * 8);
+    const found: StewardMessage[] = [];
+    let last = after;
+    for (;;) {
+      const count = this.module._sdStewardsMessages(
+        pointer,
+        messageBatch,
+        last,
+      );
+      const batch = parseMessages(
+        new Float64Array(
+          this.module.HEAPF64.buffer,
+          pointer,
+          count * messageFields,
+        ).slice(),
+      );
+      found.push(...batch);
+      last = batch.at(-1)?.id ?? last;
+      if (count < messageBatch) break;
+    }
+    this.module._free(pointer);
+    return found;
+  }
+
+  raceControl(): RaceControlInfo {
+    const v = this.doubles(raceControlFields, (p) => {
+      this.module._sdRaceControlInfo(p);
+    });
+    const at = (i: number) => v[i] ?? 0;
+    return {
+      state: at(0),
+      safetyCarShown: at(1) !== 0,
+      signalTime: at(4),
+      countdown: at(5),
+      delta: at(6),
+      redSectors: at(7),
+      suspendedLeft: at(9),
+      lineups: at(10),
+      safetyCarLights: at(11) !== 0,
+      vscEndingLeft: at(12),
+      restarts: at(14),
+      caught: at(15) !== 0,
+    };
+  }
+
+  safetyCarPose(): number[] | null {
+    const pointer = this.module._malloc(16 * 8);
+    const shown = this.module._sdSafetyCarPose(pointer) !== 0;
+    const pose = Array.from(
+      new Float64Array(this.module.HEAPF64.buffer, pointer, 16),
+    );
+    this.module._free(pointer);
+    return shown ? pose : null;
+  }
+
+  stewardCar(index: number): StewardCar {
+    return parseCar(
+      this.doubles(carFields, (p) => {
+        this.module._sdStewardsCar(index, p);
+      }),
+    );
+  }
+
+  stewardFlags(): number[] {
+    return this.doubles(marshalSectors, (p) => {
+      this.module._sdStewardsFlags(p, marshalSectors);
+    });
+  }
+
+  grid(): number[] {
+    const pointer = this.module._malloc(this.carCount * 4);
+    const count = this.module._sdSessionGrid(pointer);
+    const order = Array.from(
+      new Int32Array(this.module.HEAPF64.buffer, pointer, count),
+    );
+    this.module._free(pointer);
+    return order;
   }
 
   pitLaneClear(): boolean {

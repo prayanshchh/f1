@@ -85,6 +85,16 @@ export const choices = {
     { id: "auto", label: "Automatic" },
     { id: "sequential", label: "Sequential (E up · Q down)" },
   ],
+  safetyCar: [
+    { id: "off", label: "Off" },
+    { id: "reduced", label: "Reduced" },
+    { id: "standard", label: "Standard" },
+    { id: "increased", label: "Increased" },
+  ],
+  startType: [
+    { id: "standing", label: "Standing" },
+    { id: "rolling", label: "Rolling (Safety Car)" },
+  ],
 } as const;
 
 type ChoiceId<K extends keyof typeof choices> =
@@ -116,6 +126,10 @@ export interface Settings {
   assist: boolean;
   antiLock: boolean;
   pitExperience: ChoiceId<"pitExperience">;
+  safetyCar: ChoiceId<"safetyCar">;
+  redFlags: boolean;
+  formationLap: boolean;
+  startType: ChoiceId<"startType">;
   abs: boolean;
   tc: boolean;
   steerSensitivity: number;
@@ -167,6 +181,10 @@ export const defaults: Settings = {
   assist: true,
   antiLock: false,
   pitExperience: "immersive",
+  safetyCar: "standard",
+  redFlags: true,
+  formationLap: true,
+  startType: "standing",
   abs: true,
   tc: true,
   steerSensitivity: 0.6,
@@ -215,6 +233,10 @@ export function loadSettings(params: URLSearchParams): Settings {
       options.find((laps) => laps >= settings.laps) ?? defaults.laps;
   if (!choices.tyreWear.some((c) => c.id === settings.tyreWear))
     settings.tyreWear = defaults.tyreWear;
+  if (!choices.safetyCar.some((c) => c.id === settings.safetyCar))
+    settings.safetyCar = defaults.safetyCar;
+  if (!choices.startType.some((c) => c.id === settings.startType))
+    settings.startType = defaults.startType;
   return settings;
 }
 

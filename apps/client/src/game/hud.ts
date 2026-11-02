@@ -14,6 +14,7 @@ import {
   type CarTiming,
   frameIndex,
   type HudInfo,
+  type RaceControlInfo,
   sessionPhase,
   type SessionInfo,
 } from "./engine.ts";
@@ -25,6 +26,20 @@ import { closedPolyline, type Polyline, pointAlong } from "./polyline.ts";
 import { putAttr, putData, putHidden, putStyle, putText } from "./hud-dom.ts";
 import type { HudPart } from "./settings.ts";
 import { type StartLights, startLightCount } from "./start-lights.ts";
+import {
+  federation,
+  type Notice,
+  noticeFor,
+  penalty,
+  penaltyBadge,
+  pitInstruction,
+  raceControlState,
+  stage,
+  type StewardCar,
+  type StewardMessage,
+  turnAt,
+  type Turn,
+} from "./stewards.ts";
 import { compounds, type TyreInfo, wearState } from "./tyres.ts";
 
 export function lapTime(seconds: number | null): string {
@@ -99,6 +114,9 @@ function ersLabel(energy: EnergyInfo, boosting: boolean): string {
 }
 
 const revLeds = 15;
+const marshalSectors = 24;
+const noticeQueue = 4;
+const blackWhiteShown = 8;
 const sectorColors = ["map-s1", "map-s2", "map-s3"];
 
 export interface TrackMap {
@@ -116,6 +134,147 @@ export interface HudOptions {
   qualifying: boolean;
   start: StartLights;
   onLap: (lap: LapResult) => void;
+  stewards: StewardView;
+}
+
+interface StewardView {
+  turns: Turn[];
+  name: (car: number) => string;
+  racing: boolean;
+}
+
+interface FlagShown {
+  flag: string;
+  title: string;
+  detail: string;
+}
+
+function yellowFlag(
+  flags: number[],
+  sector: number,
+  where: string,
+): FlagShown | null {
+  const here = flags[sector] ?? 0;
+  const ahead = flags[(sector + 1) % marshalSectors] ?? 0;
+  if (here === 2)
+    return {
+      flag: "double",
+      title: "Double yellow",
+      detail: "Slow down - be ready to stop",
+    };
+  if (here === 1)
+    return {
+      flag: "yellow",
+      title: "Yellow flag",
+      detail: "Slow down - no overtaking",
+    };
+  if (ahead === 0) return null;
+  return {
+    flag: ahead === 2 ? "double" : "yellow",
+    title: ahead === 2 ? "Double yellow ahead" : "Yellow flag ahead",
+    detail: where || "Next marshal post",
+  };
+}
+
+function flagFor(
+  car: StewardCar,
+  flags: number[],
+  sector: number,
+  blackWhite: boolean,
+  where: string,
+): FlagShown | null {
+  if (car.disqualified)
+    return {
+      flag: "black",
+      title: "Black flag",
+      detail: "Disqualified - return to the pits",
+    };
+  if (car.blue)
+    return {
+      flag: "blue",
+      title: "Blue flag",
+      detail: "Let the faster car through",
+    };
+  const yellow = yellowFlag(flags, sector, where);
+  if (yellow) return yellow;
+  if (blackWhite)
+    return {
+      flag: "black-white",
+      title: "Black and white flag",
+      detail: "Final warning",
+    };
+  const instruction = pitInstruction(car);
+  return instruction
+    ? { flag: "penalty", title: "Penalty", detail: instruction }
+    : null;
+}
+
+interface RaceStatus {
+  state: string;
+  label: string;
+  detail: string;
+}
+
+const raceStatuses: Record<number, RaceStatus> = {
+  [raceControlState.formation]: {
+    state: "formation",
+    label: "Formation lap",
+    detail: "No overtaking",
+  },
+  [raceControlState.vsc]: {
+    state: "yellow",
+    label: "Virtual safety car",
+    detail: "Keep delta positive",
+  },
+  [raceControlState.vscEnding]: {
+    state: "yellow",
+    label: "VSC ending",
+    detail: "Green flag soon",
+  },
+  [raceControlState.safetyCar]: {
+    state: "yellow",
+    label: "Safety car",
+    detail: "No overtaking",
+  },
+  [raceControlState.safetyCarIn]: {
+    state: "yellow",
+    label: "Safety car",
+    detail: "In this lap",
+  },
+  [raceControlState.restart]: {
+    state: "green",
+    label: "Restart",
+    detail: "Overtake after the line",
+  },
+  [raceControlState.red]: {
+    state: "red",
+    label: "Red flag",
+    detail: "Slow down",
+  },
+  [raceControlState.suspended]: {
+    state: "red",
+    label: "Red flag",
+    detail: "Race suspended",
+  },
+};
+
+function raceStatus(rc: RaceControlInfo): RaceStatus | null {
+  return raceStatuses[rc.state] ?? null;
+}
+
+function neutralDelta(
+  rc: RaceControlInfo,
+): { label: string; value: number } | null {
+  const vsc =
+    rc.state === raceControlState.vsc ||
+    rc.state === raceControlState.vscEnding ||
+    rc.state === raceControlState.red;
+  const chasing =
+    (rc.state === raceControlState.safetyCar ||
+      rc.state === raceControlState.safetyCarIn) &&
+    !rc.caught;
+  if (vsc) return { label: "VSC Delta", value: rc.delta };
+  return chasing ? { label: "SC Delta", value: rc.delta } : null;
 }
 
 interface Toast {
@@ -123,6 +282,12 @@ interface Toast {
   title: string;
   detail: string;
   until: number;
+}
+
+function turnInGrade(control: PitControl): PitControl["grade"] {
+  return control.phase === "boxing" || control.phase === "service"
+    ? control.grade
+    : null;
 }
 
 export class Hud {
@@ -159,8 +324,19 @@ export class Hud {
   private readonly tower: Tower | null;
   private mapScreen: [number, number][] = [];
   private readonly mapDots: SVGCircleElement[] = [];
-  private invalidShown = false;
   private flagShown = false;
+  private readonly notices: Notice[] = [];
+  private noticeUntil = 0;
+  private noticeShown = "";
+  private blackWhiteUntil = 0;
+  private flagKey = "";
+  private mapFlags: SVGPathElement[] = [];
+  private lastDistance = 0;
+  private start: StartLights;
+  private signalAt = 0;
+  private raceState: number = raceControlState.green;
+  private neutralDelta: { label: string; value: number } | null = null;
+  private lineupsSeen = 0;
 
   constructor(
     private readonly root: HTMLElement,
@@ -197,7 +373,9 @@ export class Hud {
       sectors.append(cell);
       this.sectorCells.push(cell);
     }
+    this.start = options.start;
     this.mfd = new Mfd(this.find("mfd"), this.find);
+    putText(this.find("steward-logo"), federation.short);
     putText(this.find("session"), options.session);
     putText(
       this.find("lap-total"),
@@ -235,8 +413,9 @@ export class Hud {
     timing: CarTiming[],
     info: SessionInfo,
     now: number,
+    penalties: string[],
   ): void {
-    this.tower?.update(timing);
+    this.tower?.update(timing, penalties);
     const total = timing.length;
     const mine = timing[0];
     this.find("position").textContent = mine
@@ -274,14 +453,6 @@ export class Hud {
   }
 
   private updateSessionToasts(info: SessionInfo, now: number): void {
-    if (info.invalidLap && !this.invalidShown)
-      this.toast = {
-        kind: "warn",
-        title: "Lap deleted",
-        detail: "All four wheels left the track",
-        until: now + 4,
-      };
-    this.invalidShown = info.invalidLap;
     if (info.phase !== sessionPhase.running && !this.flagShown) {
       this.flagShown = true;
       if (this.options.qualifying)
@@ -307,6 +478,7 @@ export class Hud {
     energy: EnergyInfo,
     status: CarStatus,
     now: number,
+    steward: StewardCar,
   ): void {
     this.lastNow = now;
     const value = (index: number) => frame[index] ?? 0;
@@ -314,12 +486,15 @@ export class Hud {
     const laps = value(frameIndex.laps);
     const distance = value(frameIndex.distFromStart);
     const current = value(frameIndex.curLapTime);
+    this.lastDistance = distance;
     const result = this.trace.sample(
       laps,
       distance,
       current,
       value(frameIndex.lastLapTime),
+      !steward.lastLapInvalid,
     );
+    putData(this.find("main"), "invalid", steward.lapInvalid ? "1" : "");
     if (result) {
       this.laps.push(result);
       this.showLap(result, now);
@@ -335,6 +510,85 @@ export class Hud {
     this.updateMap(distance);
     this.updateWarnings(status, tyres, laps, now);
     this.updateToast(now);
+  }
+
+  updateStewards(
+    messages: StewardMessage[],
+    car: StewardCar,
+    flags: number[],
+    now: number,
+  ): void {
+    const view = this.options.stewards;
+    for (const message of messages) {
+      if (
+        message.car === 0 &&
+        message.stage === stage.warning &&
+        message.penalty === penalty.blackWhite
+      )
+        this.blackWhiteUntil = now + blackWhiteShown;
+      const notice = noticeFor(message, view.name, view.turns, view.racing);
+      if (!notice) continue;
+      if (this.notices.length >= noticeQueue) this.notices.shift();
+      this.notices.push(notice);
+    }
+    this.showNotice(now);
+    const badge = penaltyBadge(car);
+    const tag = this.find("penalty");
+    putHidden(tag, badge === "");
+    putText(tag, badge);
+    this.updateFlagPanel(car, flags, now);
+    this.mapFlags.forEach((path, k) => {
+      putData(path, "flag", String(flags[k] ?? 0));
+    });
+  }
+
+  private showNotice(now: number): void {
+    const element = this.find("steward");
+    if (now < this.noticeUntil) return;
+    const next = this.notices.shift();
+    if (!next) {
+      if (this.noticeShown !== "") element.classList.remove("show");
+      this.noticeShown = "";
+      return;
+    }
+    this.noticeUntil = now + next.seconds;
+    this.noticeShown = `${next.title}|${next.detail}`;
+    putData(element, "kind", next.kind);
+    putText(this.find("steward-title"), next.title);
+    putText(this.find("steward-detail"), next.detail);
+    element.classList.remove("show");
+    void element.getBoundingClientRect();
+    element.classList.add("show");
+  }
+
+  private updateFlagPanel(car: StewardCar, flags: number[], now: number): void {
+    const length = this.mapLength;
+    const sector = Math.min(
+      marshalSectors - 1,
+      Math.max(
+        0,
+        Math.floor(
+          ((((this.lastDistance / length) % 1) + 1) % 1) * marshalSectors,
+        ),
+      ),
+    );
+    const nextMiddle = ((sector + 1.5) * length) / marshalSectors;
+    const shown = flagFor(
+      car,
+      flags,
+      sector,
+      now < this.blackWhiteUntil,
+      turnAt(nextMiddle % length, this.options.stewards.turns),
+    );
+    const panel = this.find("flag");
+    const key = shown ? `${shown.flag}|${shown.title}|${shown.detail}` : "";
+    if (key === this.flagKey) return;
+    this.flagKey = key;
+    putHidden(panel, !shown);
+    if (!shown) return;
+    putData(panel, "flag", shown.flag);
+    putText(this.find("flag-title"), shown.title);
+    putText(this.find("flag-detail"), shown.detail);
   }
 
   setWingChoice(replace: boolean): void {
@@ -372,12 +626,26 @@ export class Hud {
     );
   }
 
-  private updatePitTurn(control: PitControl): void {
-    const grade =
-      control.phase === "boxing" || control.phase === "service"
-        ? control.grade
-        : null;
+  private showPenaltyHold(control: PitControl, left: number): void {
     const turn = this.find("pit-turn");
+    putHidden(turn, false);
+    putData(turn, "grade", "late");
+    putText(this.find("pit-turn-value"), left.toFixed(1));
+    putText(
+      this.find("pit-turn-hint"),
+      control.penalty.kind === "stop-go"
+        ? "Stop-and-go - no work allowed"
+        : "Serving penalty before work starts",
+    );
+  }
+
+  private updatePitTurn(control: PitControl): void {
+    if (control.penaltyLeft !== null) {
+      this.showPenaltyHold(control, control.penaltyLeft);
+      return;
+    }
+    const turn = this.find("pit-turn");
+    const grade = turnInGrade(control);
     putHidden(turn, control.countdown === null && grade === null);
     putData(turn, "grade", grade ?? "");
     putText(
@@ -515,6 +783,21 @@ export class Hud {
       putText(label, String(i + 1));
       marks.append(label);
     });
+    const flagGroup = this.find("map-flags");
+    this.mapFlags = Array.from({ length: marshalSectors }, (_, k) => {
+      const from = Math.floor((k * map.length) / marshalSectors / step);
+      const to = Math.min(
+        screen.length - 1,
+        Math.ceil(((k + 1) * map.length) / marshalSectors / step),
+      );
+      const part = screen.slice(from, to + 1);
+      const path = svg("path", {
+        d: `M${part.map((p) => `${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join("L")}`,
+        class: "map-flag",
+      });
+      flagGroup.append(path);
+      return path;
+    });
     const [lx, ly] = at(((boundaries.at(-1) ?? 0) + map.length) / 2);
     const label = svg("text", { x: lx, y: ly, class: "map-num" });
     putText(label, String(boundaries.length + 1));
@@ -626,8 +909,16 @@ export class Hud {
   }
 
   private updateDelta(laps: number, distance: number, current: number): void {
-    const delta = this.trace.delta(distance, current);
     const widget = this.find("delta");
+    const neutral = this.neutralDelta;
+    putData(widget, "mode", neutral ? "neutral" : "");
+    putText(this.find("delta-label"), neutral?.label ?? "Delta");
+    if (neutral) {
+      putData(widget, "state", neutral.value >= 0 ? "ahead" : "behind");
+      putText(this.find("delta-value"), signed(neutral.value));
+      return;
+    }
+    const delta = this.trace.delta(distance, current);
     if (delta === null) {
       putData(widget, "state", "idle");
       putText(this.find("delta-value"), laps > 0 ? "--.---" : "");
@@ -738,16 +1029,49 @@ export class Hud {
     );
   }
 
-  private updateLights(time: number): void {
+  restartLights(lights: StartLights, signalAt: number): void {
+    this.start = lights;
+    this.signalAt = signalAt;
+    this.countdown = false;
+  }
+
+  private updateLights(raceTime: number): void {
     if (this.options.qualifying) return;
     const gantry = this.find("lights");
-    const lit = this.options.start.lit(time);
+    const time = raceTime - this.signalAt;
+    const formation = this.raceState === raceControlState.formation;
+    const lit = formation ? 0 : this.start.lit(time);
     this.lights.forEach((light, i) => {
       light.classList.toggle("on", i < lit);
     });
-    if (time < 0) this.countdown = true;
+    if (time < 0 && !formation) this.countdown = true;
     gantry.classList.toggle("show", this.countdown && time < 1);
     gantry.classList.toggle("out", time >= 0);
+  }
+
+  updateRaceControl(rc: RaceControlInfo): void {
+    this.raceState = rc.state;
+    const status = raceStatus(rc);
+    const strip = this.find("rc-status");
+    putHidden(strip, !status);
+    if (status) {
+      putData(strip, "state", status.state);
+      putText(this.find("rc-label"), status.label);
+      putText(this.find("rc-detail"), status.detail);
+    }
+    const screen = this.find("rc-screen");
+    const suspended = rc.state === raceControlState.suspended;
+    putHidden(screen, !suspended);
+    if (suspended)
+      putText(
+        this.find("rc-screen-detail"),
+        `Race suspended - restart in ${String(Math.ceil(rc.suspendedLeft + rc.countdown))}s`,
+      );
+    this.neutralDelta = neutralDelta(rc);
+    if (rc.lineups !== this.lineupsSeen) {
+      this.lineupsSeen = rc.lineups;
+      replay(this.find("lineup-fade"), "play");
+    }
   }
 
   private updateWarnings(

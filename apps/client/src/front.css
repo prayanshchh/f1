@@ -843,6 +843,11 @@
   background: rgb(160 50 230 / 14%);
 }
 
+.records-table tr.deleted td {
+  color: #8d90a0;
+  text-decoration: line-through;
+}
+
 .records-table .time {
   font-weight: 800;
 }

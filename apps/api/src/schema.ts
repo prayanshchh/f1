@@ -64,4 +64,7 @@ export const migrations = [
     PRIMARY KEY (driver_id, track, car)
   );
   `,
+  `
+  ALTER TABLE laps ADD COLUMN IF NOT EXISTS valid boolean NOT NULL DEFAULT true;
+  `,
 ];

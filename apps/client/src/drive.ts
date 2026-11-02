@@ -5,6 +5,7 @@ import {
   type PitLayout,
 } from "./game/pitstop.ts";
 import frameUrl from "../../../content/tracks/cota/sd-frame.json?url";
+import mapUrl from "../../../content/tracks/cota/circuit-map.json?url";
 import "@fontsource-variable/saira/wdth.css";
 import "./drive.css";
 import "./front.css";
@@ -64,11 +65,19 @@ import { loadReference, rememberReference } from "./game/reference.ts";
 import { fetchJson, Scene } from "./game/scene.ts";
 import { GameSound, openAudio } from "./game/sound/game-sound.ts";
 import { StartLights } from "./game/start-lights.ts";
+import {
+  pitPenaltyFor,
+  raceControlState,
+  type StewardCar,
+  type Turn,
+} from "./game/stewards.ts";
+import { surname } from "./game/tower.ts";
 import { Studio } from "./game/studio.ts";
 import { type PlayerSeat, startingGrid } from "./game/teams.ts";
 import {
   applySettings,
   carOf,
+  choices,
   loadSettings,
   type Settings,
   stageOf,
@@ -305,6 +314,7 @@ function raceControls(engine: Engine, hud: Hud, settings: Settings) {
 }
 
 const wearShortestRace = 28;
+const stewardPeriod = 0.1;
 const shortQualifying = 0.5;
 const fieldReferenceLap = 97.5;
 
@@ -315,6 +325,15 @@ function raceSystems(
 ): RaceSystems {
   return {
     countdown: lights.countdown,
+    lightInterval: lights.interval,
+    rules: {
+      safetyCar: choices.safetyCar.findIndex(
+        (c) => c.id === settings.safetyCar,
+      ),
+      redFlags: settings.redFlags,
+      formationLap: settings.formationLap && stage === "race",
+      rollingStart: settings.startType === "rolling" && stage === "race",
+    },
     compound: stage === "qualifying" ? 0 : compoundIndex(settings.compound),
     wearScale: wearScale(
       stage === "qualifying" ? "real" : settings.tyreWear,
@@ -378,15 +397,26 @@ function sessionLabel(stage: Stage | null): string {
   return stage === "qualifying" ? (segmentNames[0] ?? "Q1") : "Practice";
 }
 
+function driverName(field: WeekendPlan | null, car: number): string {
+  const entrant = field?.entrants[car];
+  return entrant && car > 0 ? surname(entrant) : "You";
+}
+
 function hudOptions(
   settings: Settings,
   setup: SessionSetup,
   engine: Engine,
   best: number | null,
   lights: StartLights,
+  turns: Turn[],
   onLap: HudOptions["onLap"],
 ): HudOptions {
   return {
+    stewards: {
+      turns,
+      name: (car) => driverName(setup.field, car),
+      racing: setup.stage === "race",
+    },
     totalLaps: setup.stage === "race" ? settings.laps : null,
     parts: settings.hud,
     session: sessionLabel(setup.stage),
@@ -710,12 +740,21 @@ async function main(): Promise<void> {
     engine.sectorBoundaries(),
     reference,
   );
+  const { turns } = await fetchJson<{ turns: Turn[] }>(mapUrl);
   const hud = new Hud(
     hudRoot,
     trace,
-    hudOptions(settings, setup, engine, trace.bestTime, lights, (lap) => {
-      log?.lap(lap, compoundId(engine.tyreInfo().compound));
-    }),
+    hudOptions(
+      settings,
+      setup,
+      engine,
+      trace.bestTime,
+      lights,
+      turns,
+      (lap) => {
+        log?.lap(lap, compoundId(engine.tyreInfo().compound));
+      },
+    ),
   );
   const pad = padLink();
   const sound = await GameSound.start(audio);
@@ -825,8 +864,9 @@ async function main(): Promise<void> {
     pitPressed = false;
     return { padInput, pressed };
   };
-  const applyPit = (frame: Float64Array, now: number) => {
+  const applyPit = (frame: Float64Array, now: number, steward: StewardCar) => {
     const { padInput, pressed } = pitButton(now);
+    pit.setPenalty(pitPenaltyFor(steward));
     const replaceWing = controls.wingChange();
     hud.setWingChoice(replaceWing);
     pit.requestWing(replaceWing);
@@ -870,10 +910,41 @@ async function main(): Promise<void> {
     });
     flow.start();
   };
+  let stewardSeen = 0;
+  let stewardClock = 0;
+  let lineups = 0;
+  let restarts = 0;
+  const watchRaceControl = () => {
+    const rc = engine.raceControl();
+    hud.updateRaceControl(rc);
+    scene.setFormation(rc.state === raceControlState.formation);
+    if (rc.lineups !== lineups) {
+      lineups = rc.lineups;
+      pit.abort();
+    }
+    if (rc.restarts !== restarts) {
+      restarts = rc.restarts;
+      const restart = StartLights.restart(rc.countdown);
+      hud.restartLights(restart, rc.signalTime);
+      scene.restartLights(restart, rc.signalTime);
+    }
+    return rc;
+  };
+  const watchStewards = (steward: StewardCar, now: number) => {
+    if (now - stewardClock < stewardPeriod) return;
+    stewardClock = now;
+    const messages = engine.stewardMessages(stewardSeen);
+    stewardSeen = messages.at(-1)?.id ?? stewardSeen;
+    hud.updateStewards(messages, steward, engine.stewardFlags(), now);
+  };
   const step = (now: number) => {
     controls.pad(pad.pressed());
     const frame = engine.update(now);
-    const control = applyPit(frame, now);
+    const steward = engine.stewardCar(0);
+    const control = applyPit(frame, now, steward);
+    watchStewards(steward, now);
+    const rc = watchRaceControl();
+    scene.updateSafetyCar(engine.safetyCarPose(), rc.safetyCarLights, now);
     if (flow) flow.update(now);
     else armOvertake(frame);
     const tyres = engine.tyreInfo();
@@ -906,7 +977,7 @@ async function main(): Promise<void> {
     );
     sound.update(audio);
     const status = engine.carStatus();
-    hud.update(frame, info, tyres, energy, status, now);
+    hud.update(frame, info, tyres, energy, status, now, steward);
     hud.updatePit(control);
     watchBest();
     if (!flow && status.stopped) finishRace(status);

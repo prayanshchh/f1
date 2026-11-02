@@ -163,7 +163,7 @@ settings:
   excludeLinksFromLockfile: false
 
 patchedDependencies:
-  three@0.186.1: 06ec5c16ca44ccd57772d17fd69932b917a2d1c7f69faec4f5e87f7323164b06
+  three@0.186.1: acbc7f1ea996291e3cfe6b185b04aea02af227dbe7c34108e9d30375ac5bfe40
 
 importers:
 
@@ -240,7 +240,7 @@ importers:
         version: 3.9.10
       three:
         specifier: 0.186.1
-        version: 0.186.1(patch_hash=06ec5c16ca44ccd57772d17fd69932b917a2d1c7f69faec4f5e87f7323164b06)
+        version: 0.186.1(patch_hash=acbc7f1ea996291e3cfe6b185b04aea02af227dbe7c34108e9d30375ac5bfe40)
       typescript:
         specifier: 5.9.3
         version: 5.9.3
@@ -286,7 +286,7 @@ importers:
         version: 7.6.0
       three:
         specifier: 0.186.1
-        version: 0.186.1(patch_hash=06ec5c16ca44ccd57772d17fd69932b917a2d1c7f69faec4f5e87f7323164b06)
+        version: 0.186.1(patch_hash=acbc7f1ea996291e3cfe6b185b04aea02af227dbe7c34108e9d30375ac5bfe40)
       uqr:
         specifier: 0.1.3
         version: 0.1.3
@@ -3356,7 +3356,7 @@ snapshots:
 
   strip-json-comments@5.0.3: {}
 
-  three@0.186.1(patch_hash=06ec5c16ca44ccd57772d17fd69932b917a2d1c7f69faec4f5e87f7323164b06): {}
+  three@0.186.1(patch_hash=acbc7f1ea996291e3cfe6b185b04aea02af227dbe7c34108e9d30375ac5bfe40): {}
 
   tinybench@6.2.2: {}
 

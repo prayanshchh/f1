@@ -20,6 +20,34 @@ interface Cell {
 
 export interface SphereTest {
   intersectsSphere(sphere: THREE.Sphere): boolean;
+  containsSphere?(sphere: THREE.Sphere): boolean;
+}
+
+export function frustumContains(
+  frustum: THREE.Frustum,
+  sphere: THREE.Sphere,
+): boolean {
+  for (const plane of frustum.planes)
+    if (plane.distanceToPoint(sphere.center) < sphere.radius) return false;
+  return true;
+}
+
+interface Node {
+  sphere: THREE.Sphere;
+  first: number;
+  last: number;
+  next: number;
+  leaf: boolean;
+  quiet: boolean;
+}
+
+const leafCells = 8;
+const boundSlack = 1e-6;
+
+interface Tally {
+  entered: boolean;
+  stale: number;
+  total: number;
 }
 
 function cellKey(x: number, z: number, cell: number): number {
@@ -47,24 +75,128 @@ class CellSet {
     return this.cells[at] as Cell;
   }
 
+  private sorted: Cell[] = [];
+  private nodes: Node[] = [];
+  private readonly tally: Tally = { entered: false, stale: 0, total: 0 };
+
   bake(matrix: THREE.Matrix4): void {
     for (const cell of this.cells) cell.sphere.applyMatrix4(matrix);
+    this.nodes = [];
+  }
+
+  private build(): void {
+    this.sorted = this.cells.slice();
+    this.nodes = [];
+    if (this.sorted.length > 0) this.split(0, this.sorted.length);
+  }
+
+  private split(first: number, last: number): void {
+    const node: Node = {
+      sphere: this.enclose(first, last),
+      first,
+      last,
+      next: 0,
+      leaf: last - first <= leafCells,
+      quiet: false,
+    };
+    this.nodes.push(node);
+    if (!node.leaf) {
+      const part = this.sorted.slice(first, last);
+      const axis = widestAxis(part);
+      part.sort((a, b) => a.sphere.center[axis] - b.sphere.center[axis]);
+      for (let i = 0; i < part.length; i++)
+        this.sorted[first + i] = part[i] as Cell;
+      const middle = first + Math.floor(part.length / 2);
+      this.split(first, middle);
+      this.split(middle, last);
+    }
+    node.next = this.nodes.length;
+  }
+
+  private enclose(first: number, last: number): THREE.Sphere {
+    const box = new THREE.Box3();
+    for (let i = first; i < last; i++) {
+      const { center } = (this.sorted[i] as Cell).sphere;
+      box.expandByPoint(center);
+    }
+    const sphere = new THREE.Sphere();
+    box.getCenter(sphere.center);
+    let radius = 0;
+    for (let i = first; i < last; i++) {
+      const child = (this.sorted[i] as Cell).sphere;
+      radius = Math.max(
+        radius,
+        sphere.center.distanceTo(child.center) + child.radius,
+      );
+    }
+    sphere.radius = radius + boundSlack * (1 + radius);
+    return sphere;
   }
 
   look(frustum: SphereTest): boolean {
-    let entered = false;
-    let stale = 0;
-    let total = 0;
-    for (const cell of this.cells) {
-      cell.visible = frustum.intersectsSphere(cell.sphere);
-      if (cell.visible && !cell.shown) entered = true;
-      if (cell.shown) {
-        total += cell.size;
-        if (!cell.visible) stale += cell.size;
-      }
-    }
+    if (this.nodes.length === 0 && this.cells.length > 0) this.build();
+    const tally = this.tally;
+    tally.entered = false;
+    tally.stale = 0;
+    tally.total = 0;
+    let at = 0;
+    while (at < this.nodes.length) at = this.visit(at, frustum);
+    return this.changed();
+  }
+
+  private changed(): boolean {
+    const { entered, stale, total } = this.tally;
     return entered || stale > total * staleShare;
   }
+
+  private visit(at: number, frustum: SphereTest): number {
+    const node = this.nodes[at] as Node;
+    if (!frustum.intersectsSphere(node.sphere)) {
+      if (!node.quiet) node.quiet = this.mark(node, false);
+      return node.next;
+    }
+    node.quiet = false;
+    if (frustum.containsSphere?.(node.sphere)) {
+      this.mark(node, true);
+      for (let i = at + 1; i < node.next; i++)
+        (this.nodes[i] as Node).quiet = false;
+      return node.next;
+    }
+    if (!node.leaf) return at + 1;
+    for (let i = node.first; i < node.last; i++) {
+      const cell = this.sorted[i] as Cell;
+      this.count(cell, frustum.intersectsSphere(cell.sphere));
+    }
+    return node.next;
+  }
+
+  private mark(node: Node, visible: boolean): boolean {
+    let quiet = true;
+    for (let i = node.first; i < node.last; i++) {
+      const cell = this.sorted[i] as Cell;
+      if (cell.shown) quiet = false;
+      this.count(cell, visible);
+    }
+    return quiet;
+  }
+
+  private count(cell: Cell, visible: boolean): void {
+    cell.visible = visible;
+    const tally = this.tally;
+    if (visible && !cell.shown) tally.entered = true;
+    if (cell.shown) {
+      tally.total += cell.size;
+      if (!visible) tally.stale += cell.size;
+    }
+  }
+}
+
+function widestAxis(cells: Cell[]): "x" | "y" | "z" {
+  const box = new THREE.Box3();
+  for (const cell of cells) box.expandByPoint(cell.sphere.center);
+  const size = box.getSize(new THREE.Vector3());
+  if (size.x >= size.y && size.x >= size.z) return "x";
+  return size.y >= size.z ? "y" : "z";
 }
 
 function addRun(cell: Cell, start: number, count: number): void {

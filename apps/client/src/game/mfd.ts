@@ -9,12 +9,15 @@ interface PartDamage {
   floor: number;
   diffuser: number;
   rearWing: number;
+  suspension: number[];
 }
 
 export interface CarStatus {
   engineTemp: number;
   damage: PartDamage;
   brakes: number[];
+  retired: number;
+  stopped: boolean;
 }
 
 const pages = ["quick", "temps", "wear", "pressure"] as const;
@@ -23,6 +26,7 @@ type Page = (typeof pages)[number];
 const brakeCold = 200;
 const brakeHot = 950;
 const pressureSpan = 4;
+const flatLeak = 0.6;
 const frontTarget = 23.5;
 const rearTarget = 22;
 const engineWarm = 130;
@@ -70,6 +74,16 @@ function pressureState(offTarget: number): string {
   return offTarget < 0.7 ? "warm" : "hot";
 }
 
+function ringState(
+  flat: boolean,
+  isPressure: boolean,
+  offTarget: number,
+  wear: number,
+): string {
+  if (flat) return "hot";
+  return isPressure ? pressureState(offTarget) : wearColour(wear);
+}
+
 export function nextPage(page: string): Page {
   const index = pages.findIndex((p) => p === page);
   return pages[(index + 1) % pages.length] ?? "quick";
@@ -99,9 +113,9 @@ function tyre(id: string, x: number, y: number, h: number, w: number): string {
   return `<g class="part tyre" data-part="${id}"><rect x="${String(x)}" y="${String(y)}" width="${String(w)}" height="${String(h)}" rx="20" class="tyre-outer"/><rect x="${String(x + 13)}" y="${String(y + 16)}" width="${String(w - 26)}" height="${String(h - 32)}" rx="6" class="tyre-inner"/></g>`;
 }
 
-function upright(side: number, y: number, h: number): string {
+function upright(id: string, side: number, y: number, h: number): string {
   const x = side > 0 ? 78 : -98;
-  return `<rect class="upright" x="${String(x)}" y="${String(y)}" width="20" height="${String(h)}" rx="5"/>`;
+  return `<g class="part damage" data-part="suspension-${id}"><rect x="${String(x)}" y="${String(y)}" width="20" height="${String(h)}" rx="5"/></g>`;
 }
 
 const carArt = `${frame}
@@ -112,7 +126,7 @@ const carArt = `${frame}
   <g class="part damage" data-part="floor"><path d="${outerFloorShape}"/><path d="${outerFloorShape}" transform="scale(-1 1)"/><path d="${floorShape}"/><path d="${floorShape}" transform="scale(-1 1)"/></g>
   <g class="part damage" data-part="diffuser"><rect x="-12" y="780" width="24" height="105" rx="3"/><rect x="-62" y="895" width="124" height="45" rx="4"/></g>
   <g class="part damage" data-part="rear-wing"><path d="${rearWingShape}"/></g>
-  ${upright(-1, 310, 42)}${upright(1, 310, 42)}${upright(-1, 898, 40)}${upright(1, 898, 40)}
+  ${upright("fl", -1, 310, 42)}${upright("fr", 1, 310, 42)}${upright("rl", -1, 898, 40)}${upright("rr", 1, 898, 40)}
   ${tyre("fl", -172, 270, 122, 70)}${tyre("fr", 102, 270, 122, 70)}
   ${tyre("rl", -178, 850, 130, 74)}${tyre("rr", 104, 850, 130, 74)}
   <g class="part engine" data-part="engine"><path d="${engineShape}"/></g>`;
@@ -258,7 +272,7 @@ export class Mfd {
     paint(view.surface, data.surface, surface);
     paint(view.inner, data.carcass, inner);
     paint(view.brake, brake, brakeState(brake));
-    this.updateRing(view, wheel, data.wear, data.pressure, surface);
+    this.updateRing(view, wheel, data.wear, data.pressure, surface, data.leak);
     putAttr(view.tyre, "data-edge", inner);
   }
 
@@ -268,15 +282,17 @@ export class Mfd {
     wear: number,
     pressure: number,
     surface: string,
+    leak: number,
   ): void {
     const isPressure = this.page === "pressure";
+    const flat = leak >= flatLeak;
     const target = wheel < 2 ? frontTarget : rearTarget;
     const offTarget = Math.min(1, Math.abs(pressure - target) / pressureSpan);
-    const ring = isPressure ? pressureState(offTarget) : wearColour(wear);
-    putText(
-      view.wear,
-      isPressure ? pressure.toFixed(1) : `${String(Math.round(wear * 100))}%`,
-    );
+    const ring = ringState(flat, isPressure, offTarget, wear);
+    const reading = isPressure
+      ? pressure.toFixed(1)
+      : `${String(Math.round(wear * 100))}%`;
+    putText(view.wear, flat ? "FLAT" : reading);
     putText(view.pressure, isPressure ? "psi" : "");
     putStyle(
       view.arc,
@@ -285,7 +301,11 @@ export class Mfd {
     );
     const ringRoot = view.arc.parentElement?.parentElement;
     if (ringRoot) putAttr(ringRoot, "data-state", ring);
-    putAttr(view.tyre, "data-state", this.page === "temps" ? surface : ring);
+    putAttr(
+      view.tyre,
+      "data-state",
+      this.page === "temps" && !flat ? surface : ring,
+    );
   }
 
   private partNode(part: string): Element {
@@ -307,6 +327,10 @@ export class Mfd {
       floor: damageState(damage.floor),
       diffuser: damageState(damage.diffuser),
       "rear-wing": damageState(damage.rearWing),
+      "suspension-fr": damageState(damage.suspension[0] ?? 0),
+      "suspension-fl": damageState(damage.suspension[1] ?? 0),
+      "suspension-rr": damageState(damage.suspension[2] ?? 0),
+      "suspension-rl": damageState(damage.suspension[3] ?? 0),
       engine: engineState(status.engineTemp),
     };
     for (const [part, state] of Object.entries(parts))

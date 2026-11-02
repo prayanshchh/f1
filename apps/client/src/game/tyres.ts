@@ -39,6 +39,9 @@ interface WheelTyre {
   lock: number;
   spin: number;
   grip: number;
+  flat: number;
+  leak: number;
+  cut: number;
 }
 
 export interface TyreInfo {

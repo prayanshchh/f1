@@ -8,7 +8,8 @@ import {
   fuelMixes,
 } from "./energy.ts";
 import type { PitControl } from "./pitstop.ts";
-import { frameIndex, type HudInfo, outOfRaceState } from "./engine.ts";
+import { DamageMonitor, retirementLabel } from "./damage.ts";
+import { frameIndex, type HudInfo } from "./engine.ts";
 import type { LapResult, LapTrace } from "./laptrace.ts";
 import { type CarStatus, Mfd } from "./mfd.ts";
 import { closedPolyline, type Polyline, pointAlong } from "./polyline.ts";
@@ -113,6 +114,7 @@ export class Hud {
   private sectorPaths: SVGPathElement[] = [];
   private sessionBest: number | null = null;
   private toast: Toast | null = null;
+  private readonly damage = new DamageMonitor();
   private toastShown = "";
   private freezeUntil = 0;
   private extraUntil = 0;
@@ -208,8 +210,12 @@ export class Hud {
     this.updateInputs(value);
     this.updateLights(time);
     this.updateMap(distance);
-    this.updateWarnings(info, tyres, laps, now);
+    this.updateWarnings(status, tyres, laps, now);
     this.updateToast(now);
+  }
+
+  setWingChoice(replace: boolean): void {
+    this.find("wing-change").textContent = replace ? "Replace +8s" : "Keep";
   }
 
   updatePit(control: PitControl): void {
@@ -625,25 +631,24 @@ export class Hud {
   }
 
   private updateWarnings(
-    info: HudInfo,
+    status: CarStatus,
     tyres: TyreInfo,
     laps: number,
     now: number,
   ): void {
-    let text = "";
-    if (info.state & 0x0400) text = "Out of fuel";
-    else if (info.state & 0x0200) text = "Car broken";
-    else if (info.state & outOfRaceState) text = "Retired";
-    if (text) {
+    const retired = retirementLabel(status.retired);
+    if (retired) {
       this.toast = {
         kind: "warn",
-        title: text,
-        detail: "Press Esc to restart the session",
+        title: retired,
+        detail: "Session over",
         until: Infinity,
       };
       return;
     }
     this.updateTyreWarning(tyres, now);
+    const alert = this.damage.update(status, tyres);
+    if (alert) this.toast = { kind: "warn", ...alert, until: now + 6 };
     const total = this.options.totalLaps;
     if (total && total > 1 && laps === total && !this.finalLapShown) {
       this.finalLapShown = true;

@@ -339,6 +339,8 @@ const exported = [
   "_sdEnergyInfo",
   "_sdCarStatus",
   "_sdCarDamageSet",
+  "_sdCarImpact",
+  "_sdTyreDamage",
   "_sdEnergyDifferential",
   "_sdEnergyStraight",
   "_sdCarName",

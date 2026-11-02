@@ -188,8 +188,19 @@ export class Scene {
     );
   }
 
-  feel(wheels: RumbleWheel[], speed: number, now: number): number {
-    this.shake = this.rumble.update(wheels, speed, now - this.lastFeel, now);
+  feel(
+    wheels: RumbleWheel[],
+    speed: number,
+    now: number,
+    tyreRough: number,
+  ): number {
+    this.shake = this.rumble.update(
+      wheels,
+      speed,
+      now - this.lastFeel,
+      now,
+      tyreRough,
+    );
     this.lastFeel = now;
     this.car.setRumble(this.shake.heave, this.shake.roll);
     return this.shake.amount;
@@ -360,6 +371,7 @@ export class Scene {
   updateTyres(frame: Float64Array, tyres: TyreInfo): void {
     this.smoke.update(frame, tyres, this.car.wheelRadii());
     this.car.setCompound(tyres.compound);
+    this.car.setDeflation(tyres.wheels.map((wheel) => wheel.leak));
   }
 
   resize(width: number, height: number): void {

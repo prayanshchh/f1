@@ -222,7 +222,7 @@ void updateAero(tCar *car, tCarElt *elt, double alpha, double brake, double kph,
     bool pedals = alpha >= straightAlpha && brake < 0.02;
     if (!straightAssist && (alpha < straightLift || brake >= 0.02))
         straightArmed = false;
-    bool open = pedals && kph >= straightSpeed && (straightAssist ? fabs(elt->_steerCmd) < straightSteer : straightArmed);
+    bool open = pedals && sdDamageStraightAllowed() && kph >= straightSpeed && (straightAssist ? fabs(elt->_steerCmd) < straightSteer : straightArmed);
     double rate = open ? straightOpenRate : -straightCloseRate;
     straightOpen = clamp01(straightOpen + rate * dt);
     elt->ctrl.wingControlMode = 2;
@@ -309,7 +309,7 @@ void sdEnergyStep(tCarElt *elt, double dt)
     double brake = clamp01(car->ctrl->brakeCmd);
     double rads = std::max((double)engine.tickover, (double)engine.rads);
     bool driving = elt->_gear > 0 && (elt->_state & RM_CAR_STATE_NO_SIMU) == 0;
-    double ice = curveTorque(rads) * rads * iceScale * mixPower[fuelMix];
+    double ice = curveTorque(rads) * rads * iceScale * mixPower[fuelMix] * sdDamagePower();
     Split split = driving && brake < 0.05 ? pedalSplit(alpha, ice, kph, dt) : Split{alpha * ice, 0.0};
     if (driving && brake >= 0.05)
         split.battery = brakeRegen(elt, kph, dt);

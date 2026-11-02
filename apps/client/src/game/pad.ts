@@ -1,6 +1,6 @@
 import { renderSVG } from "uqr";
 
-const staleAfter = 0.25;
+const staleAfter = 0.6;
 const feedbackInterval = 0.1;
 
 export interface PadInput {

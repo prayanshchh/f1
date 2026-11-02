@@ -17,13 +17,20 @@ RPM_AXIS = np.arange(5000, 13501, 500)
 BAND_EDGES = np.geomspace(40, 16000, 37)
 FREQUENCIES = np.fft.rfftfreq(FFT_SIZE, 1 / SAMPLE_RATE)
 BIN_HZ = SAMPLE_RATE / FFT_SIZE
-ALL_ENGINE_CLIP = "P-zmZ6ADvGE"
-RACE_CLIP = "guiOElY7zbU"
-CHASE_SECTIONS = [("chase_a", ALL_ENGINE_CLIP, 5.0, 11.3), ("chase_b", ALL_ENGINE_CLIP, 39.6, 11.5)]
-RACE_SECTION = ("race", RACE_CLIP, 5.0, 400.0)
-FIT_SECTIONS = [*CHASE_SECTIONS, ("race_fit", RACE_CLIP, 5.0, 120.0)]
+ONBOARD_CLIP = "FC89DhymlwI"
+FIT_SECTIONS = [
+    ("monza_lap3", ONBOARD_CLIP, 420.0, 180.0),
+    ("monza_lap11", ONBOARD_CLIP, 1150.0, 150.0),
+    ("monza_lap35", ONBOARD_CLIP, 3550.0, 150.0),
+]
+FINGERPRINT_EDGES = np.round(np.geomspace(60, 16000, 33), 1)
+FINGERPRINT_STEP = 0.5
+FINGERPRINT_SIZE = 8192
 CHUNK_SECONDS = 60
 PAD_SAMPLES = 2048
+SUSTAINED_ON = 10
+MIN_ROW_FRAMES = 40
+SUSTAINED_OFF = 15
 
 
 def load_audio(path, start, length):
@@ -136,14 +143,16 @@ def analyse(samples):
     smooth = np.gradient(ndimage.gaussian_filter1d(rpm, 6), HOP_SECONDS)
     fast = np.abs(np.gradient(ndimage.gaussian_filter1d(rpm, 1.5), HOP_SECONDS))
     good = (confidence > np.percentile(confidence, 15)) & (fast < 6000)
-    return {"rpm": rpm, "orders": orders, "noise": noise, "on": good & (smooth > 150), "off": good & (smooth < -1000)}
+    on = sustained(good & (smooth > 150), SUSTAINED_ON)
+    off = sustained(good & (smooth < -1000), SUSTAINED_OFF)
+    return {"rpm": rpm, "orders": orders, "noise": noise, "on": on, "off": off}
 
 
 def table(rpm, values, mask):
     result = np.full((len(RPM_AXIS), values.shape[1]), np.nan)
     for row, centre in enumerate(RPM_AXIS):
         chosen = mask & (np.abs(rpm - centre) < 250)
-        if chosen.sum() >= 12:
+        if chosen.sum() >= MIN_ROW_FRAMES:
             result[row] = 20 * np.log10(np.median(values[chosen], axis=0) + 1e-7)
     return result
 
@@ -166,28 +175,39 @@ def filled(values):
     return result
 
 
-def merged_with_chase(race, chase):
-    overlap = (RPM_AXIS >= 11000) & (RPM_AXIS <= 12000)
-    offset = np.nan_to_num(np.nanmedian(chase[overlap] - race[overlap], axis=0))
-    base = filled(race) + offset
-    top = filled(chase)
-    missing = np.isnan(chase[:, 0])
-    top[missing] = base[missing]
-    blend = np.clip((RPM_AXIS - 10500) / 500, 0, 1)[:, None]
-    return base * (1 - blend) + top * blend, offset
+PARTNERS = {"on": "on", "off": "on", "noiseOn": "noiseOn", "noiseOff": "noiseOn"}
 
 
-def initial_tables(chase_tables, race_tables):
-    chase = {key: np.nanmean([item[key] for item in chase_tables], axis=0) for key in chase_tables[0]}
-    on, order_offset = merged_with_chase(race_tables["on"], chase["on"])
-    noise_on, noise_offset = merged_with_chase(race_tables["noiseOn"], chase["noiseOn"])
+def level(values):
+    return 10 * np.log10(np.sum(10 ** (values / 10), axis=-1))
+
+
+def offsets(values, base, known):
+    rows = np.flatnonzero(known)
+    gaps = level(values[rows]) - level(base[rows])
+    nearest = np.argmin(np.abs(rows[None, :] - np.arange(len(values))[:, None]), axis=1)
+    return gaps[nearest]
+
+
+def anchored(tables, base, known):
+    result = {}
+    for key, values in tables.items():
+        partner = PARTNERS[key]
+        shift = offsets(tables[partner], base[partner], known[partner])
+        result[key] = np.where(known[key][:, None], values, base[key] + shift[:, None])
+    return result
+
+
+def initial_tables(measured_clips, base):
+    rpm = np.concatenate([item["rpm"] for item in measured_clips])
+    joined = {key: np.concatenate([item[key] for item in measured_clips]) for key in ("orders", "noise", "on", "off")}
+    joined["rpm"] = rpm
+    measured = tables_of(joined)
+    known = {key: ~np.isnan(values).all(axis=1) for key, values in measured.items()}
+    base = {key: np.array(base[key]) for key in measured}
     soften = lambda values: ndimage.gaussian_filter1d(values, 0.8, axis=0)
-    return {
-        "on": soften(on),
-        "off": soften(filled(race_tables["off"]) + ndimage.median_filter(order_offset, 3)),
-        "noiseOn": soften(noise_on),
-        "noiseOff": soften(filled(race_tables["noiseOff"]) + noise_offset),
-    }
+    tables = {key: soften(values) for key, values in anchored(measured, base, known).items()}
+    return tables, base, known
 
 
 def sustained(mask, frames=20):
@@ -201,7 +221,7 @@ def sustained(mask, frames=20):
 
 
 def throttle_track(measured):
-    lifted = sustained(measured["off"])
+    lifted = measured["off"]
     load = np.zeros(len(measured["rpm"]))
     current = 1.0
     for frame in range(len(load)):
@@ -231,7 +251,7 @@ def to_json(tables):
     return json.dumps(payload, separators=(",", ":"))
 
 
-def refine_tables(tables, references, measured_clips, folder, repo, rounds):
+def refine_tables(tables, base, known, references, measured_clips, folder, repo, rounds):
     tables_path = folder / "tables.json"
     for _ in range(rounds):
         tables_path.write_text(to_json(tables))
@@ -248,7 +268,33 @@ def refine_tables(tables, references, measured_clips, folder, repo, rounds):
         for key in tables:
             step = np.nan_to_num(np.nanmean(errors[key], axis=0))
             tables[key] = tables[key] + np.clip(step, -12, 12) * 0.7
+        tables = anchored(tables, base, known)
+        print("round error dB", {key: round(float(np.nanmean(np.abs(errors[key]))), 2) for key in tables}, flush=True)
     return tables
+
+
+def band_levels(samples):
+    frames = np.lib.stride_tricks.sliding_window_view(samples, FINGERPRINT_SIZE)[::FINGERPRINT_SIZE]
+    window = signal.get_window("hann", FINGERPRINT_SIZE)
+    amplitude = np.abs(np.fft.rfft(frames * window, axis=1)) * 4 / FINGERPRINT_SIZE
+    frequencies = np.fft.rfftfreq(FINGERPRINT_SIZE, 1 / SAMPLE_RATE)
+    levels = []
+    for low, high in zip(FINGERPRINT_EDGES[:-1], FINGERPRINT_EDGES[1:]):
+        inside = (frequencies >= low) & (frequencies < high)
+        power = (amplitude[:, inside] ** 2).mean(axis=1) if inside.any() else np.zeros(len(frames))
+        levels.append(10 * np.log10(power.mean() + 1e-14))
+    return levels
+
+
+def fingerprint(samples, measured):
+    per_step = int(FINGERPRINT_STEP / HOP_SECONDS)
+    pulling = ndimage.uniform_filter1d(measured["on"].astype(float), per_step * 12) > 0.85
+    fast = measured["rpm"] > 10500
+    start = int(np.argmax(pulling & fast))
+    rpm = measured["rpm"][start : start + per_step * 24 : per_step]
+    begin = start * HOP
+    clip = samples[begin : begin + len(rpm) * int(FINGERPRINT_STEP * SAMPLE_RATE)]
+    return {"edges": FINGERPRINT_EDGES.tolist(), "levels": np.round(band_levels(clip), 1).tolist(), "rpm": np.round(rpm).tolist()}
 
 
 def main():
@@ -256,17 +302,19 @@ def main():
     parser.add_argument("--clips", type=pathlib.Path, required=True)
     parser.add_argument("--out", type=pathlib.Path, required=True)
     parser.add_argument("--rounds", type=int, default=4)
+    parser.add_argument("--fingerprint", type=pathlib.Path)
+    parser.add_argument("--base", type=pathlib.Path, required=True)
     args = parser.parse_args()
     repo = pathlib.Path(__file__).resolve().parents[2]
     args.clips.mkdir(parents=True, exist_ok=True)
     source = lambda section: load_audio(fetch_clip(section[1], args.clips), section[2], section[3])
-    chase = [tables_of(analyse(source(section))) for section in CHASE_SECTIONS]
-    race = tables_of(analyse(source(RACE_SECTION)))
-    tables = initial_tables(chase, race)
     references = {section[0]: source(section) for section in FIT_SECTIONS}
     measured = {name: analyse(samples) for name, samples in references.items()}
+    if args.fingerprint:
+        args.fingerprint.write_text(json.dumps(fingerprint(references["monza_lap3"], measured["monza_lap3"])))
+    tables, base, known = initial_tables(list(measured.values()), json.loads(args.base.read_text()))
     with tempfile.TemporaryDirectory() as folder:
-        tables = refine_tables(tables, references, measured, pathlib.Path(folder), repo, args.rounds)
+        tables = refine_tables(tables, base, known, references, measured, pathlib.Path(folder), repo, args.rounds)
     args.out.write_text(to_json(tables))
 
 

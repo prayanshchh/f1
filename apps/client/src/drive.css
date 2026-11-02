@@ -672,11 +672,6 @@ button {
   stroke: var(--yellow);
 }
 
-.map-hidden {
-  fill: none;
-  stroke: none;
-}
-
 .map-detect {
   fill: #3fd6ee;
   stroke: #0b3a44;

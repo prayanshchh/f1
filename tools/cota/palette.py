@@ -5,6 +5,8 @@ PALETTE = {
     "dark": "#1a1c22", "white": "#e9e7e2", "grey": "#7d8088", "marshal": "#e8701a", "hi vis": "#c9d62a",
 }
 PALETTE_CELLS = 8
+BRAND_ROWS = 12
+BRAND_ASPECT = 8
 
 
 def palette_uv(name):

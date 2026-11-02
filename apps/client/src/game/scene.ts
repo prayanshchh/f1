@@ -3,14 +3,12 @@ import crewUrl from "../../../../content/tracks/cota/crew.glb?url";
 import racingLineUrl from "../../../../content/tracks/cota/racing-line.json?url";
 import trackUrl from "../../../../content/tracks/cota/track.json?url";
 import roadUrl from "../../../../content/tracks/cota/road.glb?url";
-import { carEnvironment } from "./carpaint.ts";
 import { frameIndex, type Engine, type HudInfo } from "./engine.ts";
 import { GltfCar, placeOnTrack, type TrackFrame } from "./gltf.ts";
 import { GridCars, type GridSlot } from "./grid.ts";
-import { domeMaterial } from "./materials.ts";
 import {
-  castShadows,
   loadRoad,
+  releaseCpuCopies,
   setCarContact,
   setStartLights,
   Sunlight,
@@ -20,15 +18,22 @@ import type { AtmosphereState } from "./atmosphere.ts";
 import type { RacingLineData, RacingLineMode } from "./racing-line.ts";
 import { RacingLineView } from "./racing-line-view.ts";
 import { PitCrew } from "./pit-crew.ts";
+import { uploadEverything } from "./preload.ts";
 import { PitGate } from "./pit-gate.ts";
 import type { PitControl, PitLayout } from "./pitstop.ts";
 import { SkidMarks } from "./skidmarks.ts";
 import { SdSky } from "./sky.ts";
+import { SkyBox } from "./skybox.ts";
+import { Crowd } from "./crowd.ts";
 import { TyreSmoke } from "./tyre-smoke.ts";
+import { WorldCuller } from "./world-culler.ts";
 import type { TyreInfo } from "./tyres.ts";
 
 const gateLead = 30;
+const onboardReach = 3;
+const crewReach = 12;
 const flipX = new THREE.Matrix4().makeScale(-1, 1, 1);
+const sunGlow = 2.4;
 const kelvinOffset = 273.15;
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -45,48 +50,81 @@ export class Scene {
   private readonly shakeMatrix = new THREE.Matrix4();
   private shake: Shake | null = null;
   private lastFeel = 0;
+  private readonly eye = new THREE.Vector3();
+  private readonly carPosition = new THREE.Vector3();
   private viewMirrored = false;
-  private readonly domeColors: THREE.BufferAttribute;
-  private readonly dome: THREE.Mesh;
   private readonly sunlight: Sunlight;
   private readonly smoke = new TyreSmoke();
+  private readonly moving: THREE.Object3D[];
+  private readonly viewFrustum = new THREE.Frustum();
+  private mirrorViews: THREE.Frustum[] = [];
+  private readonly seen = {
+    intersectsSphere: (sphere: THREE.Sphere): boolean =>
+      this.viewFrustum.intersectsSphere(sphere) ||
+      this.mirrorViews.some((view) => view.intersectsSphere(sphere)),
+  };
+  private readonly viewMatrix = new THREE.Matrix4();
+  private warming = false;
+  private readonly crewBounds = new THREE.Sphere(
+    new THREE.Vector3(),
+    crewReach,
+  );
   readonly marks = new SkidMarks();
   readonly gate = new PitGate();
   readonly atmosphere: AtmosphereState = {
     sunDirection: new THREE.Vector3(),
     haze: new THREE.Color(),
     sun: new THREE.Color(),
+    exposure: 1,
   };
 
   private constructor(
     private readonly sky: SdSky,
+    private readonly skyBox: SkyBox,
+    private readonly people: Crowd,
     private readonly car: GltfCar,
     private readonly grid: GridCars,
     track: THREE.Object3D,
+    private readonly road: THREE.Object3D,
+    private readonly culler: WorldCuller,
     private readonly racingLine: RacingLineView,
     readonly crew: PitCrew,
     private readonly lapScale: number,
   ) {
     this.camera.matrixAutoUpdate = false;
     this.camera.matrixWorldAutoUpdate = false;
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute(
-      "position",
-      new THREE.BufferAttribute(SdSky.domeVertices(), 3),
+    this.scene.environment = skyBox.environment;
+    this.scene.add(skyBox.mesh, track, car.root, grid.root, this.smoke.root);
+    const { sunColor, horizon } = skyBox.meta;
+    const colour = new THREE.Color(
+      sunColor[0] ?? 1,
+      sunColor[1] ?? 1,
+      sunColor[2] ?? 1,
     );
-    this.domeColors = new THREE.BufferAttribute(
-      new Float32Array(sky.current.domeColors),
-      3,
+    this.sunlight = new Sunlight(
+      this.scene,
+      skyBox.sunIntensity,
+      colour,
+      skyBox.meta.elevation,
     );
-    geometry.setAttribute("color", this.domeColors);
-    geometry.setIndex(SdSky.domeIndices());
-    this.dome = new THREE.Mesh(geometry, domeMaterial());
-    this.dome.renderOrder = -10;
-    this.dome.frustumCulled = false;
-    this.scene.add(this.dome, track, car.root, grid.root, this.smoke.root);
-    this.sunlight = new Sunlight(this.scene);
+    this.atmosphere.sun.copy(colour).multiplyScalar(sunGlow);
+    this.atmosphere.haze.setRGB(
+      horizon[0] ?? 1,
+      horizon[1] ?? 1,
+      horizon[2] ?? 1,
+    );
+    this.atmosphere.exposure = skyBox.exposure;
     this.scene.add(this.marks.mesh, this.crew.root, this.gate.mesh);
-    castShadows(car.root);
+    this.moving = [
+      skyBox.mesh,
+      car.root,
+      grid.root,
+      this.crew.root,
+      this.gate.mesh,
+    ];
+    this.scene.updateMatrixWorld(true);
+    this.scene.matrixWorldAutoUpdate = false;
+    culler.bake();
   }
 
   static async load(
@@ -97,10 +135,17 @@ export class Scene {
   ): Promise<Scene> {
     const anisotropy = renderer.getMaxAnisotropy();
     const local = engine.trackLocal();
-    const env = carEnvironment(renderer);
+    const hours = local.timeOfDay / 3600;
+    const elevation = ((90 - 15 * Math.abs(hours - 12)) * Math.PI) / 180;
+    const skyBox = await SkyBox.load(elevation, hours > 12);
+    const env = {
+      texture: skyBox.environment,
+      rotation: skyBox.environmentRotation,
+    };
     const point = engine.trackPoint.bind(engine);
-    const [frame, road, data, crew, car, gridData] = await Promise.all([
+    const [frame, people, road, data, crew, car, gridData] = await Promise.all([
       fetchJson<TrackFrame>("/wasm/sd-frame.json"),
+      Crowd.load(),
       loadRoad(roadUrl, anisotropy),
       fetchJson<RacingLineData>(racingLineUrl),
       PitCrew.load(crewUrl, anisotropy),
@@ -119,16 +164,24 @@ export class Scene {
     );
     const racingLine = new RacingLineView(data, data.profile, lineMode);
     const start = engine.trackPoint(0, 0);
+    const placed = placeOnTrack(road, frame, start);
+    placed.updateMatrixWorld(true);
+    const culler = new WorldCuller(road);
     const track = new THREE.Group();
     track.add(
-      placeOnTrack(road, frame, start),
+      placed,
+      placeOnTrack(people.root, frame, start),
       placeOnTrack(racingLine.root, frame, start),
     );
     return new Scene(
       new SdSky(local),
+      skyBox,
+      people,
       car,
       grid,
       track,
+      road,
+      culler,
       racingLine,
       crew,
       data.length / engine.trackLength(),
@@ -186,12 +239,9 @@ export class Scene {
   }
 
   renderAuxiliary(renderer: THREE.WebGPURenderer): void {
-    const shadow = this.sunlight.sun.shadow;
-    shadow.autoUpdate = false;
-    this.car.renderAuxiliary(renderer, this.scene, (hidden) => {
-      this.grid.hide(hidden);
-    });
-    shadow.autoUpdate = true;
+    this.sunlight.freeze();
+    this.crew.root.visible = true;
+    this.car.renderAuxiliary(renderer, this.scene);
   }
 
   setDash(info: HudInfo): void {
@@ -234,7 +284,6 @@ export class Scene {
 
     const c = frameIndex.camera;
     const at = (k: number) => frame[c + k] ?? 0;
-    this.car.setDraw(at(19) !== 0, at(20) !== 0);
     this.view.fromArray(frame, c);
     this.applyShake();
     const det = this.view.determinant();
@@ -253,25 +302,70 @@ export class Scene {
       this.camera.near = at(17);
       this.camera.far = at(18);
       this.camera.updateProjectionMatrix();
+      this.sunlight.refit();
     }
 
     const [, , , , , , , , , , , , eyeX, eyeY, eyeZ] =
       this.camera.matrixWorld.elements;
-    this.grid.update(frame, new THREE.Vector3(eyeX, eyeY, eyeZ));
+    this.grid.update(frame);
+    this.car.setDraw(
+      at(19) !== 0,
+      at(20) !== 0,
+      this.eye
+        .set(eyeX, eyeY, eyeZ)
+        .distanceToSquared(
+          this.carPosition.setFromMatrixPosition(this.car.root.matrix),
+        ) <
+        onboardReach * onboardReach,
+    );
     const time = frame[frameIndex.time] ?? 0;
     setStartLights(time);
     const sky = this.sky.update(time, time, eyeX, eyeY);
     this.sunlight.update(sky, eyeX, eyeY, eyeZ);
     this.atmosphere.sunDirection.copy(this.sunlight.direction);
-    this.atmosphere.haze.setRGB(...sky.fogColor);
-    this.atmosphere.sun.setRGB(
-      sky.sunColor[0],
-      sky.sunColor[1],
-      sky.sunColor[2],
+    this.skyBox.update(this.sunlight.direction, eyeX, eyeY, this.scene);
+    this.people.update(this.eye.set(eyeX, eyeY, eyeZ));
+  }
+
+  commitMoves(): void {
+    for (const object of this.moving)
+      if (object.visible) object.updateMatrixWorld();
+    this.sunlight.commit();
+    if (this.warming) return;
+    this.viewMatrix.multiplyMatrices(
+      this.camera.projectionMatrix,
+      this.camera.matrixWorldInverse,
     );
-    (this.domeColors.array as Float32Array).set(sky.domeColors);
-    this.domeColors.needsUpdate = true;
-    this.dome.position.set(eyeX, eyeY, 0);
+    this.viewFrustum.setFromProjectionMatrix(
+      this.viewMatrix,
+      this.camera.coordinateSystem,
+      this.camera.reversedDepth,
+    );
+    this.mirrorViews = this.car.mirrorViews();
+    this.culler.update(this.seen, this.sunlight);
+  }
+
+  hideUnseenCrew(): void {
+    if (this.warming) return;
+    this.crewBounds.center.setFromMatrixPosition(this.crew.root.matrixWorld);
+    this.crew.root.visible =
+      this.seen.intersectsSphere(this.crewBounds) ||
+      this.sunlight.intersectsSphere(this.crewBounds);
+  }
+
+  async warmUp(
+    renderer: THREE.WebGPURenderer,
+    draw: () => void,
+  ): Promise<void> {
+    this.warming = true;
+    this.crew.bake();
+    await uploadEverything(renderer, this.scene, () => {
+      draw();
+      this.sunlight.freeze();
+      this.car.warmMirrors(renderer, this.scene);
+    });
+    this.warming = false;
+    releaseCpuCopies(this.road, this.culler.retained());
   }
 
   updateTyres(frame: Float64Array, tyres: TyreInfo): void {
@@ -283,5 +377,6 @@ export class Scene {
   resize(width: number, height: number): void {
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
+    this.sunlight.refit();
   }
 }

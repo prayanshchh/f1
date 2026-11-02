@@ -36,7 +36,7 @@ import type { CarStatus } from "./game/mfd.ts";
 import { type PadCommands, PadLink } from "./game/pad.ts";
 import { Atmosphere } from "./game/atmosphere.ts";
 import { Scene } from "./game/scene.ts";
-import { GameSound } from "./game/sound/game-sound.ts";
+import { GameSound, openAudio } from "./game/sound/game-sound.ts";
 import {
   applySettings,
   carOf,
@@ -191,9 +191,11 @@ function fitStage(): void {
 function drawer(renderer: THREE.WebGPURenderer, scene: Scene): () => void {
   const atmosphere = new Atmosphere(renderer, scene.scene, scene.camera);
   return () => {
-    scene.renderAuxiliary(renderer);
+    scene.commitMoves();
+    scene.hideUnseenCrew();
     atmosphere.update(scene.atmosphere);
     atmosphere.render();
+    scene.renderAuxiliary(renderer);
   };
 }
 
@@ -290,9 +292,12 @@ async function main(): Promise<void> {
   if (!("gpu" in navigator))
     throw new Error("This page needs WebGPU (Chrome 113 or newer).");
 
-  const renderer = new THREE.WebGPURenderer({ canvas, antialias: true });
-  renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
-  renderer.toneMapping = THREE.NoToneMapping;
+  const renderer = new THREE.WebGPURenderer({
+    canvas,
+    reversedDepthBuffer: true,
+    depth: false,
+    alpha: false,
+  });
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap;
   await renderer.init();
@@ -311,6 +316,7 @@ async function main(): Promise<void> {
     setStatus("");
     await menu.run(false);
   }
+  const audio = openAudio();
 
   const track = trackOf(settings);
   const car = carOf(settings);
@@ -344,10 +350,11 @@ async function main(): Promise<void> {
     map: trackMap(engine),
   });
   const pad = padLink();
-  const sound = await GameSound.start();
-  hudRoot.hidden = false;
+  const sound = await GameSound.start(audio);
 
+  let frameStale = true;
   const resize = () => {
+    frameStale = true;
     const width = canvas.clientWidth;
     const height = canvas.clientHeight;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -400,15 +407,18 @@ async function main(): Promise<void> {
   window.addEventListener("keydown", onKey(true));
   window.addEventListener("keyup", onKey(false));
 
-  engine.update(performance.now() / 1000);
-  setStatus("");
-  document.body.dataset["driveStatus"] = "running";
-
   const layout = (
     (await (await fetch("/wasm/sd-frame.json")).json()) as { pit: PitLayout }
   ).pit;
   const pit = new PitStop(layout, settings.pitExperience === "broadcast");
   scene.placePit(layout, (d, l) => engine.trackPoint(d, l));
+  scene.update(engine.update(performance.now() / 1000));
+  setStatus("Preparing circuit…");
+  await scene.warmUp(renderer, draw);
+  hudRoot.hidden = false;
+  setStatus("");
+  document.body.dataset["driveStatus"] = "running";
+
   const startFuel = engine.hudInfo().fuel;
   let padBrakeWas = false;
   const steerToward = (frame: Float64Array, drive: PitDrive) => {
@@ -523,7 +533,10 @@ async function main(): Promise<void> {
     }
   };
   void renderer.setAnimationLoop(() => {
-    if (!paused && !finished) step(performance.now() / 1000);
+    const running = !paused && !finished;
+    if (running) step(performance.now() / 1000);
+    if (!running && !frameStale) return;
+    frameStale = false;
     canvas.style.transform = scene.mirrored ? "scaleX(-1)" : "";
     draw();
   });

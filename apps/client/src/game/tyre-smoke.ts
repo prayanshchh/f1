@@ -3,8 +3,6 @@ import {
   float,
   instancedBufferAttribute,
   length,
-  output,
-  renderOutput,
   smoothstep,
   uv,
   vec3,
@@ -65,8 +63,6 @@ export class TyreSmoke {
       new Float32Array(capacity),
       1,
     );
-    this.centre.setUsage(THREE.DynamicDrawUsage);
-    this.fade.setUsage(THREE.DynamicDrawUsage);
     const material = new THREE.SpriteNodeMaterial({
       transparent: true,
       depthWrite: false,
@@ -82,15 +78,11 @@ export class TyreSmoke {
     material.scaleNode = centre.w;
     material.colorNode = vec4(1, 1, 1, 1);
     material.opacityNode = fade.mul(soft);
-    material.outputNode = renderOutput(
-      output,
-      THREE.NoToneMapping,
-      THREE.SRGBColorSpace,
-    );
     const geometry = new THREE.PlaneGeometry(1, 1);
     const mesh = new THREE.InstancedMesh(geometry, material, capacity);
     mesh.frustumCulled = false;
     mesh.renderOrder = 2;
+    mesh.visible = false;
     this.root = mesh;
   }
 
@@ -156,6 +148,7 @@ export class TyreSmoke {
   private advance(dt: number): void {
     const centre = this.centre.array as Float32Array;
     const fade = this.fade.array as Float32Array;
+    let alive = false;
     for (let i = 0; i < capacity; i++) {
       const puff = this.puffs[i];
       if (!puff || puff.age >= puff.life) {
@@ -163,6 +156,7 @@ export class TyreSmoke {
         fade[i] = 0;
         continue;
       }
+      alive = true;
       puff.age += dt;
       puff.x += puff.vx * dt;
       puff.y += puff.vy * dt;
@@ -175,6 +169,8 @@ export class TyreSmoke {
         puffStartSize + (puff.size - puffStartSize) * Math.sqrt(t);
       fade[i] = puff.alpha * (1 - t) * Math.min(1, t * 12);
     }
+    this.root.visible = alive;
+    if (!alive) return;
     this.centre.needsUpdate = true;
     this.fade.needsUpdate = true;
   }

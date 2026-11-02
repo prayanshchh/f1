@@ -1,17 +1,6 @@
 const deg = Math.PI / 180;
 const skyDomeDistance = 20000;
 const minMainLightBrightness = 0.25;
-const baseSkyColor = [0.31, 0.43, 0.69] as const;
-
-const numRings = 64;
-const numBands = 64;
-const halfBands = numBands / 2;
-const domeAngle = 120.0;
-const bandDelta = 360.0 / numBands;
-const ringDelta = domeAngle / (numRings + 1);
-const halfRings = Math.trunc(numRings * (90.0 / domeAngle));
-const upperRings = Math.trunc(numRings * (60.0 / domeAngle));
-const middleRings = Math.trunc(numRings * (15.0 / domeAngle));
 
 export interface TrackLocal {
   timeOfDay: number;
@@ -70,7 +59,6 @@ export interface SkyState {
   materialEmission: number;
   fogColor: Vec3;
   fogDensity: number;
-  domeColors: Float32Array;
 }
 
 export class SdSky {
@@ -86,7 +74,6 @@ export class SdSky {
   private lastTimeLowSpeed = 0;
   private sdSunDeclination: number;
   private readonly fogState: { color: Vec3; density: number };
-  private readonly domeColors = new Float32Array((1 + numRings * numBands) * 3);
   private state!: SkyState;
 
   constructor(private readonly local: TrackLocal) {
@@ -104,53 +91,6 @@ export class SdSky {
       density: Math.fround(sqrtMLog01 / sdVisibility),
     };
     this.state.fogDensity = this.fogState.density;
-  }
-
-  static domeVertices(): Float32Array {
-    const vertices = new Float32Array((1 + numRings * numBands) * 3);
-    vertices.set([0, 0, skyDomeDistance], 0);
-    for (let i = 0; i < numBands; ++i) {
-      const theta = i * bandDelta * deg;
-      const sTheta = skyDomeDistance * Math.sin(theta);
-      const cTheta = skyDomeDistance * Math.cos(theta);
-      for (let j = 0; j < numRings; ++j) {
-        const ring = (j + 1) * ringDelta * deg;
-        vertices.set(
-          [
-            cTheta * Math.sin(ring),
-            sTheta * Math.sin(ring),
-            skyDomeDistance * Math.cos(ring),
-          ],
-          (1 + j * numBands + i) * 3,
-        );
-      }
-    }
-    return vertices;
-  }
-
-  static domeIndices(): number[] {
-    const grid = (ring: number, band: number) => 1 + ring * numBands + band;
-    const elements: number[] = [];
-    for (let i = 0; i < numBands; i++) {
-      elements.push(0, grid(0, i + 1), grid(0, i));
-      for (let j = 0; j < numRings - 1; ++j) {
-        elements.push(
-          grid(j, i),
-          grid(j, (i + 1) % numBands),
-          grid(j + 1, (i + 1) % numBands),
-        );
-        elements.push(
-          grid(j, i),
-          grid(j + 1, (i + 1) % numBands),
-          grid(j + 1, i),
-        );
-      }
-    }
-    return elements;
-  }
-
-  get current(): SkyState {
-    return this.state;
   }
 
   update(
@@ -258,74 +198,6 @@ export class SdSky {
     return 1 / (1 + Math.exp(6 - absSolarTime));
   }
 
-  private repaintDome(skyColor: Vec3, fogColor: Vec3, vis: number): void {
-    const colors = this.domeColors;
-    const at = (ring: number, band: number) => (1 + ring * numBands + band) * 3;
-    const get = (ring: number, band: number): Vec3 => {
-      const k = at(ring, band);
-      return [colors[k] ?? 0, colors[k + 1] ?? 0, colors[k + 2] ?? 0];
-    };
-    const set = (ring: number, band: number, c: Vec3) => {
-      colors.set(c, at(ring, band));
-    };
-    const outerAmt: Vec3 = [0, 0, 0];
-    const middleAmt: Vec3 = [0, 0, 0];
-    const cvf = Math.min(vis, 45000.0);
-    const visFactor = clamp01((vis - 1000.0) / 2000.0);
-    const upperVisFactor = 1.0 - visFactor * (0.7 + (0.3 * cvf) / 45000);
-    const middleVisFactor = 1.0 - visFactor * (0.1 + (0.85 * cvf) / 45000);
-    colors.set(skyColor, 0);
-    const saif = this.sunAngle / Math.PI;
-    const blueShift = [0.8, 1.0, 1.2];
-    const skyFogDelta = subtract(skyColor, fogColor);
-    for (let i = 0; i < halfBands + 1; i++) {
-      const diff = scale(
-        product(skyFogDelta, blueShift),
-        0.8 + saif - (halfBands - i) / (numBands - 2),
-      );
-      set(upperRings, i, subtract(skyColor, scale(diff, upperVisFactor)));
-      let j = 0;
-      for (; j < upperRings; j++)
-        set(
-          j,
-          i,
-          add(
-            scale(skyColor, 1 - j / upperRings),
-            scale(get(upperRings, i), j / upperRings),
-          ),
-        );
-      j++;
-      for (let l = 0; j < upperRings + middleRings + 1; j++, l++)
-        set(
-          j,
-          i,
-          add(
-            scale(get(upperRings, i), 1 - l / middleRings),
-            scale(
-              add(subtract(skyColor, scale(diff, middleVisFactor)), middleAmt),
-              l / middleRings,
-            ),
-          ),
-        );
-      const outer = halfRings - upperRings - middleRings;
-      for (let l = 0; j < halfRings; j++, l++)
-        set(
-          j,
-          i,
-          add(
-            scale(get(upperRings + middleRings, i), 1 - l / outer),
-            scale(add(fogColor, outerAmt), l / outer),
-          ),
-        );
-      for (let k = 0; k < numRings - 1; ++k)
-        set(k, i, get(k, i).map(clamp01) as Vec3);
-    }
-    for (let i = halfBands + 1; i < numBands; ++i)
-      for (let j = 0; j < numRings - 1; ++j) set(j, i, get(j, numBands - i));
-    for (let i = halfRings; i < numRings; i++)
-      for (let j = 0; j < numBands; j++) set(i, j, fogColor);
-  }
-
   private updateLight(): SkyState {
     const solAngle = this.sunAngle;
     let skyBrightness = this.brightness();
@@ -336,7 +208,6 @@ export class SdSky {
     const baseFogColor: Vec3 =
       this.local.rain > 0 ? [0.42, 0.44, 0.5] : [0.84, 0.87, 1.0];
     if (this.local.rain > 0) skyBrightness = Math.pow(skyBrightness, 0.5);
-    const skyColor = scale(baseSkyColor, skyBrightness);
     const fogColor = scale(baseFogColor, skyBrightness);
     let cloudsColor = fogColor;
     this.repaintSun(this.effectiveVisibility);
@@ -351,7 +222,6 @@ export class SdSky {
           ? product(cloudsColor, sunColor)
           : scale(cloudsColor, sunColor[0]);
     }
-    this.repaintDome(skyColor, fogColor, this.effectiveVisibility);
     this.repaintSun(this.effectiveVisibility);
     const visible = this.effectiveVisibility > 1000;
     const sceneAmbient = visible
@@ -393,7 +263,6 @@ export class SdSky {
       materialEmission: 0.5 * lightSourceBrightness,
       fogColor,
       fogDensity: 0,
-      domeColors: this.domeColors,
     };
   }
 }

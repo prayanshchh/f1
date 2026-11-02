@@ -57,10 +57,11 @@ function warnBeforeBraking(
   speed: number[],
   start: number,
   step: number,
+  count: number,
 ): void {
   const n = result.length;
   const kind = (k: number) => result[(start + k) % n]?.kind;
-  for (let k = n - 1; k > 0; k--) {
+  for (let k = count - 1; k > 0; k--) {
     if (kind(k) !== "brake" || kind(k - 1) === "brake") continue;
     const lead = Math.ceil((liftLead * at(speed, start + k)) / step);
     for (let m = 1; m <= lead && k - m >= 0; m++) {
@@ -70,23 +71,29 @@ function warnBeforeBraking(
   }
 }
 
-export function cues(
+export function planCues(
+  result: Cue[],
   profile: SpeedProfile,
   length: number,
   carDistance: number,
   carSpeed: number,
-): Cue[] {
+  reach: number,
+): void {
   const v = profile.speed;
   const b = profile.braking;
   const n = v.length;
   const step = length / n;
   const start = Math.floor(wrap(carDistance, length) / step);
-  const result: Cue[] = Array.from({ length: n }, () => ({
-    kind: "accelerate",
-    decel: 0,
-  }));
+  const count = Math.min(n, Math.ceil(reach / step));
+  for (let k = 0; k < count; k++) {
+    const cue = result[(start + k) % n];
+    if (cue) {
+      cue.kind = "accelerate";
+      cue.decel = 0;
+    }
+  }
   let carried = Math.max(0, carSpeed);
-  for (let k = 0; k < n; k++) {
+  for (let k = 0; k < count; k++) {
     const j = (start + k) % n;
     const gain = Math.max(0, at(v, j + 1) ** 2 - at(v, j) ** 2);
     const next = Math.sqrt(carried * carried + gain);
@@ -96,10 +103,28 @@ export function cues(
       continue;
     }
     const decel = Math.max(0, (carried * carried - limit * limit) / (2 * step));
-    result[j] = { kind: cueFor(decel), decel };
+    const cue = result[j];
+    if (cue) {
+      cue.kind = cueFor(decel);
+      cue.decel = decel;
+    }
     carried = limit;
   }
-  warnBeforeBraking(result, v, start, step);
+  warnBeforeBraking(result, v, start, step, count);
+}
+
+export function emptyPlan(size: number): Cue[] {
+  return Array.from({ length: size }, () => ({ kind: "accelerate", decel: 0 }));
+}
+
+export function cues(
+  profile: SpeedProfile,
+  length: number,
+  carDistance: number,
+  carSpeed: number,
+): Cue[] {
+  const result = emptyPlan(profile.speed.length);
+  planCues(result, profile, length, carDistance, carSpeed, length);
   return result;
 }
 

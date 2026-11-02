@@ -7,6 +7,7 @@ import {
   type SynthState,
 } from "../../apps/client/src/game/sound/synth.ts";
 import type { EngineTables } from "../../apps/client/src/game/sound/engine-voice.ts";
+import { TurboVoice } from "../../apps/client/src/game/sound/effects.ts";
 import { repoRoot } from "../support/repo.ts";
 
 const sampleRate = 48000;
@@ -19,7 +20,7 @@ const tables = JSON.parse(
 ) as EngineTables;
 const fingerprint = JSON.parse(
   readFileSync(
-    path.join(repoRoot, "tests/sound/f1-25-chase-fingerprint.json"),
+    path.join(repoRoot, "tests/sound/f1-25-onboard-fingerprint.json"),
     "utf8",
   ),
 ) as { edges: number[]; levels: number[]; rpm: number[] };
@@ -123,7 +124,7 @@ describe("engine voice", () => {
     expect(peakNear(signal, firing, 0.03) / firing).toBeCloseTo(1, 2);
   });
 
-  test("matches the spectrum measured from F1 25 chase-cam gameplay", () => {
+  test("matches the spectrum measured from F1 25 onboard gameplay", () => {
     const sweep = fingerprint.rpm;
     const signal = render(sweep.length * 0.5 + 0.4, (time) => ({
       ...driving,
@@ -190,20 +191,27 @@ describe("turbo", () => {
     expect(strongestTone(tail(signal, 0.4), 5000, 5700)).toBeLessThan(5500);
   });
 
-  test("a sustained lift-off whistles above the on-throttle ceiling", () => {
-    const signal = render(8.6, (time) => ({
-      ...driving,
-      load: time < 8 ? 1 : 0,
-    }));
-    expect(strongestTone(tail(signal, 0.3), 5500, 7000)).toBeGreaterThan(5800);
+  const turboTone = (seconds: number, load: (time: number) => number) => {
+    const turbo = new TurboVoice(sampleRate);
+    const blocks = Math.floor((seconds * sampleRate) / blockSize);
+    const signal = new Float32Array(blocks * blockSize);
+    for (let block = 0; block < blocks; block++) {
+      const time = (block * blockSize) / sampleRate;
+      const out = signal.subarray(block * blockSize, (block + 1) * blockSize);
+      turbo.render(out, load(time), 12000);
+    }
+    return strongestTone(tail(signal, 0.3), 3500, 7000);
+  };
+
+  test("a sustained lift-off spools down without a whistle", () => {
+    const at = turboTone(10, (time) => (time < 8 ? 1 : 0));
+    expect(at).toBeGreaterThan(4300);
+    expect(at).toBeLessThan(4900);
   });
 
-  test("a brief throttle cut during a shift does not whistle", () => {
-    const signal = render(8.6, (time) => ({
-      ...driving,
-      load: time > 8 && time < 8.06 ? 0 : 1,
-    }));
-    const at = strongestTone(tail(signal, 0.3), 5000, 7000);
+  test("a brief throttle cut during a shift keeps the turbo spooled", () => {
+    const at = turboTone(8.6, (time) => (time > 8 && time < 8.06 ? 0 : 1));
+    expect(at).toBeGreaterThan(5300);
     expect(at).toBeLessThan(5600);
   });
 });

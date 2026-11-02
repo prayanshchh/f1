@@ -162,6 +162,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  three@0.186.1: 06ec5c16ca44ccd57772d17fd69932b917a2d1c7f69faec4f5e87f7323164b06
+
 importers:
 
   .:
@@ -193,6 +196,9 @@ importers:
       '@types/pngjs':
         specifier: 6.0.5
         version: 6.0.5
+      '@types/three':
+        specifier: 0.186.0
+        version: 0.186.0
       '@vitest/eslint-plugin':
         specifier: 1.6.27
         version: 1.6.27(@typescript-eslint/eslint-plugin@8.71.2(@typescript-eslint/parser@8.71.2(eslint@10.13.0(jiti@2.7.0))(typescript@5.9.3))(eslint@10.13.0(jiti@2.7.0))(typescript@5.9.3))(eslint@10.13.0(jiti@2.7.0))(typescript@5.9.3)(vitest@5.0.5(@types/node@26.6.5)(vite@8.3.4(@types/node@26.6.5)(jiti@2.7.0)(yaml@2.9.1)))
@@ -232,6 +238,9 @@ importers:
       prettier:
         specifier: 3.9.10
         version: 3.9.10
+      three:
+        specifier: 0.186.1
+        version: 0.186.1(patch_hash=06ec5c16ca44ccd57772d17fd69932b917a2d1c7f69faec4f5e87f7323164b06)
       typescript:
         specifier: 5.9.3
         version: 5.9.3
@@ -277,7 +286,7 @@ importers:
         version: 7.6.0
       three:
         specifier: 0.186.1
-        version: 0.186.1
+        version: 0.186.1(patch_hash=06ec5c16ca44ccd57772d17fd69932b917a2d1c7f69faec4f5e87f7323164b06)
       uqr:
         specifier: 0.1.3
         version: 0.1.3
@@ -3347,7 +3356,7 @@ snapshots:
 
   strip-json-comments@5.0.3: {}
 
-  three@0.186.1: {}
+  three@0.186.1(patch_hash=06ec5c16ca44ccd57772d17fd69932b917a2d1c7f69faec4f5e87f7323164b06): {}
 
   tinybench@6.2.2: {}
 

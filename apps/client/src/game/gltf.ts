@@ -3,14 +3,16 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { float, smoothstep, uv, vec3 } from "three/tsl";
 import { carMaterials, carTextures, mirrorLayout } from "./carpaint.ts";
 import type {
+  CarEnvironment,
   CarMaterials,
   CarTextures,
   DashReadout,
   MirrorName,
 } from "./carpaint.ts";
 import { frameIndex } from "./engine.ts";
+import { mergedMesh, placedCopy } from "./merge.ts";
 import { unlitMaterial } from "./materials.ts";
-import { setTyreShadows } from "./road.ts";
+import { setTyreShadows, shadowOnlyLayer } from "./road.ts";
 import { carFile } from "./teams.ts";
 import { compounds } from "./tyres.ts";
 
@@ -51,9 +53,8 @@ export const gltfToSdCar = new THREE.Matrix4().set(
   1,
 );
 const wheelNames = ["wheel-fr", "wheel-fl", "wheel-rr", "wheel-rl"] as const;
-const viewDistance = 41000;
-const reflectionSize = 512;
-const reflectionHeight = 0.65;
+const mirrorDistance = 1200;
+const mirrorInterval = 2;
 const mirrorPixels = [1024, 320] as const;
 const mirrorFov = 15;
 const mirrorForward = 0.62;
@@ -69,6 +70,8 @@ const contactMargin = 0.5;
 const contactDarkness = 0.55;
 const contactLift = 0.02;
 const steeringWheelRotation = 2.0;
+const cockpitOnly =
+  /^(wheel-(face|screen|bezel|rotary|metal)|btn-|grip|glove|led-(green|wheel-red|purple))/;
 
 export interface TrackFrame {
   origin: number[];
@@ -108,8 +111,8 @@ export function contactShadow(wheels: THREE.Vector3[]): THREE.Mesh {
     transparent: true,
     depthWrite: false,
     polygonOffset: true,
-    polygonOffsetFactor: -4,
-    polygonOffsetUnits: -16,
+    polygonOffsetFactor: 4,
+    polygonOffsetUnits: 16,
   });
   const centred = uv().sub(0.5).mul(2);
   material.colorNode = vec3(0);
@@ -127,6 +130,34 @@ export function contactShadow(wheels: THREE.Vector3[]): THREE.Mesh {
   );
   shadow.renderOrder = 1;
   return shadow;
+}
+
+const flatSquash = 0.22;
+
+function tyreSquash(leak: number): number {
+  return 1 - flatSquash * leak;
+}
+
+function shadowCaster(model: THREE.Object3D): THREE.Object3D {
+  model.updateMatrixWorld(true);
+  const parts: THREE.BufferGeometry[] = [];
+  model.traverse((object) => {
+    if (object instanceof THREE.Mesh)
+      parts.push(
+        placedCopy(
+          object.geometry as THREE.BufferGeometry,
+          object.matrixWorld,
+          ["position"],
+        ),
+      );
+  });
+  const caster = mergedMesh(
+    parts,
+    new THREE.MeshBasicNodeMaterial({ shadowSide: THREE.BackSide }),
+  );
+  caster.castShadow = true;
+  caster.layers.set(shadowOnlyLayer);
+  return caster;
 }
 
 export class GltfCar {
@@ -152,23 +183,19 @@ export class GltfCar {
   private materials: CarMaterials | null = null;
   private textures: CarTextures | null = null;
   private auxFrame = 0;
-  private cubeReady = false;
   private mirrorsShown = false;
+  private onboard = true;
   private readonly glass: THREE.Object3D[] = [];
+  private readonly cockpitParts: THREE.Object3D[] = [];
   private readonly mirrors = new Map<
     MirrorName,
-    { target: THREE.RenderTarget; camera: THREE.PerspectiveCamera }
+    {
+      target: THREE.RenderTarget;
+      camera: THREE.PerspectiveCamera;
+      view: THREE.Frustum;
+    }
   >();
-  private readonly cubeTarget = new THREE.CubeRenderTarget(reflectionSize, {
-    type: THREE.HalfFloatType,
-    generateMipmaps: true,
-    minFilter: THREE.LinearMipmapLinearFilter,
-  });
-  private readonly cube = new THREE.CubeCamera(
-    0.3,
-    viewDistance,
-    this.cubeTarget,
-  );
+  private readonly viewMatrix = new THREE.Matrix4();
   private dash: Pick<DashReadout, "fuel" | "tyres"> = {
     fuel: 1,
     tyres: [0, 0, 0, 0],
@@ -183,7 +210,7 @@ export class GltfCar {
       mirrorFov,
       mirrorPixels[0] / mirrorPixels[1],
       0.08,
-      viewDistance,
+      mirrorDistance,
     );
     camera.position.set(mirrorForward, layout.across, layout.up);
     const outward = Math.sign(layout.across) * mirrorOutward;
@@ -195,40 +222,41 @@ export class GltfCar {
       ),
     );
     this.model.add(camera);
-    this.mirrors.set(name, { target, camera });
+    this.mirrors.set(name, { target, camera, view: new THREE.Frustum() });
     return target.texture;
   }
+  private deflation: number[] = [];
 
   static async load(
     team: string,
     renderer: THREE.WebGPURenderer,
-    env: THREE.Texture,
+    env: CarEnvironment,
   ): Promise<GltfCar> {
     const car = new GltfCar();
     const anisotropy = renderer.getMaxAnisotropy();
-    const gltf = await new GLTFLoader().loadAsync(carFile(team, "car.glb"));
+    const loader = new GLTFLoader();
+    const [gltf, lod] = await Promise.all([
+      loader.loadAsync(carFile(team, "car.glb")),
+      loader.loadAsync(carFile(team, "lod.glb")),
+    ]);
     car.textures = carTextures(team, anisotropy);
-    const materials = carMaterials(
-      car.textures,
-      env,
-      {
-        "mirror-l": car.addMirror("mirror-l"),
-        "mirror-r": car.addMirror("mirror-r"),
-      },
-      car.cubeTarget.texture,
-    );
+    const materials = carMaterials(car.textures, env, {
+      "mirror-l": car.addMirror("mirror-l"),
+      "mirror-r": car.addMirror("mirror-r"),
+    });
     car.materials = materials;
     gltf.scene.traverse((object) => {
       if (!(object instanceof THREE.Mesh)) return;
       const source = object.material as THREE.MeshStandardMaterial;
       if (source.name.startsWith("mirror-")) car.glass.push(object);
+      if (cockpitOnly.test(source.name)) car.cockpitParts.push(object);
       object.material = materials.build(source);
       object.receiveShadow = true;
     });
     const axes = new THREE.Group();
     axes.matrixAutoUpdate = false;
     axes.matrix.copy(gltfToSdCar);
-    axes.add(gltf.scene);
+    axes.add(gltf.scene, shadowCaster(lod.scene));
     car.model.add(axes);
     car.root.matrixAutoUpdate = false;
     car.root.add(car.model);
@@ -266,7 +294,6 @@ export class GltfCar {
     for (const map of Object.values(this.textures ?? {}))
       (map as THREE.Texture).dispose();
     for (const mirror of this.mirrors.values()) mirror.target.dispose();
-    this.cubeTarget.dispose();
   }
 
   private addSidewalls(): void {
@@ -296,9 +323,12 @@ export class GltfCar {
     return this.radii;
   }
 
-  setDraw(current: boolean, driver: boolean): void {
+  setDraw(current: boolean, driver: boolean, onboard: boolean): void {
     this.root.visible = current;
-    this.mirrorsShown = current;
+    this.mirrorsShown = current && onboard;
+    if (onboard !== this.onboard)
+      for (const part of this.cockpitParts) part.visible = onboard;
+    this.onboard = onboard;
     if (this.driverHead) this.driverHead.visible = driver;
   }
 
@@ -332,53 +362,64 @@ export class GltfCar {
     this.dash = dash;
   }
 
-  private renderCubeFace(
-    renderer: THREE.WebGPURenderer,
-    scene: THREE.Scene,
-  ): void {
-    this.root.getWorldPosition(this.cube.position);
-    this.cube.position.z += reflectionHeight;
-    this.cube.updateMatrixWorld(true);
-    const wasVisible = this.root.visible;
-    this.root.visible = false;
-    if (!this.cubeReady) {
-      this.cube.update(renderer, scene);
-      this.cubeReady = true;
-    } else {
-      const face = this.auxFrame % 6;
-      const camera = this.cube.children[face] as THREE.Camera;
-      renderer.setRenderTarget(this.cubeTarget, face);
-      renderer.render(scene, camera);
-    }
-    this.root.visible = wasVisible;
-  }
-
   private renderMirror(
     renderer: THREE.WebGPURenderer,
     scene: THREE.Scene,
   ): void {
-    const name = mirrorNames[this.auxFrame % mirrorNames.length];
+    const name =
+      mirrorNames[
+        Math.floor(this.auxFrame / mirrorInterval) % mirrorNames.length
+      ];
     const mirror = name ? this.mirrors.get(name) : undefined;
-    if (!mirror) return;
+    if (mirror) this.drawMirror(renderer, scene, mirror);
+  }
+
+  private drawMirror(
+    renderer: THREE.WebGPURenderer,
+    scene: THREE.Scene,
+    mirror: { target: THREE.RenderTarget; camera: THREE.PerspectiveCamera },
+  ): void {
     for (const glass of this.glass) glass.visible = false;
     renderer.setRenderTarget(mirror.target);
     renderer.render(scene, mirror.camera);
     for (const glass of this.glass) glass.visible = true;
   }
 
-  renderAuxiliary(
-    renderer: THREE.WebGPURenderer,
-    scene: THREE.Scene,
-    hideOthers: (hidden: boolean) => void,
-  ): void {
-    this.auxFrame++;
+  warmMirrors(renderer: THREE.WebGPURenderer, scene: THREE.Scene): void {
     this.root.updateWorldMatrix(true, true);
     const previous = renderer.getRenderTarget();
-    hideOthers(true);
-    this.renderCubeFace(renderer, scene);
-    hideOthers(false);
-    if (this.mirrorsShown) this.renderMirror(renderer, scene);
+    for (const mirror of this.mirrors.values())
+      this.drawMirror(renderer, scene, mirror);
     renderer.setRenderTarget(previous);
+  }
+
+  mirrorViews(): THREE.Frustum[] {
+    if (!this.mirrorsShown) return [];
+    return Array.from(this.mirrors.values(), ({ camera, view }) => {
+      camera.updateWorldMatrix(true, false);
+      return view.setFromProjectionMatrix(
+        this.viewMatrix.multiplyMatrices(
+          camera.projectionMatrix,
+          camera.matrixWorldInverse,
+        ),
+        camera.coordinateSystem,
+        camera.reversedDepth,
+      );
+    });
+  }
+
+  renderAuxiliary(renderer: THREE.WebGPURenderer, scene: THREE.Scene): void {
+    if (!this.mirrorsShown) return;
+    this.auxFrame++;
+    if (this.auxFrame % mirrorInterval !== 0) return;
+    this.root.updateWorldMatrix(true, true);
+    const previous = renderer.getRenderTarget();
+    this.renderMirror(renderer, scene);
+    renderer.setRenderTarget(previous);
+  }
+
+  setDeflation(leaks: number[]): void {
+    this.deflation = leaks;
   }
 
   update(frame: Float64Array): void {
@@ -399,11 +440,15 @@ export class GltfCar {
     }
     this.wheels.forEach((w, i) => {
       w.restZ ??= wheel(i, 2);
+      const squash = tyreSquash(this.deflation[i] ?? 0);
       w.pivot.position.set(
         w.rest.x,
-        w.rest.y + (wheel(i, 2) - w.restZ),
+        w.rest.y +
+          (wheel(i, 2) - w.restZ) -
+          (1 - squash) * (this.radii[i] ?? 0),
         w.rest.z,
       );
+      w.pivot.scale.set(1, squash, squash);
       w.pivot.rotation.set(0, 0, 0);
       w.pivot.rotateY(wheel(i, 5));
       w.pivot.rotateZ(wheel(i, 3));
@@ -430,6 +475,7 @@ export class GltfCar {
         (sum, i) => sum + (frame[frameIndex.brakeTemp + i] ?? 0),
         0,
       ) / 4;
+    if (!this.onboard) return;
     this.materials.screen.update(frame[frameIndex.time] ?? 0, {
       kph: (frame[frameIndex.speed] ?? 0) * 3.6,
       gear: frame[frameIndex.gear] ?? 0,

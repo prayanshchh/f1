@@ -784,7 +784,7 @@ export class Menu {
       ),
       this.choice(
         "Tyre Wear",
-        "Real Life matches measured F1 25 wear at Austin (Soft about 25 laps, Medium 28, Hard 37 to full wear). Race Length speeds wear up for shorter races, up to five times, so tyres matter in every session.",
+        "Real Life matches real Austin stints at race pace: Soft about 21 laps, Medium 29 and Hard 40 before they fall away, with the tread gone about 27, 37 and 53 laps in. Push harder, lock up or hit things and they go sooner. Race Length speeds wear up for shorter races, up to five times.",
         choices.tyreWear,
         () => s.tyreWear,
         (id) => {

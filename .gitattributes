@@ -2,6 +2,8 @@ content/tracks/**/*.glb filter=lfs diff=lfs merge=lfs -text
 content/tracks/**/textures/**/*.jpg filter=lfs diff=lfs merge=lfs -text
 content/tracks/**/textures/**/*.png filter=lfs diff=lfs merge=lfs -text
 content/tracks/**/source/*.png filter=lfs diff=lfs merge=lfs -text
+content/tracks/**/source/*.jpg filter=lfs diff=lfs merge=lfs -text
+content/tracks/**/*.hdr filter=lfs diff=lfs merge=lfs -text
 content/tracks/**/source/crew/*.png filter=lfs diff=lfs merge=lfs -text
 content/tracks/**/source/crew/*.bin filter=lfs diff=lfs merge=lfs -text
 content/cars/**/*.glb filter=lfs diff=lfs merge=lfs -text

@@ -64,8 +64,6 @@ export interface RaceSystems {
   countdown: number;
 }
 
-export const outOfRaceState = 0x0400 | 0x0200 | 0x0004 | 0x0008 | 0x0010;
-
 export async function loadSpeedDreams(): Promise<SpeedDreamsModule> {
   return createSpeedDreams({
     print: () => undefined,
@@ -149,8 +147,8 @@ export class Engine {
     this.module._sdInputPitHold(on ? 1 : 0);
   }
 
-  pitService(fuel: number): void {
-    this.module._sdPitService(fuel);
+  pitService(fuel: number, frontWing: boolean): void {
+    this.module._sdPitService(fuel, frontWing ? 1 : 0);
   }
 
   viewKey(code: number, ctrl: boolean): boolean {
@@ -268,7 +266,7 @@ export class Engine {
   }
 
   tyreInfo(): TyreInfo {
-    const v = this.doubles(32, (p) => {
+    const v = this.doubles(44, (p) => {
       this.module._sdTyresInfo(p);
     });
     const at = (i: number) => v[i] ?? 0;
@@ -278,7 +276,7 @@ export class Engine {
       low: at(2),
       high: at(3),
       wheels: [0, 1, 2, 3].map((i) => {
-        const o = 4 + i * 7;
+        const o = 4 + i * 10;
         return {
           surface: at(o),
           carcass: at(o + 1),
@@ -287,13 +285,16 @@ export class Engine {
           lock: at(o + 4),
           spin: at(o + 5),
           grip: at(o + 6),
+          flat: at(o + 7),
+          leak: at(o + 8),
+          cut: at(o + 9),
         };
       }),
     };
   }
 
   carStatus(): CarStatus {
-    const v = this.doubles(12, (p) => {
+    const v = this.doubles(19, (p) => {
       this.module._sdCarStatus(p);
     });
     const at = (i: number) => v[i] ?? 0;
@@ -307,8 +308,11 @@ export class Engine {
         floor: at(5),
         diffuser: at(6),
         rearWing: at(7),
+        suspension: [0, 1, 2, 3].map((i) => at(8 + i)),
       },
-      brakes: [0, 1, 2, 3].map((i) => at(8 + i)),
+      brakes: [0, 1, 2, 3].map((i) => at(12 + i)),
+      retired: at(16),
+      stopped: at(17) !== 0,
     };
   }
 

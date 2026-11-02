@@ -44,6 +44,12 @@ static tModInfo humanModInfo[10];
 static double frame[SD_FRAME_SIZE];
 static double simuTick = RCM_MAX_DT_SIMU;
 static double clockNow = 0.0;
+static int damageLimit = 0;
+
+int sdDamageLimit()
+{
+    return damageLimit;
+}
 
 static tCarElt *loadHumanCar(const char *carName)
 {
@@ -211,11 +217,13 @@ static void runOneStep(double deltaTimeIncrement)
             }
         }
         sdInputApplyHold(s->cars[0]);
+        sdCarStatusDriveLimit(s->cars[0]);
         pCurrReInfo->_reLastRobTime = s->currentTime;
     }
 
     sdTyresStep(s->cars[0], deltaTimeIncrement);
     sdEnergyStep(s->cars[0], deltaTimeIncrement);
+    sdCarStatusPrepare(s->cars[0]);
     SimUpdate(s, deltaTimeIncrement);
     sdCarStatusStep(s->cars[0], deltaTimeIncrement);
     for (int i = 0; i < s->_ncars; i++)
@@ -324,6 +332,20 @@ static void *mergedCarHandle(const char *carName)
     return GfParmMergeHandles(cathdle, carhdle, GFPARM_MMODE_SRC | GFPARM_MMODE_DST | GFPARM_MMODE_RELSRC | GFPARM_MMODE_RELDST);
 }
 
+int sdSurfaceClass(const tTrackSeg *seg)
+{
+    const char *material = seg && seg->surface ? seg->surface->material : nullptr;
+    if (!material)
+        return 0;
+    if (strstr(material, "kerb") || strstr(material, "curb"))
+        return 1;
+    if (strstr(material, "grass"))
+        return 2;
+    if (strstr(material, "sand") || strstr(material, "gravel") || strstr(material, "dirt"))
+        return 3;
+    return 0;
+}
+
 extern "C" {
 
 EMSCRIPTEN_KEEPALIVE void sdRaceCountdown(double seconds)
@@ -357,7 +379,8 @@ EMSCRIPTEN_KEEPALIVE int sdInit(const char *trackCategory, const char *trackName
     s->_ncars = 1;
     s->cars = (tCarElt **)calloc(1, sizeof(tCarElt *));
     s->cars[0] = &ReInfo->carList[0];
-    s->_maxDammage = (int)GfParmGetNum(ReInfo->params, ReInfo->_reRaceName, RM_ATTR_MAX_DMG, NULL, 10000);
+    damageLimit = (int)GfParmGetNum(ReInfo->params, ReInfo->_reRaceName, RM_ATTR_MAX_DMG, NULL, 10000);
+    s->_maxDammage = 0;
     s->_raceType = RM_TYPE_RACE;
     s->_totLaps = (int)GfParmGetNum(ReInfo->params, ReInfo->_reRaceName, RM_ATTR_LAPS, NULL, 3);
     s->_totTime = -60.0f;
@@ -455,33 +478,19 @@ EMSCRIPTEN_KEEPALIVE void sdTelemetry(double *out)
     sdInputState(&out[32]);
 }
 
-EMSCRIPTEN_KEEPALIVE void sdPitService(double fuel)
+EMSCRIPTEN_KEEPALIVE void sdPitService(double fuel, int frontWing)
 {
     tCarElt *car = ReInfo->s->cars[0];
+    double repaired = frontWing ? sdCarStatusReplaceWing() : 0.0;
     car->pitcmd.fuel = (tdble)std::max(0.0, fuel - car->_fuel);
-    car->pitcmd.repair = car->_dammage;
+    car->pitcmd.repair = (tdble)(car->_dammage * repaired);
     car->pitcmd.tireChange = tCarPitCmd::ALL;
     car->pitcmd.tiresetChange = tCarPitCmd::NON_CHANGE;
     SimReConfig(car);
     sdTyresService();
-    sdCarStatusRepair();
     car->pitcmd.fuel = 0;
     car->pitcmd.repair = 0;
     car->pitcmd.tireChange = tCarPitCmd::NONE;
-}
-
-static int surfaceClass(const tTrackSeg *seg)
-{
-    const char *material = seg && seg->surface ? seg->surface->material : nullptr;
-    if (!material)
-        return 0;
-    if (strstr(material, "kerb") || strstr(material, "curb"))
-        return 1;
-    if (strstr(material, "grass"))
-        return 2;
-    if (strstr(material, "sand") || strstr(material, "gravel") || strstr(material, "dirt"))
-        return 3;
-    return 0;
 }
 
 EMSCRIPTEN_KEEPALIVE void sdAudio(double *out)
@@ -493,7 +502,7 @@ EMSCRIPTEN_KEEPALIVE void sdAudio(double *out)
         w[0] = car->_skid[i];
         w[1] = car->_wheelSpinVel(i);
         w[2] = car->_wheelRadius(i);
-        w[3] = surfaceClass(car->_wheelSeg(i));
+        w[3] = sdSurfaceClass(car->_wheelSeg(i));
         w[4] = car->_wheelFz(i);
     }
     out[20] = car->_speed_xy;
@@ -620,7 +629,7 @@ EMSCRIPTEN_KEEPALIVE void sdHudInfo(double *out)
     out[0] = car->_fuel;
     out[1] = car->_tank;
     out[2] = car->_dammage;
-    out[3] = ReInfo->s->_maxDammage;
+    out[3] = damageLimit;
     out[4] = car->_state;
     out[5] = ReInfo->s->_totLaps;
     for (int i = 0; i < 4; i++)

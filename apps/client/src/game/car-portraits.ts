@@ -1,5 +1,6 @@
 import * as THREE from "three/webgpu";
 import { carEnvironment } from "./carpaint.ts";
+import { withDisplayOutput } from "./display.ts";
 import { gltfToSdCar } from "./gltf.ts";
 import { teamModel } from "./grid.ts";
 import { teams } from "./teams.ts";
@@ -71,7 +72,9 @@ export async function carPortraits(
     camera.position.set(7.2, side * 5.4, 2);
     camera.lookAt(0.35, side * -0.1, 0.42);
     renderer.setRenderTarget(target);
-    renderer.render(scene, camera);
+    withDisplayOutput(renderer, () => {
+      renderer.render(scene, camera);
+    });
     return toImage(renderer, target);
   };
   const portraits = new Map<string, CarPortrait>();
@@ -96,6 +99,6 @@ export async function carPortraits(
   renderer.setRenderTarget(previous);
   renderer.setClearAlpha(clearAlpha);
   target.dispose();
-  env.dispose();
+  env.texture.dispose();
   return portraits;
 }

@@ -17,6 +17,7 @@ import {
 } from "./buildup-shots.ts";
 import { carPortraits, type CarPortrait } from "./car-portraits.ts";
 import { CircuitMap, type MapPose, mixPose } from "./circuit-map.ts";
+import { renderDisplay } from "./display.ts";
 import { el, prompt } from "./dom.ts";
 import { flagUrl } from "./flags.ts";
 import type { Scene } from "./scene.ts";
@@ -450,7 +451,7 @@ class Director {
     this.show(this.view.mapUi, true);
     this.show(this.view.stats, !lifting);
     this.show(this.view.partners, lifting && at.time > 0.9);
-    this.options.renderer.render(map.scene, map.camera);
+    renderDisplay(this.options.renderer, map.scene, map.camera);
   }
 
   private world(pose: CameraPose): void {
@@ -467,7 +468,7 @@ class Director {
 
   private drawFlag(): void {
     if (this.flag)
-      this.options.renderer.render(this.flag.scene, this.flag.camera);
+      renderDisplay(this.options.renderer, this.flag.scene, this.flag.camera);
   }
 
   private gridStage(at: StagePosition): void {

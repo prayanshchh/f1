@@ -35,15 +35,21 @@ import { playBuildUp, type Weather } from "./game/buildup.ts";
 import { FrontEnd } from "./game/front-end.ts";
 import { Hud, lapTime, signed, type TrackMap } from "./game/hud.ts";
 import { sdlKeycode } from "./game/keys.ts";
+import {
+  retirementLabel,
+  tyreRoughness,
+  wingRequested,
+} from "./game/damage.ts";
 import { compoundIndex, compounds, wearScale } from "./game/tyres.ts";
 import { LapTrace } from "./game/laptrace.ts";
 import { Menu } from "./game/menu.ts";
+import type { CarStatus } from "./game/mfd.ts";
 import { type PadCommands, PadLink } from "./game/pad.ts";
 import { Atmosphere } from "./game/atmosphere.ts";
 import { RaceLog } from "./game/race-log.ts";
 import { loadReference, rememberReference } from "./game/reference.ts";
 import { fetchJson, Scene } from "./game/scene.ts";
-import { GameSound } from "./game/sound/game-sound.ts";
+import { GameSound, openAudio } from "./game/sound/game-sound.ts";
 import { StartLights } from "./game/start-lights.ts";
 import { Studio } from "./game/studio.ts";
 import { type PlayerSeat, startingGrid } from "./game/teams.ts";
@@ -150,6 +156,17 @@ function showResults(hud: Hud, title: string): void {
   });
 }
 
+function sessionTitle(
+  track: string,
+  session: string,
+  status: CarStatus,
+): string {
+  const ended = status.stopped
+    ? ` - Session ended: ${retirementLabel(status.retired)}`
+    : "";
+  return `${track} - ${session}${ended}`;
+}
+
 function trackMap(engine: Engine): TrackMap {
   const length = engine.trackLength();
   const count = Math.max(64, Math.min(600, Math.round(length / 10)));
@@ -168,9 +185,11 @@ function fitStage(): void {
 function drawer(renderer: THREE.WebGPURenderer, scene: Scene): () => void {
   const atmosphere = new Atmosphere(renderer, scene.scene, scene.camera);
   return () => {
-    scene.renderAuxiliary(renderer);
+    scene.commitMoves();
+    scene.hideUnseenCrew();
     atmosphere.update(scene.atmosphere);
     atmosphere.render();
+    scene.renderAuxiliary(renderer);
   };
 }
 
@@ -179,6 +198,12 @@ function raceControls(engine: Engine, hud: Hud, settings: Settings) {
   let padBoost = 0;
   let padErs = 0;
   let padPage = 0;
+  let padWing = 0;
+  let wingChoice: boolean | null = null;
+  const wingWanted = () => wingRequested(wingChoice, engine.carStatus());
+  const flipWing = () => {
+    wingChoice = !wingWanted();
+  };
   const cycleErs = () => {
     cruise = nextErsMode(engine.energyInfo().mode, cruise);
     engine.setErsMode(cruise);
@@ -206,6 +231,7 @@ function raceControls(engine: Engine, hud: Hud, settings: Settings) {
     y: () => {
       hud.nextMfdPage();
     },
+    n: flipWing,
     x: () => {
       engine.armStraight();
     },
@@ -228,9 +254,15 @@ function raceControls(engine: Engine, hud: Hud, settings: Settings) {
       if (pressed.boost !== padBoost) flipBoost();
       if (pressed.ers !== padErs) cycleErs();
       if (pressed.page !== padPage) hud.nextMfdPage();
+      if (pressed.wing !== padWing) flipWing();
       padPage = pressed.page;
+      padWing = pressed.wing;
       padBoost = pressed.boost;
       padErs = pressed.ers;
+    },
+    wingChange: wingWanted,
+    wingServed(): void {
+      wingChoice = null;
     },
   };
 }
@@ -253,10 +285,10 @@ async function createRenderer(
 ): Promise<THREE.WebGPURenderer> {
   const renderer = new THREE.WebGPURenderer({
     canvas: target,
-    antialias: true,
+    reversedDepthBuffer: true,
+    depth: false,
+    alpha: false,
   });
-  renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
-  renderer.toneMapping = THREE.NoToneMapping;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap;
   await renderer.init();
@@ -447,6 +479,7 @@ async function main(): Promise<void> {
   const driver = autostart
     ? await currentDriver()
     : await enterGame(renderer, settings, menu);
+  const audio = openAudio();
   const log = raceLog(driver, settings);
   const lights = chooseLights(settings, params);
 
@@ -493,9 +526,11 @@ async function main(): Promise<void> {
     },
   });
   const pad = padLink();
-  const sound = await GameSound.start();
+  const sound = await GameSound.start(audio);
 
+  let frameStale = true;
   const resize = () => {
+    frameStale = true;
     const width = canvas.clientWidth;
     const height = canvas.clientHeight;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -550,13 +585,15 @@ async function main(): Promise<void> {
   window.addEventListener("keydown", onKey(true));
   window.addEventListener("keyup", onKey(false));
 
-  engine.update(performance.now() / 1000);
-  setStatus("");
-  document.body.dataset["driveStatus"] = "running";
-
   const { pit: layout } = await fetchJson<{ pit: PitLayout }>(frameUrl);
   const pit = new PitStop(layout, settings.pitExperience === "broadcast");
   scene.placePit(layout, (d, l) => engine.trackPoint(d, l));
+  scene.update(engine.update(performance.now() / 1000));
+  setStatus("Preparing circuit…");
+  await scene.warmUp(renderer, draw);
+  setStatus("");
+  document.body.dataset["driveStatus"] = "running";
+
   const startFuel = engine.hudInfo().fuel;
   let padBrakeWas = false;
   const steerToward = (frame: Float64Array, drive: PitDrive) => {
@@ -578,12 +615,12 @@ async function main(): Promise<void> {
     rememberReference(driver, settings.track, car.car, best);
     log?.personalBest(best);
   });
-  const finishRace = () => {
+  const finishRace = (status: CarStatus) => {
     finished = true;
     log?.finish();
     sound.mute(true);
     window.setTimeout(() => {
-      showResults(hud, `${track.label} - ${sessionLabel}`);
+      showResults(hud, sessionTitle(track.label, sessionLabel, status));
     }, 1500);
   };
   const detector = new OvertakeDetector(engine.trackLength());
@@ -599,6 +636,9 @@ async function main(): Promise<void> {
     padBrakeWas = brakeDown;
     pitPressed = false;
     const distance = frame[frameIndex.distFromStart] ?? 0;
+    const replaceWing = controls.wingChange();
+    hud.setWingChoice(replaceWing);
+    pit.requestWing(replaceWing);
     const control = pit.update(
       {
         distance,
@@ -614,9 +654,15 @@ async function main(): Promise<void> {
       control.drive ? steerToward(frame, control.drive) : padInput,
       control.drive !== null,
     );
-    if (control.serviceNow) engine.pitService(startFuel);
+    if (control.serviceNow) {
+      engine.pitService(startFuel, control.wingChange);
+      controls.wingServed();
+    }
     return control;
   };
+  const sessionOver = (frame: Float64Array, status: CarStatus) =>
+    status.stopped ||
+    (totalLaps !== null && (frame[frameIndex.laps] ?? 0) > totalLaps);
   const step = (now: number) => {
     controls.pad(pad.pressed());
     const frame = engine.update(now);
@@ -626,7 +672,12 @@ async function main(): Promise<void> {
     const energy = engine.energyInfo();
     const speedKph = Math.abs(frame[frameIndex.speed] ?? 0) * 3.6;
     const audio = engine.carAudio(frame);
-    const rumble = scene.feel(audio.wheels, audio.speed, now);
+    const rumble = scene.feel(
+      audio.wheels,
+      audio.speed,
+      now,
+      tyreRoughness(tyres),
+    );
     pad.feedback(
       now,
       speedKph,
@@ -646,11 +697,11 @@ async function main(): Promise<void> {
       audio.wheels.map((w) => w.surface),
     );
     sound.update(audio);
-    hud.update(frame, info, tyres, energy, engine.carStatus(), now);
+    const status = engine.carStatus();
+    hud.update(frame, info, tyres, energy, status, now);
     hud.updatePit(control);
     watchBest();
-    if (totalLaps !== null && (frame[frameIndex.laps] ?? 0) > totalLaps)
-      finishRace();
+    if (sessionOver(frame, status)) finishRace(status);
   };
   const seek = params.get("buildup");
   if (!autostart && settings.buildUp && seek !== "off") {
@@ -671,7 +722,10 @@ async function main(): Promise<void> {
   }
   hudRoot.hidden = false;
   void renderer.setAnimationLoop(() => {
-    if (!paused && !finished) step(performance.now() / 1000);
+    const running = !paused && !finished;
+    if (running) step(performance.now() / 1000);
+    if (!running && !frameStale) return;
+    frameStale = false;
     canvas.style.transform = scene.mirrored ? "scaleX(-1)" : "";
     draw();
   });

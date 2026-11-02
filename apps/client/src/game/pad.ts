@@ -1,6 +1,6 @@
 import { renderSVG } from "uqr";
 
-const staleAfter = 0.25;
+const staleAfter = 0.6;
 const feedbackInterval = 0.1;
 
 export interface PadInput {
@@ -13,6 +13,7 @@ export interface PadCommands {
   boost: number;
   ers: number;
   page: number;
+  wing: number;
 }
 
 interface PadInfo {
@@ -32,7 +33,7 @@ function isPadInfo(value: unknown): value is PadInfo {
 export class PadLink {
   private socket: WebSocket | null = null;
   private input: PadInput = { steer: 0, throttle: 0, brake: 0 };
-  private commands: PadCommands = { boost: 0, ers: 0, page: 0 };
+  private commands: PadCommands = { boost: 0, ers: 0, page: 0, wing: 0 };
   private receivedAt = -Infinity;
   private sentAt = -Infinity;
 
@@ -98,9 +99,13 @@ export class PadLink {
     if (data.byteLength < 12) return;
     const [steer = 0, throttle = 0, brake = 0] = new Float32Array(data, 0, 3);
     this.input = { steer, throttle, brake };
-    if (data.byteLength >= 24) {
-      const [boost = 0, ers = 0, page = 0] = new Float32Array(data, 12, 3);
-      this.commands = { boost, ers, page };
+    if (data.byteLength >= 28) {
+      const [boost = 0, ers = 0, page = 0, wing = 0] = new Float32Array(
+        data,
+        12,
+        4,
+      );
+      this.commands = { boost, ers, page, wing };
     }
     this.receivedAt = performance.now() / 1000;
   }

@@ -16,7 +16,8 @@ import {
   time,
   vec3,
 } from "three/tsl";
-import { carEnvironment } from "./carpaint.ts";
+import { type CarEnvironment, carEnvironment } from "./carpaint.ts";
+import { finishAll, renderDisplay } from "./display.ts";
 import { GltfCar, gltfToSdCar } from "./gltf.ts";
 import { teamModel } from "./grid.ts";
 import { teams } from "./teams.ts";
@@ -148,7 +149,7 @@ export class Studio {
   private readonly stand = new THREE.Group();
   private readonly lods = new Map<string, THREE.Object3D>();
   private readonly mirrored = new Map<string, THREE.Object3D>();
-  private readonly env: THREE.Texture;
+  private readonly env: CarEnvironment;
   private hero: Hero | null = null;
   private selected = "";
   private request = 0;
@@ -266,7 +267,8 @@ export class Studio {
     const lod = this.lods.get(team);
     if (lod) this.stand.remove(lod);
     car.root.matrixAutoUpdate = true;
-    car.setDraw(true, true);
+    car.setDraw(true, true, true);
+    finishAll(car.root);
     car.setCompound(studioCompound);
     this.stand.add(car.root);
   }
@@ -336,8 +338,8 @@ export class Studio {
       width,
       height,
     );
-    this.hero?.car.renderAuxiliary(this.renderer, this.scene, () => undefined);
-    this.renderer.render(this.scene, this.camera);
+    this.hero?.car.renderAuxiliary(this.renderer, this.scene);
+    renderDisplay(this.renderer, this.scene, this.camera);
   }
 
   dispose(): void {
@@ -362,6 +364,6 @@ export class Studio {
       });
     this.lods.clear();
     this.mirrored.clear();
-    this.env.dispose();
+    this.env.texture.dispose();
   }
 }

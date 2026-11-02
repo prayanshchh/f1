@@ -1,0 +1,76 @@
+diff --git a/build/three.webgpu.js b/build/three.webgpu.js
+index 48b30e6bf4bf114ba5524ae509c81c4a043d27ea..c031d2096c47bd672fd7c1944f21a6b7f36948f1 100644
+--- a/build/three.webgpu.js
++++ b/build/three.webgpu.js
+@@ -47066,6 +47066,7 @@ class ShadowNode extends ShadowBaseNode {
+ 		shadowMap.texture.name = 'ShadowMap';
+ 		shadowMap.texture.type = shadow.mapType;
+ 		shadowMap.depthTexture = depthTexture;
++		shadowMap.discardColorBuffer = shadow.discardColorBuffer === true;
+ 
+ 		return { shadowMap, depthTexture };
+ 
+@@ -79674,6 +79675,12 @@ class WebGPUTextureUtils {
+ 
+ 		// when the multisampled data are discarded, try to use a transient attachment if possible
+ 
++		if ( texture.isDepthTexture !== true && renderTarget?.discardColorBuffer === true && supportsTransientAttachments ) {
++
++			usage = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TRANSIENT_ATTACHMENT;
++
++		}
++
+ 		if ( primarySamples > 1 && useTransientDepthAttachment ) {
+ 
+ 			usage = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TRANSIENT_ATTACHMENT;
+@@ -87902,7 +87909,7 @@ class WebGPUBackend extends Backend {
+ 
+ 		const depthStencilAttachment = descriptor.depthStencilAttachment;
+ 		const renderTarget = renderContext.renderTarget;
+-		const discardColor = renderContext.sampleCount > 1 && renderTarget?.storeMultisampledColorBuffer === false;
++		const discardColor = ( renderContext.sampleCount > 1 && renderTarget?.storeMultisampledColorBuffer === false ) || renderTarget?.discardColorBuffer === true;
+ 		const discardDepth = renderContext.sampleCount > 1 && renderTarget?.storeMultisampledDepthBuffer === false;
+ 		const discardStencil = renderContext.sampleCount > 1 && renderTarget?.storeMultisampledStencilBuffer === false;
+ 
+diff --git a/src/nodes/lighting/ShadowNode.js b/src/nodes/lighting/ShadowNode.js
+index 7912654fdadc8cd6e3b1567feb81348763a0ab59..0bb311ec03ac19841e601307c23da4dac3dd78b3 100644
+--- a/src/nodes/lighting/ShadowNode.js
++++ b/src/nodes/lighting/ShadowNode.js
+@@ -341,6 +341,7 @@ class ShadowNode extends ShadowBaseNode {
+ 		shadowMap.texture.name = 'ShadowMap';
+ 		shadowMap.texture.type = shadow.mapType;
+ 		shadowMap.depthTexture = depthTexture;
++		shadowMap.discardColorBuffer = shadow.discardColorBuffer === true;
+ 
+ 		return { shadowMap, depthTexture };
+ 
+diff --git a/src/renderers/webgpu/WebGPUBackend.js b/src/renderers/webgpu/WebGPUBackend.js
+index e6345e42e2008f6606971c626326d6479e50a51a..27d3cceb930229a0ee819e34e13d8e158116e20d 100644
+--- a/src/renderers/webgpu/WebGPUBackend.js
++++ b/src/renderers/webgpu/WebGPUBackend.js
+@@ -946,7 +946,7 @@ class WebGPUBackend extends Backend {
+ 
+ 		const depthStencilAttachment = descriptor.depthStencilAttachment;
+ 		const renderTarget = renderContext.renderTarget;
+-		const discardColor = renderContext.sampleCount > 1 && renderTarget?.storeMultisampledColorBuffer === false;
++		const discardColor = ( renderContext.sampleCount > 1 && renderTarget?.storeMultisampledColorBuffer === false ) || renderTarget?.discardColorBuffer === true;
+ 		const discardDepth = renderContext.sampleCount > 1 && renderTarget?.storeMultisampledDepthBuffer === false;
+ 		const discardStencil = renderContext.sampleCount > 1 && renderTarget?.storeMultisampledStencilBuffer === false;
+ 
+diff --git a/src/renderers/webgpu/utils/WebGPUTextureUtils.js b/src/renderers/webgpu/utils/WebGPUTextureUtils.js
+index 0b02ff45ed682a86f5b9b416262048d5c4fef666..1babd6710bbab5162c9c2b281354ffea74e7ce15 100644
+--- a/src/renderers/webgpu/utils/WebGPUTextureUtils.js
++++ b/src/renderers/webgpu/utils/WebGPUTextureUtils.js
+@@ -383,6 +383,12 @@ class WebGPUTextureUtils {
+ 
+ 		// when the multisampled data are discarded, try to use a transient attachment if possible
+ 
++		if ( texture.isDepthTexture !== true && renderTarget?.discardColorBuffer === true && supportsTransientAttachments ) {
++
++			usage = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TRANSIENT_ATTACHMENT;
++
++		}
++
+ 		if ( primarySamples > 1 && useTransientDepthAttachment ) {
+ 
+ 			usage = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TRANSIENT_ATTACHMENT;

@@ -4,6 +4,7 @@ import crewUrl from "../../../../content/tracks/cota/crew.glb?url";
 import racingLineUrl from "../../../../content/tracks/cota/racing-line.json?url";
 import roadUrl from "../../../../content/tracks/cota/road.glb?url";
 import { SdCar } from "./car.ts";
+import { FieldCars } from "./field-cars.ts";
 import { frameIndex, type Engine } from "./engine.ts";
 import { GltfCar, placeOnTrack, type TrackFrame } from "./gltf.ts";
 import { SdLighting } from "./materials.ts";
@@ -65,6 +66,8 @@ export class Scene {
     private readonly racingLine: RacingLineView,
     readonly crew: PitCrew,
     private readonly lapScale: number,
+    private readonly field: FieldCars | null,
+    private readonly lightLead: number | null,
   ) {
     this.camera.matrixAutoUpdate = false;
     this.camera.matrixWorldAutoUpdate = false;
@@ -85,6 +88,7 @@ export class Scene {
     this.scene.add(this.dome, track, car.root, this.smoke.root);
     this.sunlight = new Sunlight(this.scene);
     this.scene.add(this.marks.mesh, this.crew.root, this.gate.mesh);
+    if (field) this.scene.add(field.root);
     castShadows(car.root);
   }
 
@@ -94,6 +98,9 @@ export class Scene {
     body: string,
     anisotropy: number,
     lineMode: RacingLineMode,
+    rivals: string[],
+    lightLead: number | null,
+    teamColour: string | null,
   ): Promise<Scene> {
     const lighting = new SdLighting();
     const local = engine.trackLocal();
@@ -104,8 +111,17 @@ export class Scene {
       PitCrew.load(crewUrl, anisotropy),
       body === "vanta"
         ? GltfCar.load(vantaUrl, lighting, new THREE.Color("#d8471c"))
-        : SdCar.load(assets, lighting, engine.carInfo()),
+        : SdCar.load(
+            assets,
+            lighting,
+            engine.carInfo(),
+            teamColour ? new THREE.Color(teamColour) : null,
+          ),
     ]);
+    const field =
+      rivals.length > 0
+        ? await FieldCars.load(assets, lighting, engine.carInfo(), rivals)
+        : null;
     const racingLine = new RacingLineView(data, data.profile, lineMode);
     const start = engine.trackPoint(0, 0);
     const track = new THREE.Group();
@@ -121,7 +137,13 @@ export class Scene {
       racingLine,
       crew,
       data.length / engine.trackLength(),
+      field,
+      lightLead,
     );
+  }
+
+  updateField(cars: Float64Array): void {
+    this.field?.update(cars, this.camera);
   }
 
   feel(wheels: RumbleWheel[], speed: number, now: number): number {
@@ -221,7 +243,8 @@ export class Scene {
     const [, , , , , , , , , , , , eyeX, eyeY, eyeZ] =
       this.camera.matrixWorld.elements;
     const time = frame[frameIndex.time] ?? 0;
-    setStartLights(time);
+    if (this.lightLead === null) setStartLights(time);
+    else setStartLights(time, this.lightLead, 1);
     const sky = this.sky.update(time, time, eyeX, eyeY);
     this.lighting.update(sky, this.camera);
     this.sunlight.update(sky, eyeX, eyeY, eyeZ);

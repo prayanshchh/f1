@@ -20,11 +20,13 @@ import {
   frameIndex,
   loadSpeedDreams,
   type RaceSystems,
+  sessionKinds,
+  type SessionPlan,
   setupSource,
 } from "./game/engine.ts";
-import { Hud, lapTime, signed, type TrackMap } from "./game/hud.ts";
+import { Hud, type HudOptions, type TrackMap } from "./game/hud.ts";
 import { sdlKeycode } from "./game/keys.ts";
-import { compoundIndex, wearScale } from "./game/tyres.ts";
+import { compoundIndex, nextCompound, wearScale } from "./game/tyres.ts";
 import { LapTrace } from "./game/laptrace.ts";
 import { Menu } from "./game/menu.ts";
 import { SdAssets } from "./game/models.ts";
@@ -35,10 +37,22 @@ import { GameSound } from "./game/sound/game-sound.ts";
 import {
   applySettings,
   carOf,
+  defaults,
   loadSettings,
   type Settings,
+  stageOf,
   trackOf,
 } from "./game/settings.ts";
+import {
+  difficultyScale,
+  loadWeekend,
+  planWeekend,
+  saveWeekend,
+  segmentNames,
+  type Stage,
+  type WeekendPlan,
+} from "./game/weekend.ts";
+import { WeekendFlow } from "./game/weekend-flow.ts";
 
 const canvas = document.querySelector<HTMLCanvasElement>(
   "[data-testid=drive-canvas]",
@@ -90,70 +104,6 @@ function loadReference(
   } catch {
     return null;
   }
-}
-
-function cell(text: string, className = ""): HTMLTableCellElement {
-  const td = document.createElement("td");
-  td.textContent = text;
-  if (className) td.className = className;
-  return td;
-}
-
-function showResults(hud: Hud, title: string): void {
-  const best = hud.laps.reduce<number | null>(
-    (b, lap) => (b === null || lap.time < b ? lap.time : b),
-    null,
-  );
-  const total = hud.laps.reduce((sum, lap) => sum + lap.time, 0);
-  const sectorCount = hud.laps[0]?.sectors.length ?? 3;
-  const bestSectors = Array.from({ length: sectorCount }, (_, i) =>
-    Math.min(...hud.laps.map((lap) => lap.sectors[i] ?? Infinity)),
-  );
-  element("[data-results=title]").textContent = title;
-  element("[data-results=summary]").textContent =
-    `Total ${lapTime(total)} · Best ${lapTime(best)}`;
-  element("[data-results=head]").replaceChildren(
-    ...[
-      "Lap",
-      ...bestSectors.map((_, i) => `S${String(i + 1)}`),
-      "Time",
-      "Gap",
-    ].map((label) => {
-      const th = document.createElement("th");
-      th.textContent = label;
-      return th;
-    }),
-  );
-  element("[data-results=laps]").replaceChildren(
-    ...hud.laps.map((lap, index) => {
-      const row = document.createElement("tr");
-      row.style.setProperty("--i", String(index));
-      row.classList.toggle("best", lap.time === best);
-      row.append(
-        cell(String(lap.lap), "pos"),
-        ...lap.sectors.map((t, i) =>
-          cell(t.toFixed(3), t === bestSectors[i] ? "purple" : ""),
-        ),
-        cell(lapTime(lap.time), lap.time === best ? "purple time" : "time"),
-        cell(
-          best === null || lap.time === best ? "" : signed(lap.time - best),
-          "gap",
-        ),
-      );
-      return row;
-    }),
-  );
-  const root = element("[data-results=root]");
-  root.hidden = false;
-  requestAnimationFrame(() => {
-    root.classList.add("open");
-  });
-  element("[data-results=restart]").addEventListener("click", () => {
-    restart(true);
-  });
-  element("[data-results=menu]").addEventListener("click", () => {
-    restart(false);
-  });
 }
 
 function trackMap(engine: Engine): TrackMap {
@@ -211,6 +161,9 @@ function raceControls(engine: Engine, hud: Hud, settings: Settings) {
     y: () => {
       hud.nextMfdPage();
     },
+    tab: () => {
+      hud.toggleTower();
+    },
     x: () => {
       engine.armStraight();
     },
@@ -240,11 +193,20 @@ function raceControls(engine: Engine, hud: Hud, settings: Settings) {
   };
 }
 
-function raceSystems(settings: Settings): RaceSystems {
+const fieldCar = "22mp1-sector-mcl36";
+const wearShortestRace = 28;
+const shortQualifying = 0.5;
+const fieldReferenceLap = 97.5;
+
+function raceSystems(settings: Settings, stage: Stage | null): RaceSystems {
   return {
-    compound: compoundIndex(settings.compound),
-    wearScale: wearScale(settings.tyreWear, settings.session, settings.laps),
-    isRace: settings.session === "race",
+    compound: stage === "qualifying" ? 0 : compoundIndex(settings.compound),
+    wearScale: wearScale(
+      stage === "qualifying" ? "real" : settings.tyreWear,
+      stage === "race" ? "race" : "practice",
+      Math.max(settings.laps, wearShortestRace),
+    ),
+    isRace: stage === "race",
     ersMode: settings.ersMode,
     fuelMix: settings.fuelMix,
     ersAssist: settings.ersAssist,
@@ -252,19 +214,139 @@ function raceSystems(settings: Settings): RaceSystems {
   };
 }
 
-async function main(): Promise<void> {
-  if (!canvas || !hudRoot) throw new Error("drive page markup is missing");
-  fitStage();
-  window.addEventListener("resize", fitStage);
+function sessionPlan(
+  settings: Settings,
+  stage: Stage,
+  field: WeekendPlan,
+): SessionPlan {
+  return {
+    kind: stage === "race" ? sessionKinds.race : sessionKinds.qualifying,
+    laps: settings.laps,
+    lengthScale: settings.qualifyingLength === "short" ? shortQualifying : 1,
+    difficulty: difficultyScale(settings.difficulty),
+    seed: Math.floor(Math.random() * 1_000_000),
+    reference: fieldReferenceLap,
+    field,
+  };
+}
+
+interface SessionSetup {
+  stage: Stage | null;
+  field: WeekendPlan | null;
+  plan: SessionPlan | null;
+}
+
+function prepareSession(settings: Settings): SessionSetup {
+  const weekend = settings.session === "weekend" ? loadWeekend() : null;
+  const stage = stageOf(settings, weekend?.stage ?? null);
+  if (!stage) return { stage, field: null, plan: null };
+  if (carOf(settings).car !== fieldCar) settings.car = defaults.car;
+  const field = planWeekend(
+    settings.team,
+    settings.startSlot,
+    weekend?.grid ?? null,
+  );
+  return { stage, field, plan: sessionPlan(settings, stage, field) };
+}
+
+function fieldColours(field: WeekendPlan | null) {
+  const [player, ...rivals] = field?.entrants ?? [];
+  return {
+    player: player?.colour ?? null,
+    rivals: rivals.map((entrant) => entrant.colour),
+  };
+}
+
+function referenceLap(reference: { sectors: number[] } | null): number | null {
+  return reference ? reference.sectors.reduce((a, b) => a + b, 0) : null;
+}
+
+function sessionLabel(stage: Stage | null): string {
+  if (stage === "race") return "Race";
+  return stage === "qualifying" ? (segmentNames[0] ?? "Q1") : "Practice";
+}
+
+function hudOptions(
+  settings: Settings,
+  setup: SessionSetup,
+  engine: Engine,
+  best: number | null,
+  lightLead: number | null,
+): HudOptions {
+  return {
+    totalLaps: setup.stage === "race" ? settings.laps : null,
+    parts: settings.hud,
+    session: sessionLabel(setup.stage),
+    reference: best,
+    map: trackMap(engine),
+    field: setup.field?.entrants ?? null,
+    qualifying: setup.stage === "qualifying",
+    lightLead: lightLead ?? 2,
+    lightInterval: lightLead === null ? 0.4 : 1,
+  };
+}
+
+async function startRenderer(
+  target: HTMLCanvasElement,
+): Promise<THREE.WebGPURenderer> {
   if (!("gpu" in navigator))
     throw new Error("This page needs WebGPU (Chrome 113 or newer).");
-
-  const renderer = new THREE.WebGPURenderer({ canvas, antialias: true });
+  const renderer = new THREE.WebGPURenderer({
+    canvas: target,
+    antialias: true,
+  });
   renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
   renderer.toneMapping = THREE.NoToneMapping;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap;
   await renderer.init();
+  return renderer;
+}
+
+async function runMenu(menu: Menu, params: URLSearchParams): Promise<void> {
+  const autostart =
+    sessionStorage.getItem(autostartKey) === "1" || params.has("autostart");
+  sessionStorage.removeItem(autostartKey);
+  if (autostart) return;
+  setStatus("");
+  await menu.run(false);
+  saveWeekend(null);
+}
+
+async function pitLayout(
+  engine: Engine,
+  field: WeekendPlan | null,
+): Promise<PitLayout> {
+  const { pit } = (await (await fetch("/wasm/sd-frame.json")).json()) as {
+    pit: PitLayout;
+  };
+  return field ? { ...pit, boxDistance: engine.playerBox() } : pit;
+}
+
+function pitInput(frame: Float64Array, laneClear: boolean) {
+  return {
+    distance: frame[frameIndex.distFromStart] ?? 0,
+    toMiddle: frame[frameIndex.toMiddle] ?? 0,
+    speed: Math.abs(frame[frameIndex.speed] ?? 0),
+    laneClear,
+  };
+}
+
+function poseOf(frame: Float64Array) {
+  const posMat = frameIndex.posMat;
+  return {
+    x: frame[posMat + 12] ?? 0,
+    y: frame[posMat + 13] ?? 0,
+    heading: Math.atan2(frame[posMat + 1] ?? 0, frame[posMat] ?? 1),
+    speed: Math.abs(frame[frameIndex.speed] ?? 0),
+  };
+}
+
+async function main(): Promise<void> {
+  if (!canvas || !hudRoot) throw new Error("drive page markup is missing");
+  fitStage();
+  window.addEventListener("resize", fitStage);
+  const renderer = await startRenderer(canvas);
 
   const params = new URLSearchParams(location.search);
   setStatus("Loading Speed Dreams…");
@@ -272,18 +354,13 @@ async function main(): Promise<void> {
   const settings = loadSettings(params);
   const source = setupSource(module);
   const menu = new Menu(source, settings);
-
-  const autostart =
-    sessionStorage.getItem(autostartKey) === "1" || params.has("autostart");
-  sessionStorage.removeItem(autostartKey);
-  if (!autostart) {
-    setStatus("");
-    await menu.run(false);
-  }
+  await runMenu(menu, params);
 
   const track = trackOf(settings);
+  const setup = prepareSession(settings);
+  const { stage, field, plan } = setup;
   const car = carOf(settings);
-  applySettings(source, settings);
+  applySettings(source, settings, stage);
   setStatus(`Loading ${track.label}…`);
   const engine = Engine.start(
     module,
@@ -293,15 +370,22 @@ async function main(): Promise<void> {
     settings.assist,
     settings.antiLock,
     performance.now() / 1000,
-    raceSystems(settings),
+    raceSystems(settings, stage),
+    plan,
   );
+  if (params.has("autopilot")) engine.autopilot(true);
+  const lightLead = stage === "race" ? engine.session().startDelay : null;
   const assets = await SdAssets.open("/wasm/sd/");
+  const colours = fieldColours(field);
   const scene = await Scene.load(
     engine,
     assets,
     car.body,
     renderer.getMaxAnisotropy(),
     settings.racingLine,
+    colours.rivals,
+    lightLead,
+    colours.player,
   );
   const draw = drawer(renderer, scene);
 
@@ -311,14 +395,12 @@ async function main(): Promise<void> {
     engine.sectorBoundaries(),
     reference,
   );
-  const totalLaps = settings.session === "race" ? settings.laps : null;
-  const hud = new Hud(hudRoot, trace, {
-    totalLaps,
-    parts: settings.hud,
-    session: settings.session === "race" ? "Race" : "Practice",
-    reference: reference ? reference.sectors.reduce((a, b) => a + b, 0) : null,
-    map: trackMap(engine),
-  });
+  const bestOfReference = referenceLap(reference);
+  const hud = new Hud(
+    hudRoot,
+    trace,
+    hudOptions(settings, setup, engine, bestOfReference, lightLead),
+  );
   const pad = padLink();
   const sound = await GameSound.start();
   hudRoot.hidden = false;
@@ -336,9 +418,10 @@ async function main(): Promise<void> {
 
   let pitPressed = false;
   let paused = false;
-  let finished = false;
+  let flow: WeekendFlow | null = null;
+  const finished = () => flow?.finished === true;
   const pause = () => {
-    if (paused || finished) return;
+    if (paused || finished()) return;
     paused = true;
     sound.mute(true);
     void menu.run(true).then((action) => {
@@ -369,7 +452,7 @@ async function main(): Promise<void> {
     if (event.key === "Escape") {
       event.preventDefault();
       if (down && !event.repeat) pause();
-    } else if (!paused && !finished) {
+    } else if (!paused && !finished()) {
       drive(down, event);
     }
   };
@@ -380,50 +463,39 @@ async function main(): Promise<void> {
   setStatus("");
   document.body.dataset["driveStatus"] = "running";
 
-  const layout = (
-    (await (await fetch("/wasm/sd-frame.json")).json()) as { pit: PitLayout }
-  ).pit;
+  const layout = await pitLayout(engine, field);
   const pit = new PitStop(layout, settings.pitExperience === "broadcast");
   scene.placePit(layout, (d, l) => engine.trackPoint(d, l));
   const startFuel = engine.hudInfo().fuel;
   let padBrakeWas = false;
-  const steerToward = (frame: Float64Array, drive: PitDrive) => {
-    const ahead = (frame[frameIndex.distFromStart] ?? 0) + drive.lookahead;
-    const posMat = frameIndex.posMat;
+  const steerToward = (frame: Float64Array, target: PitDrive) => {
+    const ahead = (frame[frameIndex.distFromStart] ?? 0) + target.lookahead;
     return steerCommand(
-      {
-        x: frame[posMat + 12] ?? 0,
-        y: frame[posMat + 13] ?? 0,
-        heading: Math.atan2(frame[posMat + 1] ?? 0, frame[posMat] ?? 1),
-        speed: Math.abs(frame[frameIndex.speed] ?? 0),
-      },
-      engine.trackPoint(ahead, drive.lateral - pit.shiftAt(ahead)),
-      drive.speed,
+      poseOf(frame),
+      engine.trackPoint(ahead, target.lateral - pit.shiftAt(ahead)),
+      target.speed,
     );
   };
 
-  let savedBest = reference
-    ? reference.sectors.reduce((a, b) => a + b, 0)
-    : Infinity;
+  let savedBest = bestOfReference ?? Infinity;
   const detector = new OvertakeDetector(engine.trackLength());
   const armOvertake = (frame: Float64Array) => {
     const distance = frame[frameIndex.distFromStart] ?? 0;
     const gap = trace.delta(distance, frame[frameIndex.curLapTime] ?? 0);
     if (detector.crossing(distance, gap)) engine.armOvertake();
   };
-  const applyPit = (frame: Float64Array, now: number) => {
+  const pitButton = (now: number) => {
     const padInput = pad.current(now);
     const brakeDown = (padInput?.brake ?? 0) > 0.5;
     const pressed = pitPressed || (brakeDown && !padBrakeWas);
     padBrakeWas = brakeDown;
     pitPressed = false;
-    const distance = frame[frameIndex.distFromStart] ?? 0;
+    return { padInput, pressed };
+  };
+  const applyPit = (frame: Float64Array, now: number) => {
+    const { padInput, pressed } = pitButton(now);
     const control = pit.update(
-      {
-        distance,
-        toMiddle: frame[frameIndex.toMiddle] ?? 0,
-        speed: Math.abs(frame[frameIndex.speed] ?? 0),
-      },
+      pitInput(frame, engine.pitLaneClear()),
       now,
       pressed,
     );
@@ -433,14 +505,50 @@ async function main(): Promise<void> {
       control.drive ? steerToward(frame, control.drive) : padInput,
       control.drive !== null,
     );
-    if (control.serviceNow) engine.pitService(startFuel);
+    if (control.serviceNow) {
+      if (stage === "race")
+        engine.setPitCompound(nextCompound(engine.tyreInfo().compound));
+      engine.pitService(startFuel);
+    }
     return control;
+  };
+  const openWeekend = () => {
+    if (!field || !stage) return;
+    flow = new WeekendFlow({
+      engine,
+      scene,
+      hud,
+      pit,
+      sound,
+      canvas,
+      hudRoot,
+      labelsRoot: element("[data-hud=labels]"),
+      resultsRoot: element("[data-results=root]"),
+      settings,
+      trackLabel: track.label,
+      stage,
+      field,
+      startFuel,
+      restart,
+    });
+    flow.start();
+  };
+  openWeekend();
+  const saveBestLap = () => {
+    const bestTime = trace.bestTime ?? Infinity;
+    if (bestTime >= savedBest) return;
+    savedBest = bestTime;
+    localStorage.setItem(
+      referenceKey(settings),
+      JSON.stringify(trace.reference),
+    );
   };
   const step = (now: number) => {
     controls.pad(pad.pressed());
     const frame = engine.update(now);
     const control = applyPit(frame, now);
-    armOvertake(frame);
+    if (flow) flow.update(now);
+    else armOvertake(frame);
     const tyres = engine.tyreInfo();
     const energy = engine.energyInfo();
     const speedKph = Math.abs(frame[frameIndex.speed] ?? 0) * 3.6;
@@ -465,27 +573,19 @@ async function main(): Promise<void> {
     sound.update(audio);
     hud.update(frame, engine.hudInfo(), tyres, energy, engine.carStatus(), now);
     hud.updatePit(control);
-    const bestTime = trace.bestTime ?? Infinity;
-    if (bestTime < savedBest) {
-      savedBest = bestTime;
-      localStorage.setItem(
-        referenceKey(settings),
-        JSON.stringify(trace.reference),
-      );
-    }
-    if (totalLaps !== null && (frame[frameIndex.laps] ?? 0) > totalLaps) {
-      finished = true;
-      sound.mute(true);
-      window.setTimeout(() => {
-        showResults(
-          hud,
-          `${track.label} - ${settings.session === "race" ? "Race" : "Practice"}`,
-        );
-      }, 1500);
-    }
+    saveBestLap();
   };
+  const afterFlag = (now: number) => {
+    const frame = engine.update(now);
+    flow?.update(now);
+    scene.update(frame);
+  };
+  if (params.has("debug"))
+    Object.assign(window, { f1Debug: { engine, scene, renderer } });
   void renderer.setAnimationLoop(() => {
-    if (!paused && !finished) step(performance.now() / 1000);
+    const now = performance.now() / 1000;
+    if (finished()) afterFlag(now);
+    else if (!paused) step(now);
     canvas.style.transform = scene.mirrored ? "scaleX(-1)" : "";
     draw();
   });

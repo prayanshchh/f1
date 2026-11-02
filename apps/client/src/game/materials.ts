@@ -13,6 +13,7 @@ import {
   normalViewGeometry,
   normalize,
   positionView,
+  smoothstep,
   pow,
   texture,
   uniform,
@@ -28,6 +29,9 @@ const materialDiffuse = 0.8;
 const carSpecular = 0.8;
 const carSmoothness = 300.0;
 const alphaClamp = 0.65;
+const teamShade = 1.15;
+const teamChromaLow = 0.12;
+const teamChromaHigh = 0.3;
 
 export class SdLighting {
   readonly sunView = uniform(new THREE.Vector3());
@@ -115,7 +119,19 @@ export class SdLighting {
       const h = normalize(l.add(v));
       const cosTh = max(0.0, dot(n, h));
       const cosTi = max(0.0, dot(n, l));
-      const diffuse = map ? texture(map, uv()) : vec4(0, 0, 0, 1);
+      const source = vec4(map ? texture(map, uv()) : vec4(0, 0, 0, 1));
+      const peak = max(max(source.r, source.g), source.b);
+      const chroma = peak.sub(source.r.min(source.g).min(source.b));
+      const diffuse = options.team
+        ? vec4(
+            mix(
+              source.rgb,
+              uniform(options.team).mul(peak.mul(teamShade)),
+              smoothstep(teamChromaLow, teamChromaHigh, chroma),
+            ),
+            source.a,
+          )
+        : source;
       const ambient = vec4(
         this.materialAmbient,
         this.materialAmbient,
@@ -157,6 +173,7 @@ export class SdLighting {
 export interface SurfaceOptions {
   map: THREE.Texture | null;
   color?: THREE.Color;
+  team?: THREE.Color;
   translucent: boolean;
   alphaClamp: boolean;
   twoSided: boolean;

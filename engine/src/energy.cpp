@@ -55,41 +55,48 @@ const double straightFront = 0.6;
 const double straightDrag = 0.55;
 const double differentialBase = 60.0;
 
-std::vector<tEngineCurveElem> baseCurve;
-double iceScale = 1.0;
-double baseBrakeLin = 0.0;
-tdble baseBrakeCoeff = 0.0;
-double baseMass = 0.0;
-double baseWing[2];
-double straightOpen;
-double baseDrag;
-double baseDiffSlip;
-double differential = differentialBase;
-bool straightAssist = true;
-bool straightArmed;
+struct CarEnergy
+{
+    std::vector<tEngineCurveElem> baseCurve;
+    double iceScale = 1.0;
+    double performance = 1.0;
+    double baseBrakeLin = 0.0;
+    tdble baseBrakeCoeff = 0.0;
+    double baseMass = 0.0;
+    double baseWing[2] = {0.0, 0.0};
+    double straightOpen = 0.0;
+    double baseDrag = 0.0;
+    double baseDiffSlip = 0.0;
+    double differential = differentialBase;
+    bool straightAssist = true;
+    bool straightArmed = false;
+    double battery = batteryCapacity;
+    double harvested = 0.0;
+    double deployed = 0.0;
+    double deployLevel = 0.0;
+    double motorPower = 0.0;
+    double icePower = 0.0;
+    double lapFuelStart = 0.0;
+    double lastLapFuel = 0.0;
+    double lastLapDeployed = 0.0;
+    double lastLapHarvested = 0.0;
+    int mode = MODE_MEDIUM;
+    int fuelMix = 1;
+    int lastLap = 0;
+    bool assist = false;
+    bool overtakeAlways = false;
+    bool overtakeArmed = false;
+    bool overtakeActive = false;
+    bool startGuard = false;
+    bool hybrid = false;
+};
 
-double battery = batteryCapacity;
-double harvested;
-double deployed;
-double deployLevel;
-double motorPower;
-double icePower;
-double lapFuelStart;
-double lastLapFuel;
-double lastLapDeployed;
-double lastLapHarvested;
-int mode = MODE_MEDIUM;
+std::vector<CarEnergy> field(1);
 int startMode = MODE_MEDIUM;
-int fuelMix = 1;
 int startMix = 1;
-int lastLap;
+bool playerAssist;
 bool raceSession;
-bool assist;
-bool overtakeAlways;
-bool overtakeArmed;
-bool overtakeActive;
-bool startGuard;
-bool hybrid;
+bool playerStraightAssist = true;
 
 double clamp01(double value)
 {
@@ -110,22 +117,22 @@ double overtakeLimit(double kph)
     return std::max(0.0, std::min(350.0e3, (7100.0 - 20.0 * kph) * 1e3));
 }
 
-double curveTorque(double rads)
+double curveTorque(const CarEnergy &e, double rads)
 {
-    for (const tEngineCurveElem &point : baseCurve)
+    for (const tEngineCurveElem &point : e.baseCurve)
         if (rads < point.rads)
             return rads * point.a + point.b;
     return 0.0;
 }
 
-double harvestLimit()
+double harvestLimit(const CarEnergy &e)
 {
-    return (raceSession ? raceHarvestLimit : sessionHarvestLimit) + (overtakeActive ? overtakeHarvest : 0.0);
+    return (raceSession ? raceHarvestLimit : sessionHarvestLimit) + (e.overtakeActive ? overtakeHarvest : 0.0);
 }
 
-double harvestRoom(double dt)
+double harvestRoom(const CarEnergy &e, double dt)
 {
-    double room = std::min(batteryCapacity - battery, harvestLimit() - harvested);
+    double room = std::min(batteryCapacity - e.battery, harvestLimit(e) - e.harvested);
     return std::max(0.0, room / std::max(dt, 1e-6));
 }
 
@@ -134,28 +141,28 @@ double speedFade(double kph)
     return clamp01((kph - harvestZeroSpeed) / (harvestFullSpeed - harvestZeroSpeed));
 }
 
-int assistMode()
+int assistMode(const CarEnergy &e)
 {
-    double share = battery / batteryCapacity;
+    double share = e.battery / batteryCapacity;
     if (share > 0.7)
         return MODE_HOTLAP;
     return share > 0.2 ? MODE_MEDIUM : MODE_NONE;
 }
 
-void updateDeployLevel(double kph, double dt)
+void updateDeployLevel(CarEnergy &e, double kph, double dt)
 {
-    int active = assist ? assistMode() : mode;
-    double limit = overtakeActive ? overtakeLimit(kph) : standardLimit(kph);
+    int active = e.assist ? assistMode(e) : e.mode;
+    double limit = e.overtakeActive ? overtakeLimit(kph) : standardLimit(kph);
     double target = std::min(limit, modeDeploy[active]);
     if (active != MODE_BOOST && kph >= clipSpeed)
         target = -modeClip[active];
-    if (startGuard)
+    if (e.startGuard)
         target = std::min(target, 0.0);
-    if (target > deployLevel)
-        deployLevel = std::min(target, deployLevel + rampUp * dt);
+    if (target > e.deployLevel)
+        e.deployLevel = std::min(target, e.deployLevel + rampUp * dt);
     else
-        deployLevel = std::max(target, deployLevel - rampDown * dt);
-    deployLevel = std::min(deployLevel, limit);
+        e.deployLevel = std::max(target, e.deployLevel - rampDown * dt);
+    e.deployLevel = std::min(e.deployLevel, limit);
 }
 
 struct Split
@@ -163,9 +170,9 @@ struct Split
     double net, battery;
 };
 
-Split pedalSplit(double alpha, double ice, double kph, double dt)
+Split pedalSplit(const CarEnergy &e, double alpha, double ice, double kph, double dt)
 {
-    double room = harvestRoom(dt);
+    double room = harvestRoom(e, dt);
     double fade = speedFade(kph);
     double full = std::min(room, liftHarvest * fade);
     double half = kph >= clipSpeed ? full : full * 0.5;
@@ -184,145 +191,193 @@ Split pedalSplit(double alpha, double ice, double kph, double dt)
     }
     double x = (alpha - halfThrottle) / (1.0 - halfThrottle);
     double harvest = half * (1.0 - x);
-    double level = deployLevel > 0 ? deployLevel * x : std::max(deployLevel, -room) * x;
+    double level = e.deployLevel > 0 ? e.deployLevel * x : std::max(e.deployLevel, -room) * x;
     if (level > 0)
-        level = std::min(level, battery / std::max(dt, 1e-6));
+        level = std::min(level, e.battery / std::max(dt, 1e-6));
     return {ice - harvest + level, harvest - level};
 }
 
-double brakeRegen(tCarElt *elt, double kph, double dt)
+double brakeRegen(const CarEnergy &e, tCarElt *elt, double kph, double dt)
 {
     double decel = std::max(0.0, -(double)elt->_accel_x);
-    double available = baseMass * decel * fabs(elt->_speed_x) * brakeShare;
-    return std::min({brakeHarvest * speedFade(kph), available, harvestRoom(dt)});
+    double available = e.baseMass * decel * fabs(elt->_speed_x) * brakeShare;
+    return std::min({brakeHarvest * speedFade(kph), available, harvestRoom(e, dt)});
 }
 
-void setTorque(tEngine &engine, double alpha, double torque, double rads)
+void setTorque(const CarEnergy &e, tEngine &engine, double alpha, double torque, double rads)
 {
-    double base = curveTorque(rads);
-    engine.brakeLinCoeff = (tdble)baseBrakeLin;
-    engine.brakeCoeff = baseBrakeCoeff;
-    double friction = baseBrakeLin * rads;
+    double base = curveTorque(e, rads);
+    engine.brakeLinCoeff = (tdble)e.baseBrakeLin;
+    engine.brakeCoeff = e.baseBrakeCoeff;
+    double friction = e.baseBrakeLin * rads;
     if (alpha > minAlpha && base > 1.0)
     {
         double scale = ((torque + friction) / alpha - friction) / base;
         scale = std::max(-maxTorqueScale, std::min(maxTorqueScale, scale));
-        for (size_t i = 0; i < baseCurve.size(); i++)
+        for (size_t i = 0; i < e.baseCurve.size(); i++)
         {
-            engine.curve.data[i].a = (tdble)(baseCurve[i].a * scale);
-            engine.curve.data[i].b = (tdble)(baseCurve[i].b * scale);
+            engine.curve.data[i].a = (tdble)(e.baseCurve[i].a * scale);
+            engine.curve.data[i].b = (tdble)(e.baseCurve[i].b * scale);
         }
         return;
     }
-    engine.brakeLinCoeff = (tdble)std::max(baseBrakeLin, -torque / std::max(rads, 1.0));
+    engine.brakeLinCoeff = (tdble)std::max(e.baseBrakeLin, -torque / std::max(rads, 1.0));
 }
 
-void updateAero(tCar *car, tCarElt *elt, double alpha, double brake, double kph, double dt)
+void updateAero(CarEnergy &e, tCar *car, tCarElt *elt, double alpha, double brake, double kph, double dt)
 {
     bool pedals = alpha >= straightAlpha && brake < 0.02;
-    if (!straightAssist && (alpha < straightLift || brake >= 0.02))
-        straightArmed = false;
-    bool open = pedals && kph >= straightSpeed && (straightAssist ? fabs(elt->_steerCmd) < straightSteer : straightArmed);
+    if (!e.straightAssist && (alpha < straightLift || brake >= 0.02))
+        e.straightArmed = false;
+    bool open = pedals && kph >= straightSpeed && (e.straightAssist ? fabs(elt->_steerCmd) < straightSteer : e.straightArmed);
     double rate = open ? straightOpenRate : -straightCloseRate;
-    straightOpen = clamp01(straightOpen + rate * dt);
+    e.straightOpen = clamp01(e.straightOpen + rate * dt);
     elt->ctrl.wingControlMode = 2;
-    car->aero.CdBody = (tdble)(baseDrag * (1.0 - (1.0 - straightDrag) * straightOpen) * sdDamageDrag());
-    elt->ctrl.wingFrontCmd = (tdble)(baseWing[0] * (1.0 - (1.0 - straightFront) * straightOpen));
-    elt->ctrl.wingRearCmd = (tdble)(baseWing[1] * (1.0 - (1.0 - straightRear) * straightOpen));
+    car->aero.CdBody = (tdble)(e.baseDrag * (1.0 - (1.0 - straightDrag) * e.straightOpen) * sdDamageDrag(elt->index));
+    elt->ctrl.wingFrontCmd = (tdble)(e.baseWing[0] * (1.0 - (1.0 - straightFront) * e.straightOpen));
+    elt->ctrl.wingRearCmd = (tdble)(e.baseWing[1] * (1.0 - (1.0 - straightRear) * e.straightOpen));
 }
 
-void burnFuel(tCar *car, double alpha, double dt)
+void burnFuel(const CarEnergy &e, tCar *car, double alpha, double dt)
 {
-    double flow = flowRate / fuelEnergy * mixBurn[fuelMix];
+    double flow = flowRate / fuelEnergy * mixBurn[e.fuelMix];
     double burn = flow * (idleFlow + (1.0 - idleFlow) * clamp01(alpha)) * dt;
     car->fuel = (tdble)std::max(0.0, (double)car->fuel - burn);
 }
 
-void closeLap(tCarElt *elt)
+void closeLap(CarEnergy &e, tCarElt *elt)
 {
-    if (elt->_laps <= lastLap)
+    if (elt->_laps <= e.lastLap)
     {
-        lastLap = elt->_laps;
+        e.lastLap = elt->_laps;
         return;
     }
-    if (lastLap >= 1)
+    if (e.lastLap >= 1)
     {
-        lastLapFuel = lapFuelStart - elt->_fuel;
-        lastLapDeployed = deployed;
-        lastLapHarvested = harvested;
+        e.lastLapFuel = e.lapFuelStart - elt->_fuel;
+        e.lastLapDeployed = e.deployed;
+        e.lastLapHarvested = e.harvested;
     }
-    lastLap = elt->_laps;
-    lapFuelStart = elt->_fuel;
-    harvested = 0;
-    deployed = 0;
-    overtakeActive = overtakeAlways || overtakeArmed;
-    overtakeArmed = false;
+    e.lastLap = elt->_laps;
+    e.lapFuelStart = elt->_fuel;
+    e.harvested = 0;
+    e.deployed = 0;
+    e.overtakeActive = e.overtakeAlways || e.overtakeArmed;
+    e.overtakeArmed = false;
 }
 
 }
 
 void sdEnergyReset(tCarElt *elt)
 {
-    hybrid = strcmp(elt->_category, hybridCategory) == 0;
-    if (!hybrid)
+    if ((int)field.size() <= elt->index)
+        field.resize(elt->index + 1);
+    CarEnergy &e = field[elt->index];
+    e.hybrid = strcmp(elt->_category, hybridCategory) == 0;
+    if (!e.hybrid)
         return;
     tCar *car = &SimCarTable[elt->index];
     tEngine &engine = car->engine;
-    baseCurve.assign(engine.curve.data, engine.curve.data + engine.curve.nbPts);
-    baseBrakeLin = engine.brakeLinCoeff;
-    baseBrakeCoeff = engine.brakeCoeff;
-    baseMass = car->mass;
-    baseWing[0] = car->wing[0].angle;
-    baseWing[1] = car->wing[1].angle;
-    straightOpen = 0;
-    baseDrag = car->aero.CdBody;
-    baseDiffSlip = car->transmission.differential[TRANS_REAR_DIFF].dSlipMax;
-    differential = differentialBase;
-    straightArmed = false;
-    iceScale = icePeak / std::max(1.0, (double)engine.curve.maxPw);
+    bool player = elt->index == 0;
+    e.baseCurve.assign(engine.curve.data, engine.curve.data + engine.curve.nbPts);
+    e.baseBrakeLin = engine.brakeLinCoeff;
+    e.baseBrakeCoeff = engine.brakeCoeff;
+    e.baseMass = car->mass;
+    e.baseWing[0] = car->wing[0].angle;
+    e.baseWing[1] = car->wing[1].angle;
+    e.straightOpen = 0;
+    e.baseDrag = car->aero.CdBody;
+    e.baseDiffSlip = car->transmission.differential[TRANS_REAR_DIFF].dSlipMax;
+    e.differential = differentialBase;
+    e.straightAssist = player ? playerStraightAssist : true;
+    e.straightArmed = false;
+    e.iceScale = icePeak / std::max(1.0, (double)engine.curve.maxPw);
     engine.fuelcons = 0;
-    battery = batteryCapacity;
-    harvested = deployed = 0;
-    deployLevel = motorPower = icePower = 0;
-    lastLapFuel = lastLapDeployed = lastLapHarvested = 0;
-    lapFuelStart = elt->_fuel;
-    mode = startMode;
-    fuelMix = startMix;
-    lastLap = elt->_laps;
-    overtakeActive = overtakeAlways;
-    overtakeArmed = false;
-    startGuard = raceSession;
+    e.battery = batteryCapacity;
+    e.harvested = e.deployed = 0;
+    e.deployLevel = e.motorPower = e.icePower = 0;
+    e.lastLapFuel = e.lastLapDeployed = e.lastLapHarvested = 0;
+    e.lapFuelStart = elt->_fuel;
+    e.mode = startMode;
+    e.fuelMix = startMix;
+    e.assist = player ? playerAssist : true;
+    e.lastLap = elt->_laps;
+    e.overtakeAlways = !raceSession;
+    e.overtakeActive = e.overtakeAlways;
+    e.overtakeArmed = false;
+    e.startGuard = raceSession;
+}
+
+void sdEnergyRestore(int index)
+{
+    CarEnergy &e = field[index];
+    e.battery = batteryCapacity;
+    e.harvested = e.deployed = 0;
+    e.deployLevel = 0;
+}
+
+void sdEnergySetPerformance(int index, double factor)
+{
+    field[index].performance = factor;
+}
+
+void sdEnergySetMode(int index, int value)
+{
+    CarEnergy &e = field[index];
+    e.assist = false;
+    e.mode = value;
+}
+
+double sdEnergyBatteryShare(int index)
+{
+    return field[index].battery / batteryCapacity;
+}
+
+void sdEnergyArmOvertake(int index)
+{
+    field[index].overtakeArmed = true;
+}
+
+bool sdEnergyOvertakeActive(int index)
+{
+    return field[index].overtakeActive;
+}
+
+double sdEnergyLastLapFuel(int index)
+{
+    return field[index].lastLapFuel;
 }
 
 void sdEnergyStep(tCarElt *elt, double dt)
 {
-    if (!hybrid)
+    CarEnergy &e = field[elt->index];
+    if (!e.hybrid)
         return;
     tCar *car = &SimCarTable[elt->index];
     tEngine &engine = car->engine;
-    closeLap(elt);
+    closeLap(e, elt);
     double kph = fabs(elt->_speed_x) * 3.6;
     if (kph >= startDeploySpeed)
-        startGuard = false;
-    updateDeployLevel(kph, dt);
+        e.startGuard = false;
+    updateDeployLevel(e, kph, dt);
     double alpha = clamp01(car->ctrl->accelCmd);
     double brake = clamp01(car->ctrl->brakeCmd);
     double rads = std::max((double)engine.tickover, (double)engine.rads);
     bool driving = elt->_gear > 0 && (elt->_state & RM_CAR_STATE_NO_SIMU) == 0;
-    double ice = curveTorque(rads) * rads * iceScale * mixPower[fuelMix];
-    Split split = driving && brake < 0.05 ? pedalSplit(alpha, ice, kph, dt) : Split{alpha * ice, 0.0};
+    double ice = curveTorque(e, rads) * rads * e.iceScale * e.performance * mixPower[e.fuelMix];
+    Split split = driving && brake < 0.05 ? pedalSplit(e, alpha, ice, kph, dt) : Split{alpha * ice, 0.0};
     if (driving && brake >= 0.05)
-        split.battery = brakeRegen(elt, kph, dt);
-    setTorque(engine, alpha, split.net / rads, rads);
-    battery = std::max(0.0, std::min(batteryCapacity, battery + split.battery * dt));
+        split.battery = brakeRegen(e, elt, kph, dt);
+    setTorque(e, engine, alpha, split.net / rads, rads);
+    e.battery = std::max(0.0, std::min(batteryCapacity, e.battery + split.battery * dt));
     if (split.battery > 0)
-        harvested += split.battery * dt;
+        e.harvested += split.battery * dt;
     else
-        deployed -= split.battery * dt;
-    motorPower = -split.battery;
-    icePower = alpha * ice;
-    updateAero(car, elt, alpha, brake, kph, dt);
-    burnFuel(car, alpha, dt);
+        e.deployed -= split.battery * dt;
+    e.motorPower = -split.battery;
+    e.icePower = alpha * ice;
+    updateAero(e, car, elt, alpha, brake, kph, dt);
+    burnFuel(e, car, alpha, dt);
 }
 
 extern "C" {
@@ -330,25 +385,24 @@ extern "C" {
 EMSCRIPTEN_KEEPALIVE void sdEnergyConfigure(int race, int ersMode, int mix, int ersAssist)
 {
     raceSession = race != 0;
-    overtakeAlways = !raceSession;
     startMode = std::max(0, std::min(3, ersMode));
     startMix = std::max(0, std::min(3, mix));
-    assist = ersAssist != 0;
+    playerAssist = ersAssist != 0;
 }
 
 EMSCRIPTEN_KEEPALIVE void sdEnergyMode(int value)
 {
-    mode = std::max(0, std::min(3, value));
+    field[0].mode = std::max(0, std::min(3, value));
 }
 
 EMSCRIPTEN_KEEPALIVE void sdEnergyFuelMix(int value)
 {
-    fuelMix = std::max(0, std::min(3, value));
+    field[0].fuelMix = std::max(0, std::min(3, value));
 }
 
 EMSCRIPTEN_KEEPALIVE void sdEnergyOvertake(int armed)
 {
-    overtakeArmed = armed != 0;
+    field[0].overtakeArmed = armed != 0;
 }
 
 EMSCRIPTEN_KEEPALIVE void sdEnergyBrakeBias(double share)
@@ -358,39 +412,42 @@ EMSCRIPTEN_KEEPALIVE void sdEnergyBrakeBias(double share)
 
 EMSCRIPTEN_KEEPALIVE void sdEnergyDifferential(double percent)
 {
-    differential = std::max(10.0, std::min(100.0, percent));
+    CarEnergy &e = field[0];
+    e.differential = std::max(10.0, std::min(100.0, percent));
     tDifferential &rear = SimCarTable[0].transmission.differential[TRANS_REAR_DIFF];
-    rear.dSlipMax = (tdble)std::min(1.0, baseDiffSlip * differential / differentialBase);
+    rear.dSlipMax = (tdble)std::min(1.0, e.baseDiffSlip * e.differential / differentialBase);
 }
 
 EMSCRIPTEN_KEEPALIVE void sdEnergyStraight(int assisted, int armed)
 {
-    straightAssist = assisted != 0;
-    straightArmed = armed != 0;
+    playerStraightAssist = assisted != 0;
+    field[0].straightAssist = playerStraightAssist;
+    field[0].straightArmed = armed != 0;
 }
 
 EMSCRIPTEN_KEEPALIVE void sdEnergyInfo(double *out)
 {
+    const CarEnergy &e = field[0];
     tCar *car = &SimCarTable[0];
-    out[0] = battery;
+    out[0] = e.battery;
     out[1] = batteryCapacity;
-    out[2] = harvested;
-    out[3] = harvestLimit();
-    out[4] = deployed;
-    out[5] = motorPower;
-    out[6] = icePower;
-    out[7] = assist ? assistMode() : mode;
-    out[8] = fuelMix;
-    out[9] = overtakeActive ? 1 : 0;
-    out[10] = overtakeArmed ? 1 : 0;
-    out[11] = lastLapFuel;
-    out[12] = lastLapDeployed;
-    out[13] = lastLapHarvested;
+    out[2] = e.harvested;
+    out[3] = harvestLimit(e);
+    out[4] = e.deployed;
+    out[5] = e.motorPower;
+    out[6] = e.icePower;
+    out[7] = e.assist ? assistMode(e) : e.mode;
+    out[8] = e.fuelMix;
+    out[9] = e.overtakeActive ? 1 : 0;
+    out[10] = e.overtakeArmed ? 1 : 0;
+    out[11] = e.lastLapFuel;
+    out[12] = e.lastLapDeployed;
+    out[13] = e.lastLapHarvested;
     out[14] = car->brkSyst.rep;
-    out[15] = deployLevel;
-    out[16] = straightOpen;
-    out[17] = differential;
-    out[18] = straightArmed ? 1 : 0;
+    out[15] = e.deployLevel;
+    out[16] = e.straightOpen;
+    out[17] = e.differential;
+    out[18] = e.straightArmed ? 1 : 0;
 }
 
 }

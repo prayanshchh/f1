@@ -6,9 +6,16 @@
         "tests/**/*.e2e.ts",
         "tests/support/*.ts",
         "*.config.ts",
-        "tools/*.mjs"
+        "tools/*.mjs",
+        "tools/ai/*.mjs"
       ],
-      "project": ["tests/**/*.ts", "*.config.ts", "*.mjs", "tools/*.mjs"]
+      "project": [
+        "tests/**/*.ts",
+        "*.config.ts",
+        "*.mjs",
+        "tools/*.mjs",
+        "tools/ai/*.mjs"
+      ]
     },
     "apps/client": {
       "entry": ["pad-server.ts"],

@@ -178,6 +178,7 @@ export class SdCar {
     assets: SdAssets,
     lighting: SdLighting,
     info: CarInfo,
+    team: THREE.Color | null = null,
   ): Promise<SdCar> {
     const car = new SdCar(info);
     const carDir = `cars/models/${info.name}/`;
@@ -192,7 +193,9 @@ export class SdCar {
         car: true,
         searchPath,
         material: (options) =>
-          shaded ? lighting.carShader(options) : lighting.shadowMapped(options),
+          shaded
+            ? lighting.carShader(team ? { ...options, team } : options)
+            : lighting.shadowMapped(options),
       });
     const optional = (placement: Placement | null) =>
       placement ? model(`${carDir}${placement.model}`) : null;

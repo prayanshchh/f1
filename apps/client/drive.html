@@ -74,6 +74,15 @@
         </div>
       </section>
 
+      <section class="session-clock" data-hud="clock" hidden>
+        <b data-hud="clock-time">0:00</b>
+        <i
+          ><svg><use href="#stopwatch" /></svg
+        ></i>
+      </section>
+
+      <div class="car-labels" data-hud="labels"></div>
+
       <section class="toast" data-hud="toast" data-kind="">
         <div class="toast-icon">
           <svg data-hud="toast-icon"><use href="#stopwatch" /></svg>
@@ -88,6 +97,7 @@
       <svg class="map part-map" data-hud="map" aria-hidden="true">
         <g data-hud="map-sectors"></g>
         <g data-hud="map-marks"></g>
+        <g data-hud="map-field"></g>
         <circle class="map-car" r="7" data-hud="map-car" />
       </svg>
 
@@ -262,19 +272,14 @@
 
     <div class="results" data-results="root" hidden>
       <div class="stage">
-        <div class="results-tag">Results (Overall)</div>
+        <div class="results-tag" data-results="tag">Results (Overall)</div>
         <section class="results-card">
           <header>
             <h1>Formula 1</h1>
             <p data-results="title"></p>
           </header>
           <div class="results-body">
-            <nav class="results-actions">
-              <button type="button" data-results="restart">
-                Restart Session
-              </button>
-              <button type="button" data-results="menu">Settings</button>
-            </nav>
+            <nav class="results-actions" data-results="actions"></nav>
             <table class="results-table">
               <thead>
                 <tr data-results="head"></tr>
@@ -284,6 +289,49 @@
           </div>
           <p class="results-summary" data-results="summary"></p>
         </section>
+      </div>
+    </div>
+
+    <div class="garage" data-garage="root" hidden>
+      <div class="stage">
+        <section class="garage-board">
+          <header>
+            <h1 data-garage="title">Q1</h1>
+            <p data-garage="subtitle"></p>
+            <b class="garage-clock" data-garage="clock">18:00</b>
+          </header>
+          <table class="garage-table">
+            <tbody data-garage="rows"></tbody>
+          </table>
+        </section>
+        <section class="garage-panel">
+          <h2>Your Run</h2>
+          <div class="garage-tyres" data-garage="tyres"></div>
+          <p class="garage-note" data-garage="note"></p>
+          <button type="button" class="primary" data-garage="go">
+            <i class="btn-glyph">↵</i>Go To Track
+          </button>
+          <button type="button" data-garage="fast">
+            <i class="btn-glyph">F</i
+            ><span data-garage="fast-label">Fast Forward</span>
+          </button>
+          <button type="button" data-garage="skip">
+            <i class="btn-glyph">S</i>Skip To End Of Session
+          </button>
+        </section>
+      </div>
+    </div>
+
+    <div class="grid-screen" data-grid="root" hidden>
+      <div class="stage">
+        <h1 data-grid="title">Starting Grid</h1>
+        <section class="grid-card">
+          <h2>Starting Grid</h2>
+          <div class="grid-rows" data-grid="rows"></div>
+        </section>
+        <button type="button" class="grid-go" data-grid="go">
+          <i class="btn-glyph">↵</i>Go To The Grid
+        </button>
       </div>
     </div>
 

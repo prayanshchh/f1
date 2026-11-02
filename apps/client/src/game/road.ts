@@ -352,13 +352,14 @@ export async function loadRoad(
 
 const startLightsLit = uniform(0);
 
-export function setStartLights(raceTime: number): void {
+export function setStartLights(
+  raceTime: number,
+  lead = startLightLead,
+  interval = startLightInterval,
+): void {
   startLightsLit.value =
     raceTime < 0
-      ? Math.min(
-          startLightCount,
-          Math.floor((raceTime + startLightLead) / startLightInterval) + 1,
-        )
+      ? Math.min(startLightCount, Math.floor((raceTime + lead) / interval) + 1)
       : 0;
 }
 

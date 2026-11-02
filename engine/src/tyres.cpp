@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cmath>
+#include <vector>
 #include <emscripten/emscripten.h>
 
 #include "sim.h"
@@ -19,14 +20,14 @@ struct Compound
 };
 
 const Compound compounds[5] = {
-    {{1.050, 0.660, 0.460, 0.340}, 82, 104, 1.15, 2.20, 1.20, 1.05, 70, 0.12},
-    {{1.000, 0.640, 0.450, 0.330}, 85, 105, 1.00, 1.80, 1.00, 1.00, 70, 0.12},
-    {{0.975, 0.620, 0.430, 0.320}, 88, 108, 0.88, 1.56, 0.85, 0.92, 70, 0.12},
+    {{1.050, 0.660, 0.460, 0.340}, 82, 104, 1.15, 1.60, 1.20, 1.05, 70, 0.12},
+    {{1.000, 0.640, 0.450, 0.330}, 85, 105, 0.95, 1.25, 1.00, 1.00, 70, 0.12},
+    {{0.975, 0.620, 0.430, 0.320}, 88, 108, 0.70, 0.95, 0.85, 0.92, 70, 0.12},
     {{0.860, 0.800, 0.720, 0.500}, 60, 85, 2.20, 2.20, 1.00, 1.45, 60, 0.45},
     {{0.780, 0.740, 0.700, 0.640}, 45, 72, 3.00, 3.00, 1.00, 1.85, 60, 1.00},
 };
 
-const double wearPerJoule = 3.8e-8;
+const double wearPerJoule = 2.7e-8;
 const double wornFrom = 0.10;
 const double wornTo = 0.50;
 const double psi = 6894.76;
@@ -49,7 +50,7 @@ const double frontWearGain = 1.30;
 const double rearWearGain = 0.78;
 const double flexHeat = 0.72;
 const double airCool = 0.0020;
-const double speedCool = 0.00040;
+const double speedCool = 0.00065;
 const double trackCool = 0.006;
 const double surfaceToCarcass = 0.22;
 const double carcassFromSurface = 0.035;
@@ -89,12 +90,18 @@ struct Tyre
     double surface, carcass, wear, flat, lock, spin, grip, baseMu;
 };
 
-Tyre tyres[4];
-int fitted = 1;
+struct CarTyres
+{
+    Tyre tyres[4];
+    int fitted = 1;
+    int age = 0;
+    int lastLap = 0;
+};
+
+std::vector<CarTyres> field(1);
 int startCompound = 1;
-int age;
-int lastLap;
 double wearScale = 1.0;
+double trackGrip = 1.0;
 
 double clamp01(double value)
 {
@@ -220,53 +227,108 @@ void applyGrip(Tyre &tyre, tWheel &wheel, const Compound &c, double temperature,
     double pressureGrip = 1.0 - std::min(0.12, pressureGripLoss * delta * delta);
     double condition = thermalGrip(c, temperature) * (1.0 - wearLoss(tyre.wear, c.cliff)) * pressureGrip * (1.0 - flatGripLoss * tyre.flat);
     double chemistry = compoundGrip(c, water) * aquaplaning(c, water, speed);
-    tyre.grip = tyre.wear >= 1.0 ? puncturedGrip : chemistry * condition;
+    tyre.grip = (tyre.wear >= 1.0 ? puncturedGrip : chemistry * condition) * trackGrip;
     wheel.mu = (tdble)(tyre.baseMu * tyre.grip / surfaceRatio(wheel));
 }
 
-void fit(int compound, double temperature, double wear)
+void fit(CarTyres &car, int compound, double temperature, double wear)
 {
-    fitted = std::max(0, std::min(4, compound));
-    double start = temperature > 0 ? temperature : compounds[fitted].blanket;
-    for (Tyre &tyre : tyres)
+    car.fitted = std::max(0, std::min(4, compound));
+    double start = temperature > 0 ? temperature : compounds[car.fitted].blanket;
+    for (Tyre &tyre : car.tyres)
     {
         tyre.surface = tyre.carcass = start;
         tyre.wear = wear;
         tyre.flat = tyre.lock = tyre.spin = 0;
     }
-    age = 0;
+    car.age = 0;
 }
 
 }
 
 void sdTyresReset(tCarElt *car)
 {
+    if ((int)field.size() <= car->index)
+        field.resize(car->index + 1);
+    CarTyres &state = field[car->index];
     for (int i = 0; i < 4; i++)
-        tyres[i].baseMu = SimCarTable[car->index].wheel[i].mu;
-    lastLap = car->_laps;
-    fit(startCompound, 0, 0);
+        state.tyres[i].baseMu = SimCarTable[car->index].wheel[i].mu;
+    state.lastLap = car->_laps;
+    fit(state, startCompound, 0, 0);
 }
 
-void sdTyresService()
+void sdTyresService(int index, int compound)
 {
-    fit(fitted, 0, 0);
+    CarTyres &state = field[index];
+    fit(state, compound >= 0 ? compound : state.fitted, 0, 0);
+}
+
+void sdTyresSetTrackGrip(double grip)
+{
+    trackGrip = grip;
+}
+
+double sdTyresGrip(int index)
+{
+    const CarTyres &state = field[index];
+    double total = 0;
+    for (const Tyre &tyre : state.tyres)
+        total += tyre.grip;
+    return total / 4.0;
+}
+
+double sdTyresWeakestAxle(int index)
+{
+    const CarTyres &state = field[index];
+    double front = (state.tyres[0].grip + state.tyres[1].grip) / 2.0;
+    double rear = (state.tyres[2].grip + state.tyres[3].grip) / 2.0;
+    return std::min(front, rear);
+}
+
+double sdTyresHeat(int index)
+{
+    const CarTyres &state = field[index];
+    const Compound &c = compounds[state.fitted];
+    double hottest = -100;
+    for (const Tyre &tyre : state.tyres)
+        hottest = std::max(hottest, surfaceShare * tyre.surface + (1.0 - surfaceShare) * tyre.carcass - c.high);
+    return hottest;
+}
+
+double sdTyresWorstWear(int index)
+{
+    double worst = 0;
+    for (const Tyre &tyre : field[index].tyres)
+        worst = std::max(worst, tyre.wear);
+    return worst;
+}
+
+int sdTyresCompound(int index)
+{
+    return field[index].fitted;
+}
+
+int sdTyresAge(int index)
+{
+    return field[index].age;
 }
 
 void sdTyresStep(tCarElt *elt, double dt)
 {
-    if (elt->_laps != lastLap)
+    CarTyres &state = field[elt->index];
+    if (elt->_laps != state.lastLap)
     {
-        if (elt->_laps > lastLap && lastLap >= 1)
-            age++;
-        lastLap = elt->_laps;
+        if (elt->_laps > state.lastLap && state.lastLap >= 1)
+            state.age++;
+        state.lastLap = elt->_laps;
     }
     tCar *car = &SimCarTable[elt->index];
-    const Compound &c = compounds[fitted];
+    const Compound &c = compounds[state.fitted];
     double water = wetness();
     for (int i = 0; i < 4; i++)
     {
         tWheel &wheel = car->wheel[i];
-        Tyre &tyre = tyres[i];
+        Tyre &tyre = state.tyres[i];
         double speed = hypot(wheel.bodyVel.x, wheel.bodyVel.y);
         double power = slipPower(wheel, speed);
         double target = optimalPressure(i);
@@ -289,20 +351,21 @@ EMSCRIPTEN_KEEPALIVE void sdTyresConfigure(int compound, double scale)
 
 EMSCRIPTEN_KEEPALIVE void sdTyresFit(int compound, double temperature, double wear)
 {
-    fit(compound, temperature, wear);
+    fit(field[0], compound, temperature, wear);
 }
 
 EMSCRIPTEN_KEEPALIVE void sdTyresInfo(double *out)
 {
+    const CarTyres &state = field[0];
     tCar *car = &SimCarTable[0];
-    const Compound &c = compounds[fitted];
-    out[0] = fitted;
-    out[1] = age;
+    const Compound &c = compounds[state.fitted];
+    out[0] = state.fitted;
+    out[1] = state.age;
     out[2] = c.low;
     out[3] = c.high;
     for (int i = 0; i < 4; i++)
     {
-        const Tyre &tyre = tyres[i];
+        const Tyre &tyre = state.tyres[i];
         double *w = &out[4 + i * 7];
         w[0] = tyre.surface;
         w[1] = tyre.carcass;

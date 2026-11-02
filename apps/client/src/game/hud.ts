@@ -8,13 +8,23 @@ import {
   fuelMixes,
 } from "./energy.ts";
 import type { PitControl } from "./pitstop.ts";
-import { frameIndex, type HudInfo, outOfRaceState } from "./engine.ts";
+import {
+  carStride,
+  type CarTiming,
+  frameIndex,
+  type HudInfo,
+  outOfRaceState,
+  sessionPhase,
+  type SessionInfo,
+} from "./engine.ts";
+import { Tower } from "./tower.ts";
+import { clockText, type Entrant, segmentNames } from "./weekend.ts";
 import type { LapResult, LapTrace } from "./laptrace.ts";
 import { type CarStatus, Mfd } from "./mfd.ts";
 import type { HudPart } from "./settings.ts";
 import { compounds, type TyreInfo, wearState } from "./tyres.ts";
 
-export function lapTime(seconds: number | null): string {
+function lapTime(seconds: number | null): string {
   if (seconds === null || !(seconds > 0)) return "--:--.---";
   const minutes = Math.floor(seconds / 60);
   const rest = seconds - minutes * 60;
@@ -26,7 +36,7 @@ function shortTime(seconds: number | null): string {
   return seconds < 60 ? seconds.toFixed(3) : lapTime(seconds);
 }
 
-export function signed(seconds: number): string {
+function signed(seconds: number): string {
   return `${seconds < 0 ? "-" : "+"}${Math.abs(seconds).toFixed(3)}`;
 }
 
@@ -83,6 +93,10 @@ export interface HudOptions {
   session: string;
   reference: number | null;
   map: TrackMap | null;
+  field: Entrant[] | null;
+  qualifying: boolean;
+  lightLead: number;
+  lightInterval: number;
 }
 
 interface Toast {
@@ -121,6 +135,11 @@ export class Hud {
   private finalLapShown = false;
   private tyreStage = "ok";
   private countdown = false;
+  private readonly tower: Tower | null;
+  private mapScreen: [number, number][] = [];
+  private readonly mapDots: SVGCircleElement[] = [];
+  private invalidShown = false;
+  private flagShown = false;
 
   constructor(
     private readonly root: HTMLElement,
@@ -158,9 +177,96 @@ export class Hud {
     this.find("lap-total").textContent = options.totalLaps
       ? ` / ${String(options.totalLaps)}`
       : "";
-    this.buildRows();
+    this.tower = options.field
+      ? new Tower(this.find("rows"), options.field, options.qualifying)
+      : null;
+    if (!this.tower) this.buildRows();
     this.buildMap(options.map);
+    this.buildFieldDots();
     this.setParts(options.parts);
+  }
+
+  toggleTower(): void {
+    if (!this.tower) return;
+    this.root.classList.toggle("tower-full", this.tower.toggleFull());
+  }
+
+  private buildFieldDots(): void {
+    const field = this.options.field;
+    if (!field) return;
+    const marks = this.find("map-field");
+    field.forEach((entrant, i) => {
+      if (i === 0) return;
+      const dot = svg("circle", { r: 5, class: "map-rival" });
+      dot.style.fill = entrant.colour;
+      marks.append(dot);
+      this.mapDots.push(dot);
+    });
+  }
+
+  updateField(
+    cars: Float64Array,
+    timing: CarTiming[],
+    info: SessionInfo,
+    now: number,
+  ): void {
+    this.tower?.update(timing);
+    const total = timing.length;
+    const mine = timing[0];
+    this.find("position").textContent = mine
+      ? `${String(mine.position)} / ${String(total)}`
+      : "";
+    if (this.options.qualifying) this.updateClock(info);
+    this.updateFieldDots(cars);
+    this.updateSessionToasts(info, now);
+  }
+
+  private updateClock(info: SessionInfo): void {
+    const clock = this.find("clock");
+    clock.hidden = false;
+    this.find("clock-time").textContent =
+      info.phase === sessionPhase.running ? clockText(info.clock) : "0:00";
+    this.find("session").textContent = segmentNames[info.segment] ?? "Q";
+  }
+
+  private updateFieldDots(cars: Float64Array): void {
+    const count = this.mapScreen.length - 1;
+    if (count <= 0) return;
+    this.mapDots.forEach((dot, i) => {
+      const at = (i + 1) * carStride;
+      const visible = (cars[at + 46] ?? 0) !== 0;
+      dot.style.display = visible ? "" : "none";
+      if (!visible) return;
+      const t = (((cars[at + 48] ?? 0) / this.mapLength) % 1) * count;
+      const a = this.mapScreen[Math.floor(t)];
+      const b = this.mapScreen[Math.floor(t) + 1] ?? a;
+      if (!a || !b) return;
+      const f = t - Math.floor(t);
+      dot.setAttribute("cx", (a[0] + (b[0] - a[0]) * f).toFixed(1));
+      dot.setAttribute("cy", (a[1] + (b[1] - a[1]) * f).toFixed(1));
+    });
+  }
+
+  private updateSessionToasts(info: SessionInfo, now: number): void {
+    if (info.invalidLap && !this.invalidShown)
+      this.toast = {
+        kind: "warn",
+        title: "Lap deleted",
+        detail: "All four wheels left the track",
+        until: now + 4,
+      };
+    this.invalidShown = info.invalidLap;
+    if (info.phase !== sessionPhase.running && !this.flagShown) {
+      this.flagShown = true;
+      if (this.options.qualifying)
+        this.toast = {
+          kind: "final",
+          title: "Chequered flag",
+          detail: "Finish your lap to set a time",
+          until: now + 6,
+        };
+    }
+    if (info.phase === sessionPhase.running) this.flagShown = false;
   }
 
   setParts(parts: Record<HudPart, boolean>): void {
@@ -324,6 +430,7 @@ export class Hud {
       size - (offY + (p[1] - minY) * scale),
     ];
     const screen = map.points.map(project);
+    this.mapScreen = screen;
     root.setAttribute("viewBox", `0 0 ${String(size)} ${String(size)}`);
     const d = `M${screen.map((p) => `${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join("L")}Z`;
     const groups = this.find("map-sectors");
@@ -544,7 +651,7 @@ export class Hud {
 
   private updateTyres(tyres: TyreInfo): void {
     const compound = compounds[tyres.compound] ?? compounds[1];
-    if (tyres.compound !== this.tyreShown) {
+    if (tyres.compound !== this.tyreShown && !this.tower) {
       this.tyreShown = tyres.compound;
       for (const row of this.rows) {
         row.tyre.textContent = compound.letter;
@@ -566,9 +673,17 @@ export class Hud {
   }
 
   private updateLights(time: number): void {
+    if (this.options.qualifying) return;
     const gantry = this.find("lights");
     const lit =
-      time < 0 ? Math.min(lightCount, Math.floor((time + 2) / 0.4) + 1) : 0;
+      time < 0
+        ? Math.min(
+            lightCount,
+            Math.floor(
+              (time + this.options.lightLead) / this.options.lightInterval,
+            ) + 1,
+          )
+        : 0;
     this.lights.forEach((light, i) => {
       light.classList.toggle("on", i < lit);
     });
@@ -643,7 +758,7 @@ export class Hud {
     const previous = this.sessionBest;
     if (previous === null || result.time < previous) {
       this.sessionBest = result.time;
-      this.renderRows();
+      if (!this.tower) this.renderRows();
     }
     if (result.best) {
       const first = this.options.reference === null && previous === null;

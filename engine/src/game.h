@@ -25,13 +25,34 @@ void sdInputUpdate(tCarElt *car, double dt);
 void sdInputState(double *out);
 void sdCarStatusReset(tCarElt *car);
 void sdCarStatusStep(tCarElt *car, double dt);
-double sdDamageDrag();
-void sdCarStatusRepair();
+bool sdPlayerAutopilot();
+double sdDamageDrag(int index);
+double sdCarDamageShare(int index);
+void sdCarStatusRepair(int index);
 void sdTyresReset(tCarElt *car);
 void sdTyresStep(tCarElt *car, double dt);
-void sdTyresService();
+void sdTyresService(int index, int compound);
+void sdTyresSetTrackGrip(double grip);
+double sdTyresGrip(int index);
+double sdTyresWeakestAxle(int index);
+double sdTyresHeat(int index);
+double sdTyresWorstWear(int index);
+int sdTyresCompound(int index);
+int sdTyresAge(int index);
 void sdEnergyReset(tCarElt *car);
 void sdEnergyStep(tCarElt *car, double dt);
+void sdEnergyRestore(int index);
+void sdEnergySetMode(int index, int value);
+double sdEnergyBatteryShare(int index);
+void sdEnergyArmOvertake(int index);
+bool sdEnergyOvertakeActive(int index);
+double sdEnergyLastLapFuel(int index);
+void sdServiceCar(int index, int compound);
+void sdCarTeleport(int index, double distance, double lateral);
+void sdCarSetFuel(int index, double litres);
+void sdEnergySetPerformance(int index, double factor);
+
+const int SD_CAR_STRIDE = 49;
 
 enum SdFrameIndex
 {

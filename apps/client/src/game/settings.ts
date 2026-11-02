@@ -1,5 +1,6 @@
 import { nominalFuelPerLap } from "./energy.ts";
 import { ParamDoc, type ParamFs } from "./params.ts";
+import { raceLapOptions, type Stage } from "./weekend.ts";
 
 export const tracks = [
   {
@@ -43,7 +44,13 @@ export const choices = {
   ],
   session: [
     { id: "practice", label: "Practice" },
+    { id: "qualifying", label: "Qualifying" },
     { id: "race", label: "Race" },
+    { id: "weekend", label: "Race Weekend" },
+  ],
+  qualifyingLength: [
+    { id: "full", label: "Full (18 / 15 / 13 min)" },
+    { id: "short", label: "Short (9 / 7.5 / 6.5 min)" },
   ],
   timeOfDay: [
     { id: "dawn", label: "Dawn" },
@@ -102,6 +109,10 @@ export interface Settings {
   car: string;
   session: ChoiceId<"session">;
   laps: number;
+  difficulty: number;
+  team: number;
+  startSlot: number;
+  qualifyingLength: ChoiceId<"qualifyingLength">;
   fuel: number;
   compound: string;
   tyreWear: ChoiceId<"tyreWear">;
@@ -142,12 +153,17 @@ export const hudParts = {
 export type HudPart = keyof typeof hudParts;
 
 const practiceFuelLaps = 10;
+const raceBurnShare = 1.2;
 
 export const defaults: Settings = {
   track: "cota",
   car: "f1",
-  session: "practice",
-  laps: 5,
+  session: "weekend",
+  laps: 10,
+  difficulty: 90,
+  team: 3,
+  startSlot: 10,
+  qualifyingLength: "full",
   fuel: 0,
   compound: "medium",
   tyreWear: "scaled",
@@ -207,6 +223,10 @@ export function loadSettings(params: URLSearchParams): Settings {
   if (!tracks.some((t) => t.id === settings.track))
     settings.track = defaults.track;
   if (!cars.some((c) => c.id === settings.car)) settings.car = defaults.car;
+  const options = raceLapOptions();
+  if (!options.includes(settings.laps))
+    settings.laps =
+      options.find((laps) => laps >= settings.laps) ?? defaults.laps;
   return settings;
 }
 
@@ -221,14 +241,25 @@ function applyUrl(settings: Settings, params: URLSearchParams): void {
       cars.find((c) => c.car === car && c.body === "sd")?.id ?? settings.car;
 }
 
-export function autoFuelLaps(settings: Settings): number {
-  return settings.session === "race" ? settings.laps + 1 : practiceFuelLaps + 1;
+export function stageOf(
+  settings: Settings,
+  weekendStage: Stage | null,
+): Stage | null {
+  if (settings.session === "practice") return null;
+  if (settings.session === "weekend") return weekendStage ?? "qualifying";
+  return settings.session;
 }
 
-function startFuel(settings: Settings): number {
+export function autoFuelLaps(settings: Settings, stage: Stage | null): number {
+  return stage === "race"
+    ? Math.ceil(settings.laps * raceBurnShare) + 1
+    : practiceFuelLaps + 1;
+}
+
+function startFuel(settings: Settings, stage: Stage | null): number {
   return settings.fuel > 0
     ? settings.fuel
-    : autoFuelLaps(settings) * nominalFuelPerLap;
+    : autoFuelLaps(settings, stage) * nominalFuelPerLap;
 }
 
 export function saveSettings(settings: Settings): void {
@@ -539,7 +570,11 @@ function setupItem(
 const prefsPath = "/sd/local/drivers/human/preferences.xml";
 const racePath = "/sd/local/config/raceman/quickrace.xml";
 
-export function applySettings(source: SetupSource, settings: Settings): void {
+export function applySettings(
+  source: SetupSource,
+  settings: Settings,
+  stage: Stage | null,
+): void {
   const fs = source.fs;
   const car = carOf(settings).car;
 
@@ -548,7 +583,7 @@ export function applySettings(source: SetupSource, settings: Settings): void {
   race.setNum(
     "Quick Race",
     "laps",
-    settings.session === "race" ? settings.laps : practiceFuelLaps,
+    stage === "race" ? settings.laps : practiceFuelLaps,
   );
   race.setStr("Quick Race", "time of day", settings.timeOfDay);
   race.setStr("Quick Race", "clouds", settings.clouds);
@@ -582,6 +617,6 @@ export function applySettings(source: SetupSource, settings: Settings): void {
     const value = chosen[item.id];
     if (value !== undefined) item.write(setup, value);
   }
-  setup.setNum("Car", "initial fuel", startFuel(settings), "l");
+  setup.setNum("Car", "initial fuel", startFuel(settings, stage), "l");
   setup.write(fs, setupPath(car));
 }

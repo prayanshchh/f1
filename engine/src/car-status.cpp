@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cmath>
+#include <vector>
 #include <emscripten/emscripten.h>
 
 #include "sim.h"
@@ -45,15 +46,21 @@ const double engineCool = 0.042;
 const double engineCoolBase = 0.25;
 const double engineCoolSpeed = 80.0;
 
-double parts[PART_COUNT];
-WingLift baseWing[2];
-double baseLift[2];
-double brakes[4];
-double engineTemp;
-int lastDamage;
-
-void addBarrierHit(tCar *car, double amount)
+struct CarStatus
 {
+    double parts[PART_COUNT];
+    WingLift baseWing[2];
+    double baseLift[2];
+    double brakes[4];
+    double engineTemp;
+    int lastDamage;
+};
+
+std::vector<CarStatus> field(1);
+
+void addBarrierHit(CarStatus &state, tCar *car, double amount)
+{
+    double *parts = state.parts;
     double dx = car->collpos.x - car->DynGCg.pos.x;
     double dy = car->collpos.y - car->DynGCg.pos.y;
     double forward = dx * cos(car->DynGCg.pos.az) + dy * sin(car->DynGCg.pos.az);
@@ -68,9 +75,9 @@ void addBarrierHit(tCar *car, double amount)
     parts[DIFFUSER] += amount * rearDiffuserShare;
 }
 
-double share(int part)
+double share(const CarStatus &state, int part)
 {
-    return std::min(1.0, parts[part] / partFull);
+    return std::min(1.0, state.parts[part] / partFull);
 }
 
 void scaleWing(tWing &wing, const WingLift &base, double factor)
@@ -81,18 +88,19 @@ void scaleWing(tWing &wing, const WingLift &base, double factor)
     wing.Kz3 = (tdble)(base.kz3 * factor);
 }
 
-void applyDamage(tCar *car)
+void applyDamage(const CarStatus &state, tCar *car)
 {
-    double front = (share(WING_LEFT) + share(WING_RIGHT)) / 2.0;
-    double floorLoss = floorLiftLoss * share(FLOOR);
-    scaleWing(car->wing[0], baseWing[0], 1.0 - wingLiftLoss * front);
-    scaleWing(car->wing[1], baseWing[1], 1.0 - wingLiftLoss * share(REAR_WING));
-    car->aero.Clift[0] = (tdble)(baseLift[0] * (1.0 - floorLoss));
-    car->aero.Clift[1] = (tdble)(baseLift[1] * (1.0 - floorLoss - diffuserLiftLoss * share(DIFFUSER)));
+    double front = (share(state, WING_LEFT) + share(state, WING_RIGHT)) / 2.0;
+    double floorLoss = floorLiftLoss * share(state, FLOOR);
+    scaleWing(car->wing[0], state.baseWing[0], 1.0 - wingLiftLoss * front);
+    scaleWing(car->wing[1], state.baseWing[1], 1.0 - wingLiftLoss * share(state, REAR_WING));
+    car->aero.Clift[0] = (tdble)(state.baseLift[0] * (1.0 - floorLoss));
+    car->aero.Clift[1] = (tdble)(state.baseLift[1] * (1.0 - floorLoss - diffuserLiftLoss * share(state, DIFFUSER)));
 }
 
-void updateBrakes(tCar *car, double dt)
+void updateBrakes(CarStatus &state, tCar *car, double dt)
 {
+    double *brakes = state.brakes;
     double air = Tair - kelvin;
     for (int i = 0; i < 4; i++)
     {
@@ -104,72 +112,88 @@ void updateBrakes(tCar *car, double dt)
     }
 }
 
-void updateEngine(tCar *car, double dt)
+void updateEngine(CarStatus &state, tCar *car, double dt)
 {
     double load = engineIdle + (1.0 - engineIdle) * std::max(0.0, std::min(1.0, (double)car->ctrl->accelCmd));
     double airflow = engineCoolBase + fabs(car->DynGC.vel.x) / engineCoolSpeed;
-    engineTemp += (engineHeat * load - engineCool * airflow * (engineTemp - (Tair - kelvin))) * dt;
+    state.engineTemp += (engineHeat * load - engineCool * airflow * (state.engineTemp - (Tair - kelvin))) * dt;
 }
 
 }
 
-double sdDamageDrag()
+double sdDamageDrag(int index)
 {
-    return 1.0 + sidepodDragGain * (share(SIDEPOD_LEFT) + share(SIDEPOD_RIGHT));
+    const CarStatus &state = field[index];
+    return 1.0 + sidepodDragGain * (share(state, SIDEPOD_LEFT) + share(state, SIDEPOD_RIGHT));
+}
+
+double sdCarDamageShare(int index)
+{
+    const CarStatus &state = field[index];
+    double worst = 0;
+    for (int i = 0; i < PART_COUNT; i++)
+        worst = std::max(worst, share(state, i));
+    return worst;
 }
 
 void sdCarStatusReset(tCarElt *elt)
 {
+    if ((int)field.size() <= elt->index)
+        field.resize(elt->index + 1);
+    CarStatus &state = field[elt->index];
     tCar *car = &SimCarTable[elt->index];
-    std::fill(parts, parts + PART_COUNT, 0.0);
-    lastDamage = car->dammage;
+    std::fill(state.parts, state.parts + PART_COUNT, 0.0);
+    state.lastDamage = car->dammage;
     for (int i = 0; i < 2; i++)
     {
-        baseWing[i] = {car->wing[i].Kz, car->wing[i].Kz1, car->wing[i].Kz2, car->wing[i].Kz3};
-        baseLift[i] = car->aero.Clift[i];
+        state.baseWing[i] = {car->wing[i].Kz, car->wing[i].Kz1, car->wing[i].Kz2, car->wing[i].Kz3};
+        state.baseLift[i] = car->aero.Clift[i];
     }
-    for (double &brake : brakes)
+    for (double &brake : state.brakes)
         brake = brakeStart;
-    engineTemp = engineStart;
+    state.engineTemp = engineStart;
 }
 
-void sdCarStatusRepair()
+void sdCarStatusRepair(int index)
 {
-    std::fill(parts, parts + PART_COUNT, 0.0);
+    CarStatus &state = field[index];
+    std::fill(state.parts, state.parts + PART_COUNT, 0.0);
 }
 
 void sdCarStatusStep(tCarElt *elt, double dt)
 {
+    CarStatus &state = field[elt->index];
     tCar *car = &SimCarTable[elt->index];
-    int delta = car->dammage - lastDamage;
-    lastDamage = car->dammage;
+    int delta = car->dammage - state.lastDamage;
+    state.lastDamage = car->dammage;
     if (delta > 0)
     {
         if (car->collision & SEM_COLLISION_XYSCENE)
-            addBarrierHit(car, delta);
+            addBarrierHit(state, car, delta);
         else
-            parts[FLOOR] += delta;
+            state.parts[FLOOR] += delta;
     }
-    applyDamage(car);
-    updateBrakes(car, dt);
-    updateEngine(car, dt);
+    applyDamage(state, car);
+    updateBrakes(state, car, dt);
+    updateEngine(state, car, dt);
 }
 
 extern "C" {
 
 EMSCRIPTEN_KEEPALIVE void sdCarStatus(double *out)
 {
-    out[0] = engineTemp;
+    const CarStatus &state = field[0];
+    out[0] = state.engineTemp;
     for (int i = 0; i < PART_COUNT; i++)
-        out[1 + i] = share(i);
+        out[1 + i] = share(state, i);
     for (int i = 0; i < 4; i++)
-        out[1 + PART_COUNT + i] = brakes[i];
+        out[1 + PART_COUNT + i] = state.brakes[i];
 }
 
 EMSCRIPTEN_KEEPALIVE void sdCarDamageSet(int part, double value)
 {
     if (part >= 0 && part < PART_COUNT)
-        parts[part] = std::max(0.0, std::min(1.0, value)) * partFull;
+        field[0].parts[part] = std::max(0.0, std::min(1.0, value)) * partFull;
 }
 
 }

@@ -8,7 +8,7 @@ export const tracks = [
   {
     id: "cota",
     label: "Circuit of the Americas",
-    detail: "Austin · 5.53 km",
+    detail: "Austin · 5.48 km",
     category: "circuit",
     length: 5528,
   },
@@ -87,6 +87,7 @@ export interface Settings {
   track: string;
   car: string;
   session: ChoiceId<"session">;
+  buildUp: boolean;
   laps: number;
   fuel: number;
   compound: string;
@@ -133,6 +134,7 @@ export const defaults: Settings = {
   track: "cota",
   car: "vanta",
   session: "practice",
+  buildUp: true,
   laps: 5,
   fuel: 0,
   compound: "medium",

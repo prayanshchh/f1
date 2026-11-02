@@ -56,6 +56,7 @@ declare module "*/wasm/speed-dreams.js" {
     _sdAudio(out: number): void;
     _sdTrackSectors(out: number, max: number): number;
     _sdInputAssist(on: number): void;
+    _sdRaceCountdown(seconds: number): void;
     _sdInputAntiLock(on: number): void;
     _sdInputSpeedLimit(metresPerSecond: number): void;
     _sdInputSteerDirect(on: number): void;

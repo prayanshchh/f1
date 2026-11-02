@@ -61,6 +61,7 @@ export interface RaceSystems {
   fuelMix: number;
   ersAssist: boolean;
   straightAssist: boolean;
+  countdown: number;
 }
 
 export const outOfRaceState = 0x0400 | 0x0200 | 0x0004 | 0x0008 | 0x0010;
@@ -107,6 +108,7 @@ export class Engine {
     now: number,
     race: RaceSystems,
   ): Engine {
+    module._sdRaceCountdown(race.countdown);
     module._sdInputAssist(assist ? 1 : 0);
     module._sdInputAntiLock(antiLock ? 1 : 0);
     module._sdTyresConfigure(race.compound, race.wearScale);

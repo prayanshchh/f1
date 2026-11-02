@@ -4,8 +4,11 @@ import {
   type PitDrive,
   type PitLayout,
 } from "./game/pitstop.ts";
+import frameUrl from "../../../content/tracks/cota/sd-frame.json?url";
 import "@fontsource-variable/saira/wdth.css";
 import "./drive.css";
+import "./front.css";
+import "./buildup.css";
 import * as THREE from "three/webgpu";
 import {
   boostMode,
@@ -22,15 +25,28 @@ import {
   type RaceSystems,
   setupSource,
 } from "./game/engine.ts";
+import {
+  currentDriver,
+  type Driver,
+  driverOutbox,
+  rememberDriver,
+} from "./game/api.ts";
+import { playBuildUp, type Weather } from "./game/buildup.ts";
+import { FrontEnd } from "./game/front-end.ts";
 import { Hud, lapTime, signed, type TrackMap } from "./game/hud.ts";
 import { sdlKeycode } from "./game/keys.ts";
-import { compoundIndex, wearScale } from "./game/tyres.ts";
+import { compoundIndex, compounds, wearScale } from "./game/tyres.ts";
 import { LapTrace } from "./game/laptrace.ts";
 import { Menu } from "./game/menu.ts";
 import { type PadCommands, PadLink } from "./game/pad.ts";
 import { Atmosphere } from "./game/atmosphere.ts";
-import { Scene } from "./game/scene.ts";
+import { RaceLog } from "./game/race-log.ts";
+import { loadReference, rememberReference } from "./game/reference.ts";
+import { fetchJson, Scene } from "./game/scene.ts";
 import { GameSound } from "./game/sound/game-sound.ts";
+import { StartLights } from "./game/start-lights.ts";
+import { Studio } from "./game/studio.ts";
+import { type PlayerSeat, startingGrid } from "./game/teams.ts";
 import {
   applySettings,
   carOf,
@@ -68,27 +84,6 @@ function setStatus(text: string): void {
 function restart(autostart: boolean): void {
   if (autostart) sessionStorage.setItem(autostartKey, "1");
   location.reload();
-}
-
-function referenceKey(settings: Settings): string {
-  return `f1.best.${settings.track}.${carOf(settings).car}`;
-}
-
-function loadReference(
-  settings: Settings,
-): { trace: number[]; sectors: number[] } | null {
-  try {
-    const stored = JSON.parse(
-      localStorage.getItem(referenceKey(settings)) ?? "null",
-    ) as { trace: number[]; sectors: number[] } | null;
-    return stored &&
-      Array.isArray(stored.trace) &&
-      Array.isArray(stored.sectors)
-      ? stored
-      : null;
-  } catch {
-    return null;
-  }
 }
 
 function cell(text: string, className = ""): HTMLTableCellElement {
@@ -240,8 +235,9 @@ function raceControls(engine: Engine, hud: Hud, settings: Settings) {
   };
 }
 
-function raceSystems(settings: Settings): RaceSystems {
+function raceSystems(settings: Settings, lights: StartLights): RaceSystems {
   return {
+    countdown: lights.countdown,
     compound: compoundIndex(settings.compound),
     wearScale: wearScale(settings.tyreWear, settings.session, settings.laps),
     isRace: settings.session === "race",
@@ -252,6 +248,185 @@ function raceSystems(settings: Settings): RaceSystems {
   };
 }
 
+async function createRenderer(
+  target: HTMLCanvasElement,
+): Promise<THREE.WebGPURenderer> {
+  const renderer = new THREE.WebGPURenderer({
+    canvas: target,
+    antialias: true,
+  });
+  renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+  renderer.toneMapping = THREE.NoToneMapping;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
+  await renderer.init();
+  return renderer;
+}
+
+function consumeAutostart(params: URLSearchParams): boolean {
+  const restarted = sessionStorage.getItem(autostartKey) === "1";
+  sessionStorage.removeItem(autostartKey);
+  return restarted || params.has("autostart");
+}
+
+function chooseLights(
+  settings: Settings,
+  params: URLSearchParams,
+): StartLights {
+  return settings.session === "race" && !params.has("autostart")
+    ? StartLights.race(Math.random())
+    : StartLights.quick();
+}
+
+function compoundId(index: number): string {
+  return compounds[index]?.id ?? "medium";
+}
+
+function playerSeat(driver: Driver | null, team: string): PlayerSeat {
+  return {
+    team,
+    first: driver?.firstName ?? "You",
+    last: driver?.lastName ?? "",
+    number: driver?.number ?? 1,
+    nationality: driver?.nationality ?? "US",
+  };
+}
+
+function bestLapWatcher(
+  trace: LapTrace,
+  store: (best: { trace: number[]; sectors: number[] }) => void,
+): () => void {
+  let saved = trace.bestTime ?? Infinity;
+  return () => {
+    const time = trace.bestTime ?? Infinity;
+    if (time >= saved) return;
+    saved = time;
+    const best = trace.reference;
+    if (best) store(best);
+  };
+}
+
+interface BuildUpContext {
+  renderer: THREE.WebGPURenderer;
+  scene: Scene;
+  draw: () => void;
+  engine: Engine;
+  settings: Settings;
+  seat: PlayerSeat;
+  seek: string | null;
+}
+
+async function runBuildUp(context: BuildUpContext): Promise<void> {
+  const { renderer, scene, draw, engine, settings, seat, seek } = context;
+  setStatus("Preparing the grid…");
+  const opening = engine.update(performance.now() / 1000);
+  scene.updateTyres(opening, engine.tyreInfo());
+  scene.update(opening);
+  const length = engine.trackLength();
+  await playBuildUp(
+    {
+      renderer,
+      world: scene,
+      drawWorld: draw,
+      frame: Float64Array.from(opening),
+      track: (d, l) => engine.trackPoint(((d % length) + length) % length, l),
+      trackLength: length,
+      kind: settings.session,
+      grid: startingGrid(seat, scene.playerSlot),
+      playerDistance: opening[frameIndex.distFromStart] ?? 0,
+      playerLateral: opening[frameIndex.toMiddle] ?? 0,
+      playerSlot: scene.playerSlot,
+      weather: weatherFor(settings, engine.trackLocal().rain),
+      seek: Number(seek ?? 0) || 0,
+    },
+    document.body,
+    () => {
+      setStatus("");
+    },
+  ).catch(() => {
+    setStatus("");
+  });
+}
+
+function raceLog(driver: Driver | null, settings: Settings): RaceLog | null {
+  if (!driver) return null;
+  return new RaceLog(driverOutbox(driver.id), {
+    id: crypto.randomUUID(),
+    track: settings.track,
+    car: carOf(settings).car,
+    team: settings.car,
+    kind: settings.session,
+    plannedLaps: settings.session === "race" ? settings.laps : null,
+    conditions: {
+      compound: settings.compound,
+      timeOfDay: settings.timeOfDay,
+      clouds: settings.clouds,
+      rain: settings.rain,
+      season: settings.season,
+      transmission: settings.transmission,
+      assist: settings.assist,
+    },
+    startedAt: new Date().toISOString(),
+  });
+}
+
+function weatherFor(settings: Settings, rain: number): Weather {
+  const seasonal: Record<string, number> = {
+    spring: 24,
+    summer: 33,
+    autumn: 26,
+    winter: 15,
+  };
+  const skies: Record<string, string> = {
+    "no cloud": "Clear",
+    "few clouds": "Light Cloud",
+    "scarce clouds": "Light Cloud",
+    "many clouds": "Cloudy",
+    "full cover": "Overcast",
+  };
+  const wet = rain > 0;
+  const overcast = ["many clouds", "full cover"].includes(settings.clouds);
+  return {
+    temperature:
+      (seasonal[settings.season] ?? 27) - rain * 3 - (overcast ? 2 : 0),
+    label: wet ? "Rain (Wet)" : `${skies[settings.clouds] ?? "Clear"} (Dry)`,
+    icon: wet ? "rain" : overcast ? "cloud" : "sun",
+  };
+}
+
+async function enterGame(
+  renderer: THREE.WebGPURenderer,
+  settings: Settings,
+  menu: Menu,
+): Promise<Driver> {
+  const studio = new Studio(renderer);
+  const front = new FrontEnd(element("[data-front=root]"), studio);
+  front.open();
+  setStatus("");
+  void studio.preloadTeams();
+  let driver = await currentDriver();
+  for (;;) {
+    driver ??= await front.welcome();
+    if (!driver.onboarded) driver = await front.onboard(driver);
+    rememberDriver(driver);
+    const choice = await front.hub(driver);
+    if (choice.action === "signout") {
+      rememberDriver(null);
+      driver = null;
+      continue;
+    }
+    driver = choice.driver;
+    rememberDriver(driver);
+    settings.car = driver.team ?? settings.car;
+    front.close();
+    const action = await menu.run(false);
+    if (action === "start") break;
+    front.open();
+  }
+  studio.dispose();
+  return driver;
+}
+
 async function main(): Promise<void> {
   if (!canvas || !hudRoot) throw new Error("drive page markup is missing");
   fitStage();
@@ -259,12 +434,7 @@ async function main(): Promise<void> {
   if (!("gpu" in navigator))
     throw new Error("This page needs WebGPU (Chrome 113 or newer).");
 
-  const renderer = new THREE.WebGPURenderer({ canvas, antialias: true });
-  renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
-  renderer.toneMapping = THREE.NoToneMapping;
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFShadowMap;
-  await renderer.init();
+  const renderer = await createRenderer(canvas);
 
   const params = new URLSearchParams(location.search);
   setStatus("Loading Speed Dreams…");
@@ -273,13 +443,12 @@ async function main(): Promise<void> {
   const source = setupSource(module);
   const menu = new Menu(source, settings);
 
-  const autostart =
-    sessionStorage.getItem(autostartKey) === "1" || params.has("autostart");
-  sessionStorage.removeItem(autostartKey);
-  if (!autostart) {
-    setStatus("");
-    await menu.run(false);
-  }
+  const autostart = consumeAutostart(params);
+  const driver = autostart
+    ? await currentDriver()
+    : await enterGame(renderer, settings, menu);
+  const log = raceLog(driver, settings);
+  const lights = chooseLights(settings, params);
 
   const track = trackOf(settings);
   const car = carOf(settings);
@@ -293,28 +462,38 @@ async function main(): Promise<void> {
     settings.assist,
     settings.antiLock,
     performance.now() / 1000,
-    raceSystems(settings),
+    raceSystems(settings, lights),
   );
-  const scene = await Scene.load(engine, car.id, renderer, settings.racingLine);
+  const scene = await Scene.load(
+    engine,
+    car.id,
+    renderer,
+    settings.racingLine,
+    lights,
+  );
   const draw = drawer(renderer, scene);
 
-  const reference = loadReference(settings);
+  const reference = await loadReference(driver, settings.track, car.car);
   const trace = new LapTrace(
     engine.trackLength(),
     engine.sectorBoundaries(),
     reference,
   );
   const totalLaps = settings.session === "race" ? settings.laps : null;
+  const sessionLabel = settings.session === "race" ? "Race" : "Practice";
   const hud = new Hud(hudRoot, trace, {
     totalLaps,
     parts: settings.hud,
-    session: settings.session === "race" ? "Race" : "Practice",
-    reference: reference ? reference.sectors.reduce((a, b) => a + b, 0) : null,
+    session: sessionLabel,
+    reference: trace.bestTime,
     map: trackMap(engine),
+    start: lights,
+    onLap: (lap) => {
+      log?.lap(lap, compoundId(engine.tyreInfo().compound));
+    },
   });
   const pad = padLink();
   const sound = await GameSound.start();
-  hudRoot.hidden = false;
 
   const resize = () => {
     const width = canvas.clientWidth;
@@ -328,6 +507,7 @@ async function main(): Promise<void> {
   resize();
 
   let pitPressed = false;
+  let buildingUp = false;
   let paused = false;
   let finished = false;
   const pause = () => {
@@ -359,6 +539,7 @@ async function main(): Promise<void> {
     engine.key(code, down);
   };
   const onKey = (down: boolean) => (event: KeyboardEvent) => {
+    if (buildingUp) return;
     if (event.key === "Escape") {
       event.preventDefault();
       if (down && !event.repeat) pause();
@@ -373,9 +554,7 @@ async function main(): Promise<void> {
   setStatus("");
   document.body.dataset["driveStatus"] = "running";
 
-  const layout = (
-    (await (await fetch("/wasm/sd-frame.json")).json()) as { pit: PitLayout }
-  ).pit;
+  const { pit: layout } = await fetchJson<{ pit: PitLayout }>(frameUrl);
   const pit = new PitStop(layout, settings.pitExperience === "broadcast");
   scene.placePit(layout, (d, l) => engine.trackPoint(d, l));
   const startFuel = engine.hudInfo().fuel;
@@ -395,9 +574,18 @@ async function main(): Promise<void> {
     );
   };
 
-  let savedBest = reference
-    ? reference.sectors.reduce((a, b) => a + b, 0)
-    : Infinity;
+  const watchBest = bestLapWatcher(trace, (best) => {
+    rememberReference(driver, settings.track, car.car, best);
+    log?.personalBest(best);
+  });
+  const finishRace = () => {
+    finished = true;
+    log?.finish();
+    sound.mute(true);
+    window.setTimeout(() => {
+      showResults(hud, `${track.label} - ${sessionLabel}`);
+    }, 1500);
+  };
   const detector = new OvertakeDetector(engine.trackLength());
   const armOvertake = (frame: Float64Array) => {
     const distance = frame[frameIndex.distFromStart] ?? 0;
@@ -460,25 +648,28 @@ async function main(): Promise<void> {
     sound.update(audio);
     hud.update(frame, info, tyres, energy, engine.carStatus(), now);
     hud.updatePit(control);
-    const bestTime = trace.bestTime ?? Infinity;
-    if (bestTime < savedBest) {
-      savedBest = bestTime;
-      localStorage.setItem(
-        referenceKey(settings),
-        JSON.stringify(trace.reference),
-      );
-    }
-    if (totalLaps !== null && (frame[frameIndex.laps] ?? 0) > totalLaps) {
-      finished = true;
-      sound.mute(true);
-      window.setTimeout(() => {
-        showResults(
-          hud,
-          `${track.label} - ${settings.session === "race" ? "Race" : "Practice"}`,
-        );
-      }, 1500);
-    }
+    watchBest();
+    if (totalLaps !== null && (frame[frameIndex.laps] ?? 0) > totalLaps)
+      finishRace();
   };
+  const seek = params.get("buildup");
+  if (!autostart && settings.buildUp && seek !== "off") {
+    buildingUp = true;
+    sound.mute(true);
+    await runBuildUp({
+      renderer,
+      scene,
+      draw,
+      engine,
+      settings,
+      seat: playerSeat(driver, car.id),
+      seek,
+    });
+    buildingUp = false;
+    sound.mute(false);
+    engine.update(performance.now() / 1000);
+  }
+  hudRoot.hidden = false;
   void renderer.setAnimationLoop(() => {
     if (!paused && !finished) step(performance.now() / 1000);
     canvas.style.transform = scene.mirrored ? "scaleX(-1)" : "";

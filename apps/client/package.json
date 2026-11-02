@@ -7,6 +7,7 @@
     "preview": "vite preview"
   },
   "devDependencies": {
+    "@hono/node-server": "2.1.5",
     "@types/three": "0.186.0",
     "@types/ws": "8.18.2",
     "vite": "8.3.4",
@@ -14,6 +15,7 @@
   },
   "dependencies": {
     "@fontsource-variable/saira": "5.3.0",
+    "flag-icons": "7.6.0",
     "three": "0.186.1",
     "uqr": "0.1.3"
   }

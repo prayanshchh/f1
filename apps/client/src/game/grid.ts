@@ -4,9 +4,8 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { frameIndex } from "./engine.ts";
 import { contactShadow, gltfToSdCar, wheelRest } from "./gltf.ts";
 import { finish } from "./road.ts";
-import { carFile, teams } from "./teams.ts";
+import { carFile, gridTeamOrder, teams } from "./teams.ts";
 
-const carsPerTeam = 2;
 const visibleDistance = 700;
 const leaveAfterLap = 2;
 const headingProbe = 2;
@@ -24,20 +23,22 @@ type TrackPoint = (
   lateral: number,
 ) => [number, number, number];
 
-function textureOf(url: string, sRgb: boolean): THREE.Texture {
-  const map = new THREE.TextureLoader().load(url);
+async function textureOf(url: string, sRgb: boolean): Promise<THREE.Texture> {
+  const map = await new THREE.TextureLoader().loadAsync(url);
   map.flipY = false;
   map.colorSpace = sRgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
   return map;
 }
 
-function teamMaterials(
+async function teamMaterials(
   team: string,
   env: THREE.Texture,
-): (source: THREE.MeshStandardMaterial) => THREE.Material {
-  const albedo = textureOf(carFile(team, "albedo-lod.jpg"), true);
-  const orm = textureOf(carFile(team, "orm-lod.jpg"), false);
-  const tyre = textureOf(carFile("shared", "tyre.jpg"), true);
+): Promise<(source: THREE.MeshStandardMaterial) => THREE.Material> {
+  const [albedo, orm, tyre] = await Promise.all([
+    textureOf(carFile(team, "albedo-lod.jpg"), true),
+    textureOf(carFile(team, "orm-lod.jpg"), false),
+    textureOf(carFile("shared", "tyre.jpg"), true),
+  ]);
   const made = new Map<string, THREE.Material>();
   return (source) => {
     const existing = made.get(source.name);
@@ -68,12 +69,12 @@ function teamMaterials(
   };
 }
 
-async function teamModel(
+export async function teamModel(
   team: string,
   env: THREE.Texture,
 ): Promise<THREE.Object3D> {
   const gltf = await new GLTFLoader().loadAsync(carFile(team, "lod.glb"));
-  const material = teamMaterials(team, env);
+  const material = await teamMaterials(team, env);
   gltf.scene.traverse((object) => {
     if (!(object instanceof THREE.Mesh)) return;
     object.material = material(object.material as THREE.MeshStandardMaterial);
@@ -84,6 +85,7 @@ async function teamModel(
 export class GridCars {
   readonly root = new THREE.Group();
   private placed = false;
+  playerSlot = 0;
   private shown = false;
   private readonly centre = new THREE.Vector3();
 
@@ -112,24 +114,22 @@ export class GridCars {
         ),
       ),
     );
-    const order = [
-      player,
-      ...teams.map((team) => team.id).filter((id) => id !== player),
-    ].flatMap((id) => Array.from({ length: carsPerTeam }, () => id));
-    const cars = order.slice(1).map((id) => {
-      const model = models.get(id);
-      if (!model) throw new Error(`no grid model for ${id}`);
-      const axes = new THREE.Group();
-      axes.matrixAutoUpdate = false;
-      axes.matrix.copy(gltfToSdCar);
-      axes.add(model.clone());
-      const car = new THREE.Group();
-      car.matrixAutoUpdate = false;
-      const contact = contactShadow(wheelRest);
-      contact.userData["contact"] = true;
-      car.add(axes, contact);
-      return car;
-    });
+    const cars = gridTeamOrder(player)
+      .slice(1)
+      .map((id) => {
+        const model = models.get(id);
+        if (!model) throw new Error(`no grid model for ${id}`);
+        const axes = new THREE.Group();
+        axes.matrixAutoUpdate = false;
+        axes.matrix.copy(gltfToSdCar);
+        axes.add(model.clone());
+        const car = new THREE.Group();
+        car.matrixAutoUpdate = false;
+        const contact = contactShadow(wheelRest);
+        contact.userData["contact"] = true;
+        car.add(axes, contact);
+        return car;
+      });
     return new GridCars(cars, slots, point);
   }
 
@@ -147,6 +147,7 @@ export class GridCars {
 
   private place(player: THREE.Vector3): void {
     const { slot, side } = this.locate(player);
+    this.playerSlot = slot;
     const own = this.slots[slot];
     if (!own) return;
     const ownPoint = new THREE.Vector3(

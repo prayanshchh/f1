@@ -6,10 +6,19 @@ export interface LapResult {
   delta: number | null;
 }
 
+type SectorStatus = "pb" | "faster" | "slower";
+
 export interface SectorState {
   times: (number | null)[];
-  status: ("pb" | "slower" | null)[];
+  status: (SectorStatus | null)[];
+  deltas: (number | null)[];
   active: number;
+}
+
+export interface StoredReference {
+  trace: ArrayLike<number>;
+  sectors: number[];
+  fastestSectors?: number[];
 }
 
 export class LapTrace {
@@ -20,20 +29,24 @@ export class LapTrace {
   private lap = -1;
   private sectorTimes: (number | null)[];
   private sectorStatus: SectorState["status"];
+  private sectorDeltas: SectorState["deltas"];
+  private readonly fastestSectors: number[];
 
   constructor(
     length: number,
     readonly boundaries: number[],
-    stored: { trace: number[]; sectors: number[] } | null = null,
+    stored: StoredReference | null = null,
   ) {
     this.current = new Float64Array(Math.ceil(length) + 1).fill(Number.NaN);
     this.best = stored ? Float64Array.from(stored.trace) : null;
     this.bestSectors = stored?.sectors ?? [];
+    this.fastestSectors = [...(stored?.fastestSectors ?? this.bestSectors)];
     this.sectorTimes = Array.from(
       { length: boundaries.length + 1 },
       () => null,
     );
     this.sectorStatus = this.sectorTimes.map(() => null);
+    this.sectorDeltas = this.sectorTimes.map(() => null);
   }
 
   get bestTime(): number | null {
@@ -68,6 +81,7 @@ export class LapTrace {
     this.lastDistance = -1;
     this.sectorTimes = this.sectorTimes.map(() => null);
     this.sectorStatus = this.sectorStatus.map(() => null);
+    this.sectorDeltas = this.sectorDeltas.map(() => null);
   }
 
   private record(distance: number, time: number): void {
@@ -119,6 +133,7 @@ export class LapTrace {
     return {
       times: [...this.sectorTimes],
       status: [...this.sectorStatus],
+      deltas: [...this.sectorDeltas],
       active,
     };
   }
@@ -139,9 +154,17 @@ export class LapTrace {
     const start = index === 0 ? 0 : this.splitAt(index - 1);
     const time = at - start;
     this.sectorTimes[index] = time;
-    const best = this.bestSectors[index];
+    const reference = this.bestSectors[index];
+    const fastest = this.fastestSectors[index];
+    this.sectorDeltas[index] =
+      reference === undefined ? null : time - reference;
+    if (fastest === undefined || time < fastest) {
+      this.fastestSectors[index] = time;
+      this.sectorStatus[index] = "pb";
+      return;
+    }
     this.sectorStatus[index] =
-      best === undefined || time < best ? "pb" : "slower";
+      reference !== undefined && time < reference ? "faster" : "slower";
   }
 
   private splitAt(index: number): number {

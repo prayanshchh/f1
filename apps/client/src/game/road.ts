@@ -39,9 +39,6 @@ const hillDryness = 0.65;
 const strawTint = vec3(1.25, 1.08, 0.62);
 const leafScale = 0.9;
 const crowdSpacing = 1 / 0.5;
-const startLightCount = 5;
-const startLightLead = 2;
-const startLightInterval = 0.4;
 const startLampRows = 2;
 const startLampRed = vec3(6, 0.15, 0.05);
 const crowdRow = 1 / 0.85;
@@ -352,14 +349,8 @@ export async function loadRoad(
 
 const startLightsLit = uniform(0);
 
-export function setStartLights(raceTime: number): void {
-  startLightsLit.value =
-    raceTime < 0
-      ? Math.min(
-          startLightCount,
-          Math.floor((raceTime + startLightLead) / startLightInterval) + 1,
-        )
-      : 0;
+export function setStartLights(lit: number): void {
+  startLightsLit.value = lit;
 }
 
 function startLampMaterial(): THREE.MeshStandardNodeMaterial {
@@ -402,6 +393,7 @@ export class Sunlight {
   readonly sun = new THREE.DirectionalLight(0xffffff, sunIntensity);
   readonly sky = new THREE.HemisphereLight(0xffffff, groundColor, skyIntensity);
   readonly direction = new THREE.Vector3();
+  private sunDistance = shadowDistance;
 
   constructor(scene: THREE.Scene) {
     this.sky.position.set(0, 0, 1);
@@ -420,6 +412,21 @@ export class Sunlight {
     scene.add(this.sun, this.sun.target, this.sky);
   }
 
+  setReach(radius: number): void {
+    const camera = this.sun.shadow.camera;
+    camera.left = -radius;
+    camera.right = radius;
+    camera.top = radius;
+    camera.bottom = -radius;
+    camera.far = Math.max(shadowDistance, radius * 2) * 2;
+    this.sunDistance = Math.max(shadowDistance, radius * 2);
+    camera.updateProjectionMatrix();
+  }
+
+  resetReach(): void {
+    this.setReach(shadowRadius);
+  }
+
   update(state: SkyState, eyeX: number, eyeY: number, eyeZ: number): void {
     const [sx, sy, sz] = state.sunPosition;
     this.direction.set(sx - eyeX, sy - eyeY, sz).normalize();
@@ -427,7 +434,7 @@ export class Sunlight {
     this.sun.target.position.set(eyeX, eyeY, eyeZ);
     this.sun.position
       .copy(this.direction)
-      .multiplyScalar(shadowDistance)
+      .multiplyScalar(this.sunDistance)
       .add(this.sun.target.position);
     const [r, g, b] = state.sunColor;
     this.sun.color.setRGB(r, g, b);

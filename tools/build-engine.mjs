@@ -308,6 +308,7 @@ for (const [from, to] of files) stage(from, path.join(data, to));
 
 const exported = [
   "_sdInit",
+  "_sdRaceCountdown",
   "_sdKey",
   "_sdUpdate",
   "_sdStep",

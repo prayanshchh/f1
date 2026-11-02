@@ -2,7 +2,12 @@ import * as THREE from "three/webgpu";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { float, smoothstep, uv, vec3 } from "three/tsl";
 import { carMaterials, carTextures, mirrorLayout } from "./carpaint.ts";
-import type { CarMaterials, DashReadout, MirrorName } from "./carpaint.ts";
+import type {
+  CarMaterials,
+  CarTextures,
+  DashReadout,
+  MirrorName,
+} from "./carpaint.ts";
 import { frameIndex } from "./engine.ts";
 import { unlitMaterial } from "./materials.ts";
 import { setTyreShadows } from "./road.ts";
@@ -145,6 +150,7 @@ export class GltfCar {
   private compoundShown = -1;
   private readonly radii: number[] = [];
   private materials: CarMaterials | null = null;
+  private textures: CarTextures | null = null;
   private auxFrame = 0;
   private cubeReady = false;
   private mirrorsShown = false;
@@ -201,8 +207,9 @@ export class GltfCar {
     const car = new GltfCar();
     const anisotropy = renderer.getMaxAnisotropy();
     const gltf = await new GLTFLoader().loadAsync(carFile(team, "car.glb"));
+    car.textures = carTextures(team, anisotropy);
     const materials = carMaterials(
-      carTextures(team, anisotropy),
+      car.textures,
       env,
       {
         "mirror-l": car.addMirror("mirror-l"),
@@ -248,6 +255,18 @@ export class GltfCar {
       axis: new THREE.Vector3(),
     }));
     return car;
+  }
+
+  dispose(): void {
+    this.root.traverse((object) => {
+      if (!(object instanceof THREE.Mesh)) return;
+      (object.geometry as THREE.BufferGeometry).dispose();
+      (object.material as THREE.Material).dispose();
+    });
+    for (const map of Object.values(this.textures ?? {}))
+      (map as THREE.Texture).dispose();
+    for (const mirror of this.mirrors.values()) mirror.target.dispose();
+    this.cubeTarget.dispose();
   }
 
   private addSidewalls(): void {

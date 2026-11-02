@@ -20,6 +20,7 @@ import {
   vec2,
 } from "three/tsl";
 import { carFile } from "./teams.ts";
+import { releaseOnceUploaded } from "./preload.ts";
 
 const envWidth = 512;
 const envHeight = 256;
@@ -164,7 +165,7 @@ export interface CarTextures {
 }
 
 function loaded(url: string, sRgb: boolean, anisotropy: number): THREE.Texture {
-  const map = new THREE.TextureLoader().load(url);
+  const map = releaseOnceUploaded(new THREE.TextureLoader().load(url));
   map.flipY = false;
   map.colorSpace = sRgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
   map.anisotropy = anisotropy;

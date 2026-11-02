@@ -15,6 +15,7 @@ import {
   vec2,
   vec3,
 } from "three/tsl";
+import { releaseOnceUploaded } from "./preload.ts";
 
 const skyFiles = import.meta.glob<string>(
   "../../../../content/tracks/cota/sky/*",
@@ -128,6 +129,7 @@ export class SkyBox {
       loader.loadAsync(fileUrl(`${name}.hdr`)),
       loader.loadAsync(fileUrl(`${name}-env.hdr`)),
     ]);
+    releaseOnceUploaded(sky);
     sky.wrapS = THREE.RepeatWrapping;
     sky.wrapT = THREE.ClampToEdgeWrapping;
     sky.minFilter = THREE.LinearFilter;

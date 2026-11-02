@@ -25,6 +25,8 @@ import apronBUrl from "../../../../content/tracks/cota/textures/baked/apron_b.pn
 import streaksUrl from "../../../../content/tracks/cota/textures/baked/asphalt_streaks.png?url";
 import terrainUrl from "../../../../content/tracks/cota/textures/baked/terrain_albedo.jpg?url";
 import grainUrl from "../../../../content/tracks/cota/textures/source/asphalt_track_base_color.jpg?url";
+import { frustumContains } from "./world-culler.ts";
+import { releaseOnceUploaded } from "./preload.ts";
 
 const asphaltDark = 0.115;
 const asphaltLight = 0.155;
@@ -440,7 +442,7 @@ export function surface(
 async function loadBaked(anisotropy: number): Promise<BakedGround> {
   const loader = new THREE.TextureLoader();
   const load = async (url: string, colorSpace: string) => {
-    const map = await loader.loadAsync(url);
+    const map = releaseOnceUploaded(await loader.loadAsync(url));
     map.flipY = false;
     map.colorSpace = colorSpace;
     map.wrapS = THREE.ClampToEdgeWrapping;
@@ -596,6 +598,18 @@ export class Sunlight {
       lights.length === 0 ||
       lights.some(({ shadow }) =>
         shadow ? shadow.getFrustum().intersectsSphere(this.reach) : true,
+      )
+    );
+  }
+
+  containsSphere(sphere: THREE.Sphere): boolean {
+    this.reach.copy(sphere);
+    this.reach.radius += casterMargin;
+    const lights = this.cascades.lights;
+    return (
+      lights.length === 0 ||
+      lights.some(({ shadow }) =>
+        shadow ? frustumContains(shadow.getFrustum(), this.reach) : true,
       )
     );
   }

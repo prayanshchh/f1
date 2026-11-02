@@ -5,7 +5,7 @@ import { frameIndex } from "./engine.ts";
 import { type CarEnvironment, useEnvironment } from "./carpaint.ts";
 import { contactShadow, gltfToSdCar, wheelRest } from "./gltf.ts";
 import { mergedMesh, placedCopy } from "./merge.ts";
-import { loaded } from "./preload.ts";
+import { loaded, releaseOnceUploaded } from "./preload.ts";
 import { carFile, gridTeamOrder, teams } from "./teams.ts";
 
 const leaveAfterLap = 2;
@@ -26,7 +26,7 @@ type TrackPoint = (
 ) => [number, number, number];
 
 function textureOf(url: string, sRgb: boolean): THREE.Texture {
-  const map = new THREE.TextureLoader().load(url);
+  const map = releaseOnceUploaded(new THREE.TextureLoader().load(url));
   map.flipY = false;
   map.colorSpace = sRgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
   return map;
@@ -46,10 +46,20 @@ function flatMaterial(
   return material;
 }
 
+const tyreMaps = new WeakMap<CarEnvironment, THREE.Texture>();
+
+function tyreMap(env: CarEnvironment): THREE.Texture {
+  const known = tyreMaps.get(env);
+  if (known) return known;
+  const map = textureOf(carFile("shared", "tyre.jpg"), true);
+  tyreMaps.set(env, map);
+  return map;
+}
+
 function tyreMaterial(env: CarEnvironment): THREE.MeshStandardNodeMaterial {
   const material = new THREE.MeshStandardNodeMaterial({
     name: "tyre",
-    map: textureOf(carFile("shared", "tyre.jpg"), true),
+    map: tyreMap(env),
     roughness: 0.9,
     metalness: 0,
   });

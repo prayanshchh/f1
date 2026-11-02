@@ -21,7 +21,7 @@ import type { CameraPose } from "./buildup-shots.ts";
 import type { RacingLineData, RacingLineMode } from "./racing-line.ts";
 import { RacingLineView } from "./racing-line-view.ts";
 import { PitCrew } from "./pit-crew.ts";
-import { uploadEverything } from "./preload.ts";
+import { releaseUploadedImages, uploadEverything } from "./preload.ts";
 import { PitGate } from "./pit-gate.ts";
 import type { PitControl, PitLayout } from "./pitstop.ts";
 import { SkidMarks } from "./skidmarks.ts";
@@ -30,7 +30,7 @@ import { SdSky } from "./sky.ts";
 import { SkyBox } from "./skybox.ts";
 import { Crowd } from "./crowd.ts";
 import { TyreSmoke } from "./tyre-smoke.ts";
-import { WorldCuller } from "./world-culler.ts";
+import { frustumContains, WorldCuller } from "./world-culler.ts";
 import type { TyreInfo } from "./tyres.ts";
 
 const gateLead = 30;
@@ -77,6 +77,8 @@ export class Scene {
     intersectsSphere: (sphere: THREE.Sphere): boolean =>
       this.viewFrustum.intersectsSphere(sphere) ||
       this.mirrorViews.some((view) => view.intersectsSphere(sphere)),
+    containsSphere: (sphere: THREE.Sphere): boolean =>
+      frustumContains(this.viewFrustum, sphere),
   };
   private readonly viewMatrix = new THREE.Matrix4();
   private warming = false;
@@ -133,13 +135,7 @@ export class Scene {
     );
     this.atmosphere.exposure = skyBox.exposure;
     this.scene.add(this.marks.mesh, this.crew.root, this.gate.mesh);
-    this.moving = [
-      skyBox.mesh,
-      car.root,
-      this.crew.root,
-      this.gate.mesh,
-      ...extras,
-    ];
+    this.moving = [skyBox.mesh, car.root, this.gate.mesh, ...extras];
     this.scene.updateMatrixWorld(true);
     this.scene.matrixWorldAutoUpdate = false;
     culler.bake();
@@ -270,7 +266,7 @@ export class Scene {
 
   renderAuxiliary(renderer: THREE.WebGPURenderer): void {
     this.sunlight.freeze();
-    this.crew.root.visible = true;
+    if (this.warming) this.crew.root.visible = true;
     this.car.renderAuxiliary(renderer, this.scene);
   }
 
@@ -411,11 +407,16 @@ export class Scene {
   }
 
   hideUnseenCrew(): void {
-    if (this.warming) return;
-    this.crewBounds.center.setFromMatrixPosition(this.crew.root.matrixWorld);
-    this.crew.root.visible =
-      this.seen.intersectsSphere(this.crewBounds) ||
-      this.sunlight.intersectsSphere(this.crewBounds);
+    const { root } = this.crew;
+    if (!this.warming) {
+      this.crewBounds.center.setFromMatrixPosition(root.matrix);
+      root.visible =
+        this.seen.intersectsSphere(this.crewBounds) ||
+        this.sunlight.intersectsSphere(this.crewBounds);
+    }
+    if (!root.visible) return;
+    this.crew.prepare();
+    root.updateMatrixWorld();
   }
 
   async warmUp(
@@ -431,6 +432,7 @@ export class Scene {
     });
     this.warming = false;
     releaseCpuCopies(this.road, this.culler.retained());
+    releaseUploadedImages(renderer, this.scene);
   }
 
   updateTyres(frame: Float64Array, tyres: TyreInfo): void {

@@ -1,7 +1,6 @@
 import createSpeedDreams, {
   type SpeedDreamsModule,
 } from "../../wasm/speed-dreams.js";
-import type { CarInfo } from "./car.ts";
 import type { WeekendPlan } from "./weekend.ts";
 import type { EnergyInfo } from "./energy.ts";
 import type { CarStatus } from "./mfd.ts";
@@ -495,77 +494,6 @@ export class Engine {
         surface: at(i * 5 + 3),
         load: at(i * 5 + 4),
       })),
-    };
-  }
-
-  carInfo(): CarInfo {
-    const v = this.doubles(32, (p) => {
-      this.module._sdCarInfo(p);
-    });
-    const at = (i: number) => v[i] ?? 0;
-    const wheel = (k: number) => [0, 1, 2, 3].map((i) => at(i * 3 + k));
-    const str = this.module.cwrap("sdCarParamStr", "string", [
-      "string",
-      "string",
-    ]);
-    const num = this.module.cwrap("sdCarParamNum", "number", [
-      "string",
-      "string",
-      "number",
-    ]);
-    const count = this.module.cwrap("sdCarParamCount", "number", ["string"]);
-    const objects = "Graphic Objects";
-    const model = (section: string, key: string) =>
-      str(`${objects}/${section}`, key);
-    const gauge = (section: string, o: number) => {
-      const file = model(section, "model");
-      return file
-        ? {
-            model: file,
-            xpos: at(o),
-            ypos: at(o + 1),
-            zpos: at(o + 2),
-            angle: at(o + 3),
-            minAngle: at(o + 4),
-            factor: at(o + 5),
-          }
-        : null;
-    };
-    const steerModel = model("Steer Wheel", "model");
-    const drivers = Array.from(
-      { length: count(`${objects}/Driver`) },
-      (_, i) => {
-        const path = `${objects}/Driver/${String(i + 1)}`;
-        return {
-          model: str(path, "driver"),
-          xpos: num(path, "xpos", 0),
-          ypos: num(path, "ypos", 0),
-          zpos: num(path, "zpos", 0),
-          angle: 0,
-        };
-      },
-    );
-    const wheel3d = str(objects, "3d wheel") || "wheel";
-    return {
-      name: this.module.UTF8ToString(this.module._sdCarName()),
-      wheelRadius: wheel(0),
-      tireWidth: wheel(1),
-      brakeDiskRadius: wheel(2),
-      steerWheelRot: at(12),
-      steerWheel: steerModel
-        ? {
-            model: steerModel,
-            xpos: at(13),
-            ypos: at(14),
-            zpos: at(15),
-            angle: at(16),
-          }
-        : null,
-      drivers: drivers.filter((driver) => driver.model !== ""),
-      speedometer: gauge("Speedometer Needle", 20),
-      tachometer: gauge("Tachometer Needle", 26),
-      frontWheel: str(objects, "3d front wheel") || wheel3d,
-      rearWheel: str(objects, "3d rear wheel") || wheel3d,
     };
   }
 

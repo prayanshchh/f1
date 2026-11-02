@@ -1,4 +1,5 @@
 import season from "../../../../content/season/austin-2026.json";
+import liveries from "../../../../content/cars/teams.json";
 
 interface SeasonDriver {
   number: number;
@@ -17,6 +18,7 @@ interface SeasonDriver {
 
 export interface Team {
   index: number;
+  car: string;
   name: string;
   colour: string;
 }
@@ -24,6 +26,7 @@ export interface Team {
 export interface Entrant {
   code: string;
   name: string;
+  car: string;
   team: string;
   teamIndex: number;
   seat: number;
@@ -55,17 +58,53 @@ const fallbackRuns = [
   [70, 600],
 ];
 const stageKey = "f1.weekend";
+const liveryOrder = [
+  "meridian",
+  "vanta",
+  "halden",
+  "corvus",
+  "sylvan",
+  "azura",
+  "strato",
+  "novara",
+  "orion",
+  "krona",
+  "ardent",
+];
+const towerLightness = 0.5;
+
+function towerColour(hex: string): string {
+  const value = Number.parseInt(hex.slice(1), 16);
+  const channels = [16, 8, 0].map((shift) => ((value >> shift) & 255) / 255);
+  const high = Math.max(...channels);
+  const low = Math.min(...channels);
+  const lightness = (high + low) / 2;
+  if (lightness >= towerLightness || high === 0) return hex;
+  const lift = towerLightness / lightness;
+  const lifted = channels.map((c) =>
+    Math.round(Math.min(1, c * lift) * 255)
+      .toString(16)
+      .padStart(2, "0"),
+  );
+  return `#${lifted.join("")}`;
+}
+
+function teamOf(index: number): Team {
+  const livery =
+    liveries.find((team) => team.id === liveryOrder[index]) ?? liveries[0];
+  if (!livery) throw new Error("no teams defined");
+  return {
+    index,
+    car: livery.id,
+    name: livery.name,
+    colour: towerColour(livery.colours.primary),
+  };
+}
 
 export const raceLaps = season.raceLaps;
-export const teams: Team[] = drivers.reduce<Team[]>((list, driver) => {
-  if (!list.some((team) => team.index === driver.teamIndex))
-    list.push({
-      index: driver.teamIndex,
-      name: driver.team,
-      colour: driver.colour,
-    });
-  return list;
-}, []);
+export const teams: Team[] = [
+  ...new Set(drivers.map((driver) => driver.teamIndex)),
+].map(teamOf);
 
 export const segmentNames = season.qualifying.segments.map((s) => s.name);
 
@@ -89,13 +128,15 @@ function seatPlayer(teamIndex: number): SeasonDriver[] {
 
 function toEntrant(driver: SeasonDriver): Entrant {
   const gap = (driver.qualifyingGap + driver.raceGap) / 2;
+  const team = teamOf(driver.teamIndex);
   return {
     code: driver.code,
     name: driver.name,
-    team: driver.team,
+    car: team.car,
+    team: team.name,
     teamIndex: driver.teamIndex,
     seat: driver.seat,
-    colour: driver.colour,
+    colour: team.colour,
     player: false,
     speed: 1 - (speedPerGap * driver.qualifyingGap) / percent,
     raceSpeed: 1 - (speedPerGap * driver.raceGap) / percent,
@@ -107,15 +148,15 @@ function toEntrant(driver: SeasonDriver): Entrant {
   };
 }
 
-function playerEntrant(teamIndex: number): Entrant {
-  const team = teams.find((t) => t.index === teamIndex) ?? teams[0];
+function playerEntrant(team: Team): Entrant {
   return {
     code: "YOU",
     name: "You",
-    team: team?.name ?? "",
-    teamIndex,
+    car: team.car,
+    team: team.name,
+    teamIndex: team.index,
     seat: 1,
-    colour: team?.colour ?? "#ffffff",
+    colour: team.colour,
     player: true,
     speed: 1,
     raceSpeed: 1,
@@ -150,13 +191,15 @@ function gridSlots(
 }
 
 export function planWeekend(
-  teamIndex: number,
+  car: string,
   playerSlot: number,
   gridCodes: string[] | null,
 ): WeekendPlan {
+  const team = teams.find((t) => t.car === car) ?? teams[0];
+  if (!team) throw new Error("no teams defined");
   const entrants = [
-    playerEntrant(teamIndex),
-    ...seatPlayer(teamIndex).map(toEntrant),
+    playerEntrant(team),
+    ...seatPlayer(team.index).map(toEntrant),
   ];
   return { entrants, slots: gridSlots(entrants, gridCodes, playerSlot) };
 }

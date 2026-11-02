@@ -16,7 +16,7 @@ describe("weekend plan", () => {
   test("every team and start slot gives each car its own grid box", () => {
     for (const team of teams)
       for (const start of [0, 10, 21, 99]) {
-        const { entrants, slots } = planWeekend(team.index, start, null);
+        const { entrants, slots } = planWeekend(team.car, start, null);
         expect(entrants).toHaveLength(22);
         expect([...slots].sort((a, b) => a - b)).toEqual(
           entrants.map((_, i) => i),
@@ -28,7 +28,7 @@ describe("weekend plan", () => {
 
   test("the player takes one seat, so their team keeps two cars", () => {
     for (const team of teams) {
-      const { entrants } = planWeekend(team.index, 0, null);
+      const { entrants } = planWeekend(team.car, 0, null);
       expect(entrants.filter((e) => e.teamIndex === team.index)).toHaveLength(
         2,
       );
@@ -36,16 +36,16 @@ describe("weekend plan", () => {
   });
 
   test("the qualifying order becomes the race grid", () => {
-    const first = planWeekend(3, 5, null);
+    const first = planWeekend("corvus", 5, null);
     const order = first.entrants.map((e) => e.code).reverse();
-    const { entrants, slots } = planWeekend(3, 5, order);
+    const { entrants, slots } = planWeekend("corvus", 5, order);
     entrants.forEach((entrant, i) => {
       expect(order[slots[i] ?? -1]).toBe(entrant.code);
     });
   });
 
   test("a stale grid falls back to the pace order", () => {
-    const { slots } = planWeekend(3, 5, ["YOU", "NOT"]);
+    const { slots } = planWeekend("corvus", 5, ["YOU", "NOT"]);
     expect(slots[0]).toBe(5);
     expect(new Set(slots).size).toBe(22);
   });

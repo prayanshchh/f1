@@ -29,7 +29,6 @@ import { sdlKeycode } from "./game/keys.ts";
 import { compoundIndex, nextCompound, wearScale } from "./game/tyres.ts";
 import { LapTrace } from "./game/laptrace.ts";
 import { Menu } from "./game/menu.ts";
-import { SdAssets } from "./game/models.ts";
 import { type PadCommands, PadLink } from "./game/pad.ts";
 import { Atmosphere } from "./game/atmosphere.ts";
 import { Scene } from "./game/scene.ts";
@@ -37,7 +36,6 @@ import { GameSound } from "./game/sound/game-sound.ts";
 import {
   applySettings,
   carOf,
-  defaults,
   loadSettings,
   type Settings,
   stageOf,
@@ -124,6 +122,7 @@ function fitStage(): void {
 function drawer(renderer: THREE.WebGPURenderer, scene: Scene): () => void {
   const atmosphere = new Atmosphere(renderer, scene.scene, scene.camera);
   return () => {
+    scene.renderAuxiliary(renderer);
     atmosphere.update(scene.atmosphere);
     atmosphere.render();
   };
@@ -193,7 +192,6 @@ function raceControls(engine: Engine, hud: Hud, settings: Settings) {
   };
 }
 
-const fieldCar = "22mp1-sector-mcl36";
 const wearShortestRace = 28;
 const shortQualifying = 0.5;
 const fieldReferenceLap = 97.5;
@@ -240,21 +238,16 @@ function prepareSession(settings: Settings): SessionSetup {
   const weekend = settings.session === "weekend" ? loadWeekend() : null;
   const stage = stageOf(settings, weekend?.stage ?? null);
   if (!stage) return { stage, field: null, plan: null };
-  if (carOf(settings).car !== fieldCar) settings.car = defaults.car;
   const field = planWeekend(
-    settings.team,
+    carOf(settings).id,
     settings.startSlot,
     weekend?.grid ?? null,
   );
   return { stage, field, plan: sessionPlan(settings, stage, field) };
 }
 
-function fieldColours(field: WeekendPlan | null) {
-  const [player, ...rivals] = field?.entrants ?? [];
-  return {
-    player: player?.colour ?? null,
-    rivals: rivals.map((entrant) => entrant.colour),
-  };
+function rivalCars(field: WeekendPlan | null): string[] {
+  return (field?.entrants ?? []).slice(1).map((entrant) => entrant.car);
 }
 
 function referenceLap(reference: { sectors: number[] } | null): number | null {
@@ -375,17 +368,13 @@ async function main(): Promise<void> {
   );
   if (params.has("autopilot")) engine.autopilot(true);
   const lightLead = stage === "race" ? engine.session().startDelay : null;
-  const assets = await SdAssets.open("/wasm/sd/");
-  const colours = fieldColours(field);
   const scene = await Scene.load(
     engine,
-    assets,
-    car.body,
-    renderer.getMaxAnisotropy(),
+    car.id,
+    renderer,
     settings.racingLine,
-    colours.rivals,
+    rivalCars(field),
     lightLead,
-    colours.player,
   );
   const draw = drawer(renderer, scene);
 
@@ -563,6 +552,8 @@ async function main(): Promise<void> {
       ersModes[energy.mode]?.label ?? "",
     );
     scene.update(frame);
+    const info = engine.hudInfo();
+    scene.setDash(info);
     scene.updateTyres(frame, tyres);
     scene.updatePit(control, frame);
     scene.marks.update(
@@ -571,7 +562,7 @@ async function main(): Promise<void> {
       audio.wheels.map((w) => w.surface),
     );
     sound.update(audio);
-    hud.update(frame, engine.hudInfo(), tyres, energy, engine.carStatus(), now);
+    hud.update(frame, info, tyres, energy, engine.carStatus(), now);
     hud.updatePit(control);
     saveBestLap();
   };

@@ -66,7 +66,7 @@ export interface FieldOptions {
 }
 
 export async function startField(options: FieldOptions): Promise<Weekend> {
-  const plan = options.plan ?? planWeekend(3, 10, null);
+  const plan = options.plan ?? planWeekend("corvus", 10, null);
   return startCota<Weekend>((m) => {
     m._sdTyresConfigure(1, options.wear ?? 1);
     m._sdEnergyConfigure(options.kind === sessionKind.race ? 1 : 0, 1, 1, 1);

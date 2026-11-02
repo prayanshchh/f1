@@ -603,7 +603,7 @@ EMSCRIPTEN_KEEPALIVE int sdInit(const char *trackCategory, const char *trackName
         GfParmSetStr(robhdle, buf, ROB_ATTR_CAR, carOverride);
         GfParmWriteFile(NULL, robhdle, "human");
     }
-    std::string carName = GfParmGetStr(robhdle, buf, ROB_ATTR_CAR, "sc-cavallo-360");
+    std::string carName = GfParmGetStr(robhdle, buf, ROB_ATTR_CAR, "22mp1-sector-mcl36");
     if (!loadHumanCar(carName.c_str()))
         return -3;
     for (int i = 1; i < carCount; i++)

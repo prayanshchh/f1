@@ -33,7 +33,7 @@ function subset(plan: WeekendPlan, cars: number): WeekendPlan {
 }
 
 function headToHead(leaderSpeed: number): WeekendPlan {
-  const { entrants } = planWeekend(3, 0, null);
+  const { entrants } = planWeekend("corvus", 0, null);
   const [player, rival] = entrants;
   if (!player || !rival) throw new Error("season data has no field");
   return {
@@ -89,7 +89,7 @@ describe.runIf(existsSync(wasm))("race weekend on the real engine", () => {
 
   test("twenty laps on real strategies: stops, fresh rubber, fuel to the flag", async () => {
     const laps = 20;
-    const plan = subset(planWeekend(3, 7, null), 8);
+    const plan = subset(planWeekend("corvus", 7, null), 8);
     const m = await startField({
       kind: sessionKind.race,
       laps,

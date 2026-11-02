@@ -69,6 +69,8 @@ const rubberDarkening = 0.42;
 const rubberSmoothing = 0.3;
 const shadowRadius = 70;
 const shadowDistance = 200;
+const shadowSoftness = 1.5;
+const shadowPixels = 8192;
 const sunIntensity = 6;
 const skyIntensity = 2;
 const groundColor = new THREE.Color(0.22, 0.24, 0.16);
@@ -113,9 +115,7 @@ const depthOffsets: Record<string, number> = {
   "cota terrain": 2,
 };
 
-export function finish(
-  material: THREE.MeshStandardNodeMaterial | THREE.MeshBasicNodeMaterial,
-): void {
+export function finish(material: THREE.NodeMaterial): void {
   material.outputNode = renderOutput(
     output,
     THREE.ACESFilmicToneMapping,
@@ -407,7 +407,7 @@ export class Sunlight {
   constructor(scene: THREE.Scene) {
     this.sky.position.set(0, 0, 1);
     this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(4096, 4096);
+    this.sun.shadow.mapSize.set(shadowPixels, shadowPixels);
     const camera = this.sun.shadow.camera;
     camera.left = -shadowRadius;
     camera.right = shadowRadius;
@@ -417,6 +417,7 @@ export class Sunlight {
     camera.far = shadowDistance * 2;
     this.sun.shadow.bias = -0.00006;
     this.sun.shadow.normalBias = 0.02;
+    this.sun.shadow.radius = shadowSoftness;
     scene.add(this.sun, this.sun.target, this.sky);
   }
 

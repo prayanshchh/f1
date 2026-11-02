@@ -1,7 +1,7 @@
 import { ersModes, fuelMixes, nominalFuelPerLap } from "./energy.ts";
 import { ParamDoc } from "./params.ts";
 import { compounds } from "./tyres.ts";
-import { raceLapOptions, raceLaps, teams } from "./weekend.ts";
+import { raceLapOptions, raceLaps } from "./weekend.ts";
 import {
   autoFuelLaps,
   carOf,
@@ -316,7 +316,6 @@ export class Menu {
             session: defaults.session,
             laps: defaults.laps,
             difficulty: defaults.difficulty,
-            team: defaults.team,
             startSlot: defaults.startSlot,
             qualifyingLength: defaults.qualifyingLength,
             timeOfDay: defaults.timeOfDay,
@@ -701,8 +700,8 @@ export class Menu {
         true,
       ),
       this.choice(
-        "Car",
-        cars.map((c) => `${c.label}: ${c.detail}`).join(". ") + ".",
+        "Team",
+        "The team you drive for. In qualifying and races you take its second seat, and your pit box and name on the timing tower follow it.",
         cars.map((c) => ({ id: c.id, label: c.label })),
         () => s.car,
         (id) => {
@@ -722,35 +721,21 @@ export class Menu {
       ),
     ];
     if (s.session !== "practice")
-      rows.push(
-        this.choice(
-          "Your Team",
-          "The team you drive for. You take the second seat, and your car, pit box and name on the timing tower follow it.",
-          teams.map((team) => ({
-            id: String(team.index),
-            label: team.name,
-          })),
-          () => String(s.team),
-          (id) => {
-            s.team = Number(id);
-          },
-        ),
-        {
-          kind: "number",
-          label: "AI Difficulty",
-          info: "How fast the other 21 drivers are. At 110 the best of them drive at the limit of the car; each step down costs them about a tenth of a second a lap. The gaps between them come from the real 2026 Austin weekend.",
-          min: 40,
-          max: 110,
-          step: 1,
-          base: defaults.difficulty,
-          get: () => s.difficulty,
-          set: (v) => {
-            s.difficulty = v;
-          },
-          format: (v) => String(v),
-          range: "Min 40 - 110 Max",
+      rows.push({
+        kind: "number",
+        label: "AI Difficulty",
+        info: "How fast the other 21 drivers are. At 110 the best of them drive at the limit of the car; each step down costs them about a tenth of a second a lap. The gaps between them come from the real 2026 Austin weekend.",
+        min: 40,
+        max: 110,
+        step: 1,
+        base: defaults.difficulty,
+        get: () => s.difficulty,
+        set: (v) => {
+          s.difficulty = v;
         },
-      );
+        format: (v) => String(v),
+        range: "Min 40 - 110 Max",
+      });
     if (s.session === "qualifying" || s.session === "weekend")
       rows.push(
         this.choice(

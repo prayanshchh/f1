@@ -10,3 +10,5 @@ allowBuilds:
   esbuild: true
   "@ast-grep/cli": true
   lefthook: true
+patchedDependencies:
+  three@0.186.1: patches/three@0.186.1.patch

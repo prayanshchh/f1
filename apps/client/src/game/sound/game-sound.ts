@@ -3,12 +3,14 @@ import { soundState } from "./sound-state.ts";
 import workletUrl from "./worklet.ts?worker&url";
 
 const fullVolume = 1;
+const suspendDelay = 400;
 
 export class GameSound {
   private readonly context: AudioContext;
   private readonly node: AudioWorkletNode;
   private previous: CarAudio | null = null;
   private muted = false;
+  private suspendTimer = 0;
 
   private constructor(context: AudioContext, node: AudioWorkletNode) {
     this.context = context;
@@ -34,7 +36,7 @@ export class GameSound {
 
   private unlock(): void {
     const resume = () => {
-      void this.context.resume();
+      if (!this.silent) void this.context.resume();
     };
     resume();
     for (const event of ["keydown", "pointerdown", "touchend"])
@@ -44,16 +46,25 @@ export class GameSound {
     });
   }
 
+  private get silent(): boolean {
+    return this.muted || document.hidden;
+  }
+
   private send(): void {
+    window.clearTimeout(this.suspendTimer);
+    if (this.silent)
+      this.suspendTimer = window.setTimeout(() => {
+        void this.context.suspend();
+      }, suspendDelay);
+    else void this.context.resume();
     if (!this.previous) return;
-    const volume = this.muted || document.hidden ? 0 : fullVolume;
     this.node.port.postMessage(
-      soundState(this.previous, this.previous, volume),
+      soundState(this.previous, this.previous, this.silent ? 0 : fullVolume),
     );
   }
 
   update(car: CarAudio): void {
-    const volume = this.muted || document.hidden ? 0 : fullVolume;
+    const volume = this.silent ? 0 : fullVolume;
     this.node.port.postMessage(soundState(car, this.previous, volume));
     this.previous = car;
   }

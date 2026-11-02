@@ -1,5 +1,6 @@
 const deg = Math.PI / 180;
 const skyDomeDistance = 20000;
+const domeRepaintAngle = 1e-4;
 const minMainLightBrightness = 0.25;
 const baseSkyColor = [0.31, 0.43, 0.69] as const;
 
@@ -61,6 +62,7 @@ function rotateZ(v: Vec3, angle: number): Vec3 {
 }
 
 export interface SkyState {
+  domeVersion: number;
   sunPosition: Vec3;
   sunColor: Vec4;
   sceneAmbient: Vec3;
@@ -87,6 +89,8 @@ export class SdSky {
   private sdSunDeclination: number;
   private readonly fogState: { color: Vec3; density: number };
   private readonly domeColors = new Float32Array((1 + numRings * numBands) * 3);
+  private domeVersion = 0;
+  private paintedAngle = Infinity;
   private state!: SkyState;
 
   constructor(private readonly local: TrackLocal) {
@@ -351,7 +355,11 @@ export class SdSky {
           ? product(cloudsColor, sunColor)
           : scale(cloudsColor, sunColor[0]);
     }
-    this.repaintDome(skyColor, fogColor, this.effectiveVisibility);
+    if (Math.abs(solAngle - this.paintedAngle) > domeRepaintAngle) {
+      this.repaintDome(skyColor, fogColor, this.effectiveVisibility);
+      this.paintedAngle = solAngle;
+      this.domeVersion++;
+    }
     this.repaintSun(this.effectiveVisibility);
     const visible = this.effectiveVisibility > 1000;
     const sceneAmbient = visible
@@ -384,6 +392,7 @@ export class SdSky {
       ? scale(sunColor, lightSourceBrightness)
       : scale([1, 1, 1], sunColor[0] * lightSourceBrightness);
     return {
+      domeVersion: this.domeVersion,
       sunPosition: this.sunPosition,
       sunColor: this.ohaloColor,
       sceneAmbient,

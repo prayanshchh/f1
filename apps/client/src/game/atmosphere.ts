@@ -6,16 +6,15 @@ import {
   float,
   Fn,
   getViewPosition,
+  If,
   int,
   Loop,
   max,
   min,
   mix,
-  normalize,
   pass,
   pow,
   smoothstep,
-  step,
   uniform,
   uv,
   vec2,
@@ -27,11 +26,9 @@ const hazeDistance = 1400;
 const hazeMax = 0.82;
 const hazeWarmth = 0.35;
 const sunHalo = 0.3;
-const sunHaloPower = 18;
 const sunDisc = 2.5;
 const sunDiscPower = 1400;
 const veil = 0.09;
-const veilPower = 3;
 const skyHaze = 0.7;
 const skyHazeHeight = 0.32;
 const warmGrade = new THREE.Vector3(1.03, 1.0, 0.95);
@@ -44,6 +41,7 @@ const blurFar = 14;
 const bloomStrength = 0.14;
 const bloomRadius = 0.5;
 const bloomThreshold = 0.92;
+const skyDepth = 0.999999;
 
 export interface AtmosphereState {
   sunDirection: THREE.Vector3;
@@ -64,65 +62,76 @@ export class Atmosphere {
     private readonly camera: THREE.PerspectiveCamera,
   ) {
     const scenePass = pass(scene, camera, { samples: antialiasSamples });
+    scenePass.renderTarget.storeMultisampledColorBuffer = false;
     const sharp = scenePass.getTextureNode("output");
     const depth = scenePass.getTextureNode("depth").r;
-    const view = getViewPosition(
-      uv(),
-      depth,
-      uniform(camera.projectionMatrixInverse),
-    );
-    const world = uniform(camera.matrixWorld).mul(vec4(view, 1));
-    const before = this.previousView.mul(world);
-    const beforeUv = before.xy.div(before.w).mul(vec2(0.5, -0.5)).add(0.5);
-    const rawVelocity = uv().sub(beforeUv).mul(blurShutter);
-    const speed = rawVelocity.length();
-    const velocity = rawVelocity
-      .div(max(speed, 1e-5))
-      .mul(min(speed, blurLimit))
-      .mul(smoothstep(blurNear, blurFar, view.length()));
-    const color = Fn(() => {
-      const sum = sharp.rgb.toVar();
-      Loop(
-        { start: int(1), end: int(blurSamples), type: "int", condition: "<" },
-        ({ i }) => {
-          const along = float(i)
-            .div(blurSamples - 1)
-            .sub(0.5);
-          sum.addAssign(sharp.sample(uv().add(velocity.mul(along))).rgb);
-        },
+    const viewToClip = uniform(camera.projectionMatrixInverse);
+    const viewToWorld = uniform(camera.matrixWorld);
+    const graded = Fn(() => {
+      const view = getViewPosition(uv(), depth, viewToClip).toVar();
+      const distance = view.length().toVar();
+      const before = this.previousView.mul(viewToWorld.mul(vec4(view, 1)));
+      const beforeUv = before.xy.div(before.w).mul(vec2(0.5, -0.5)).add(0.5);
+      const rawVelocity = uv().sub(beforeUv).mul(blurShutter).toVar();
+      const speed = rawVelocity.length();
+      const velocity = rawVelocity
+        .div(max(speed, 1e-5))
+        .mul(min(speed, blurLimit))
+        .mul(smoothstep(blurNear, blurFar, distance))
+        .toVar();
+      const color = sharp.rgb.toVar();
+      If(velocity.dot(velocity).greaterThan(0), () => {
+        Loop(
+          { start: int(1), end: int(blurSamples), type: "int", condition: "<" },
+          ({ i }) => {
+            const along = float(i)
+              .div(blurSamples - 1)
+              .sub(0.5);
+            color.addAssign(sharp.sample(uv().add(velocity.mul(along))).rgb);
+          },
+        );
+        color.divAssign(blurSamples);
+      });
+      const direction = view.div(distance).toVar();
+      const toSun = max(dot(direction, this.sunView), 0).toVar();
+      const sun3 = toSun.mul(toSun).mul(toSun).toVar();
+      const sun6 = sun3.mul(sun3).toVar();
+      const sun12 = sun6.mul(sun6).toVar();
+      const tint = mix(
+        mix(this.hazeColor, this.sunColor, hazeWarmth),
+        this.sunColor,
+        sun12,
       );
-      return sum.div(blurSamples);
+      const light = this.sunColor.mul(sun3.mul(veil)).toVar();
+      const blend = float(0).toVar();
+      If(depth.lessThan(skyDepth), () => {
+        blend.assign(
+          float(1)
+            .sub(exp(distance.div(hazeDistance).negate()))
+            .mul(hazeMax),
+        );
+      }).Else(() => {
+        light.assign(
+          this.sunColor
+            .mul(
+              sun12
+                .mul(sun6)
+                .mul(sunHalo)
+                .add(pow(toSun, sunDiscPower).mul(sunDisc)),
+            )
+            .add(light),
+        );
+        const up = viewToWorld.mul(vec4(direction, 0)).xyz.normalize().z;
+        blend.assign(
+          float(1)
+            .sub(smoothstep(0, skyHazeHeight, up))
+            .mul(skyHaze),
+        );
+      });
+      return mix(color, tint, blend)
+        .add(light)
+        .mul(vec3(warmGrade.x, warmGrade.y, warmGrade.z));
     })();
-    const direction = normalize(view);
-    const toSun = max(dot(direction, this.sunView), 0);
-    const ground = float(1).sub(step(0.999999, depth));
-    const haze = float(1)
-      .sub(exp(view.length().div(hazeDistance).negate()))
-      .mul(hazeMax)
-      .mul(ground);
-    const tint = mix(
-      mix(this.hazeColor, this.sunColor, hazeWarmth),
-      this.sunColor,
-      pow(toSun, 12),
-    );
-    const glare = this.sunColor
-      .mul(
-        pow(toSun, sunHaloPower)
-          .mul(sunHalo)
-          .add(pow(toSun, sunDiscPower).mul(sunDisc))
-          .mul(float(1).sub(ground)),
-      )
-      .add(this.sunColor.mul(pow(toSun, veilPower).mul(veil)));
-    const up = uniform(camera.matrixWorld)
-      .mul(vec4(direction, 0))
-      .xyz.normalize().z;
-    const horizon = float(1)
-      .sub(smoothstep(0, skyHazeHeight, up))
-      .mul(skyHaze)
-      .mul(float(1).sub(ground));
-    const graded = mix(color, tint, max(haze, horizon))
-      .add(glare)
-      .mul(vec3(warmGrade.x, warmGrade.y, warmGrade.z));
     const glow = bloom(
       vec4(graded, 1),
       bloomStrength,

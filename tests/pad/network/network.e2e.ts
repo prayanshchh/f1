@@ -69,9 +69,10 @@ function expectHotspotAdvice(
   expect(result.steer).toBeNull();
 }
 
-function arrivals(sent: Sample[], received: Sample[]): number[] {
+function arrivals(sent: Sample[], received: Sample[], since: number): number[] {
   const changes = sent.filter(
-    (sample, i) => i > 0 && sample[1] !== sent[i - 1]?.[1],
+    (sample, i) =>
+      i > 0 && sample[0] >= since && sample[1] !== sent[i - 1]?.[1],
   );
   return changes.map(([at, steer]) => {
     const arrived = received.find(
@@ -176,10 +177,7 @@ test.describe("phone pad on simulated networks", () => {
     }
     const sent = shiftLog((await both.phone.logs()).sent, phoneClock.offset);
     const received = shiftLog(await both.game.received(), gameClock.offset);
-    const delays = arrivals(
-      sent.filter(([at]) => at >= since),
-      received,
-    );
+    const delays = arrivals(sent, received, since);
     const reached = spread(delays);
     const file = test.info().outputPath("lossy-wifi-latency.json");
     writeFileSync(file, JSON.stringify({ stale, reached, delays }, null, 2));

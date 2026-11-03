@@ -1924,7 +1924,8 @@ void sdAiDrive(int index, tCarElt *car, tSituation *s)
     double wanted = laneLateralAt(pos + v * 0.05, driver.lane);
     double speedFactor = (driver.blueFlag ? yieldSpeed : 1.0) * driver.caution;
     double lateral = lateralSafety(index, car, s, wanted, &speedFactor);
-    if (driver.task == AI_RACE && targetSpeedAt(driver, pos + v * 2.0, driver.lane) > slowCornerSpeed && holdsInside(index, car, s))
+    bool defends = driver.task == AI_RACE && !driver.blueFlag && driver.caution >= 1.0;
+    if (defends && targetSpeedAt(driver, pos + v * 2.0, driver.lane) > slowCornerSpeed && holdsInside(index, car, s))
         speedFactor = std::max(speedFactor, insideLateBrake);
     double beyond = std::max((double)car->_trkPos.toMiddle - sampled(model.leftBound, pos), sampled(model.rightBound, pos) - (double)car->_trkPos.toMiddle);
     if (driver.task == AI_RACE && pos < firstLapDistance && sdRaceControlSinceSignal(s) < 60.0)

@@ -5,7 +5,7 @@ import { Highlights, type Pass } from "./highlights.ts";
 import type { Hud } from "./hud.ts";
 import type { LapTrace, LapTraceState } from "./laptrace.ts";
 import { ReplayTape } from "./replay.ts";
-import { trackStations } from "./replay-camera.ts";
+import { type Station, trackStations } from "./replay-camera.ts";
 import { ReplayView } from "./replay-view.ts";
 import type { Scene } from "./scene.ts";
 import { type ReelShot, VictoryReel, type Winner } from "./victory-reel.ts";
@@ -32,7 +32,8 @@ export interface InstantReplayContext {
 }
 
 export class InstantReplay {
-  private readonly tape: ReplayTape;
+  readonly tape: ReplayTape;
+  readonly stations: Station[];
   private readonly history: HeapHistory<Rewind>;
   private readonly view: ReplayView;
   private readonly highlights: Highlights;
@@ -51,6 +52,7 @@ export class InstantReplay {
     const stations = trackStations(length, (d, l) =>
       engine.trackPoint(((d % length) + length) % length, l),
     );
+    this.stations = stations;
     this.reel = new VictoryReel(
       ctx.reelRoot,
       stations,

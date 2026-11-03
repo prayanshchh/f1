@@ -1,5 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
+  controlEvent,
+  flagCause,
   noticeFor,
   offence,
   penalty,
@@ -105,6 +107,76 @@ describe("race control notices", () => {
       "Bellamy penalised",
     );
     expect(noticeFor({ ...against, other: 2 }, name, turns, true)).toBeNull();
+  });
+
+  test("a yellow flag says who, what happened and where, and the safety car names whose crash it was", () => {
+    const spun = message({
+      stage: stage.flag,
+      car: 1,
+      other: 0,
+      offence: offence.yellowSingle,
+      penalty: penalty.none,
+      points: flagCause.spun,
+    });
+    expect(noticeFor(spun, name, turns, true)).toMatchObject({
+      kind: "flag",
+      title: "Yellow flag",
+      detail:
+        "Bellamy spun after contact with you - Turn 12 - Slow down, no overtaking",
+    });
+    const stopped = message({
+      stage: stage.flag,
+      car: 0,
+      other: 2,
+      offence: offence.yellowDouble,
+      penalty: penalty.none,
+      points: flagCause.stopped,
+      count: 2,
+      distance: 650,
+    });
+    expect(noticeFor(stopped, name, turns, true)).toMatchObject({
+      title: "Double yellow flag",
+      detail:
+        "You stopped on track after contact with Okafor - Turn 1 - Be ready to stop",
+    });
+    const safetyCar = message({
+      stage: stage.control,
+      car: -1,
+      offence: controlEvent.safetyCar,
+      penalty: penalty.none,
+      value: 1,
+    });
+    const incidents = new Map([[1, spun]]);
+    expect(
+      noticeFor(safetyCar, name, turns, true, incidents)?.detail,
+    ).toContain("After Bellamy's crash at Turn 12");
+    const red = { ...safetyCar, offence: controlEvent.red, value: 0 };
+    expect(
+      noticeFor(red, name, turns, true, new Map([[0, stopped]]))?.detail,
+    ).toContain("After your crash at Turn 1");
+  });
+
+  test("a car that passed you under yellow is told to give the place back and you see it handed back", () => {
+    const told = message({
+      stage: stage.instruction,
+      car: 2,
+      other: 0,
+      offence: offence.yellowOvertake,
+      penalty: penalty.none,
+      value: 90,
+    });
+    expect(noticeFor(told, name, turns, true)).toMatchObject({
+      title: "Okafor must give the place back",
+      detail: "Passed you under yellow flags - they will wait for you to pass",
+    });
+    expect(
+      noticeFor({ ...told, stage: stage.returned }, name, turns, true)?.title,
+    ).toBe("Okafor gave the place back");
+    expect(
+      noticeFor({ ...told, car: 0, other: 2 }, name, turns, true)?.detail,
+    ).toBe(
+      "You overtook under yellow flags - Let Okafor past within 90 seconds",
+    );
   });
 
   test("the timing badge shows what is still owed", () => {

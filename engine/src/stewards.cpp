@@ -94,6 +94,15 @@ const double troubleConfirm = 1.0;
 const double stoppedConfirm = 2.0;
 const double flagLinger = 2.0;
 const double playerContactWindow = 10.0;
+const double spinMemory = 3.0;
+const double yellowGiveBack = 90.0;
+const double receiverGone = 20.0;
+const double receiverPitting = 2.0;
+const double waitClose = 25.0;
+const double waitFast = 0.9;
+const double waitSlow = 0.7;
+const double waitFade = 400.0;
+const double waitAside = 0.8;
 const double startGrace = 3.0;
 const double nearEdge = 4.0;
 const double singleSlowdown = 1.05;
@@ -194,6 +203,15 @@ struct Pass
     int sector;
 };
 
+enum Cause
+{
+    CAUSE_NONE,
+    CAUSE_SLOW,
+    CAUSE_OFF,
+    CAUSE_SPUN,
+    CAUSE_STOPPED
+};
+
 struct Car
 {
     Sample history[historySize];
@@ -236,6 +254,15 @@ struct Car
     double lastDistance = 0;
     int giveBackTo = -1;
     double giveBackUntil = 0;
+    int giveBackOffence = O_LEFT_TRACK_POSITION;
+    bool giveBackLapse = false;
+    double giveBackDistance = 0;
+    double giveBackStill = 0;
+    double giveBackLane = 0;
+    int cause = CAUSE_NONE;
+    double troubleSince = -100;
+    double onset = -100;
+    int with = -1;
     double slowClock = 0;
     double stoppedClock = 0;
     int trouble = 0;
@@ -1088,6 +1115,19 @@ void watchRejoinSwerve(tSituation *s, int i)
     }
 }
 
+void orderGiveBack(int i, int k, int offence, double window, bool lapse, double distance)
+{
+    Car &c = cars[i];
+    c.giveBackTo = k;
+    c.giveBackUntil = now + window;
+    c.giveBackOffence = offence;
+    c.giveBackLapse = lapse;
+    c.giveBackDistance = distance;
+    c.giveBackStill = 0;
+    c.giveBackLane = 0;
+    post(i, k, offence, STAGE_INSTRUCTION, P_NONE, window, distance, 0, 0);
+}
+
 void settle(tSituation *s, int i)
 {
     Car &c = cars[i];
@@ -1110,9 +1150,7 @@ void settle(tSituation *s, int i)
             if (mine > progress(s->cars[k]))
             {
                 advantage = true;
-                c.giveBackTo = k;
-                c.giveBackUntil = now + giveBackWindow;
-                post(i, k, O_LEFT_TRACK_POSITION, STAGE_INSTRUCTION, P_NONE, giveBackWindow, ex.distance, 0, 0);
+                orderGiveBack(i, k, O_LEFT_TRACK_POSITION, giveBackWindow, false, ex.distance);
                 break;
             }
         }
@@ -1166,27 +1204,64 @@ void trackLimits(tSituation *s, int i, double dt)
         settle(s, i);
 }
 
-void giveBack(tSituation *s, int i)
+bool waitingFor(tSituation *s, int i)
+{
+    const Car &c = cars[i];
+    return c.giveBackLapse && (fabs(s->cars[c.giveBackTo]->_speed_x) < stoppedSpeed || sdRaceControlNeutralised());
+}
+
+void giveBack(tSituation *s, int i, double dt)
 {
     Car &c = cars[i];
     if (c.giveBackTo < 0)
         return;
     int k = c.giveBackTo;
-    if (!racing(k) || inLaneAt(s->cars[k]))
+    c.giveBackLane = inLaneAt(s->cars[k]) ? c.giveBackLane + dt : 0;
+    if (!racing(k) || c.giveBackLane > (c.giveBackLapse ? receiverPitting : 0))
     {
         c.giveBackTo = -1;
         return;
     }
     if (progress(s->cars[i]) < progress(s->cars[k]) - giveBackGap)
     {
-        post(i, k, O_LEFT_TRACK_POSITION, STAGE_RETURNED, P_NONE, 0, s->cars[i]->_distFromStartLine, 0, 0);
+        post(i, k, c.giveBackOffence, STAGE_RETURNED, P_NONE, 0, s->cars[i]->_distFromStartLine, 0, 0);
         c.giveBackTo = -1;
+        return;
+    }
+    if (waitingFor(s, i))
+    {
+        c.giveBackUntil += dt;
+        c.giveBackStill += dt;
+        if (c.giveBackStill > receiverGone)
+            c.giveBackTo = -1;
         return;
     }
     if (now < c.giveBackUntil)
         return;
     c.giveBackTo = -1;
-    decide(i, O_LEFT_TRACK_POSITION, P_TIME10, 0, k, c.done.distance, decisionDelay, 0);
+    if (!c.giveBackLapse)
+        decide(i, c.giveBackOffence, P_TIME10, 0, k, c.giveBackDistance, decisionDelay, 0);
+}
+
+void yellowPass(tSituation *s, int i, int o, int k)
+{
+    Car &c = cars[i];
+    double at = s->cars[i]->_distFromStartLine;
+    bool open = c.giveBackTo < 0 && kind == KIND_RACE;
+    if (c.trouble > 0)
+        return;
+    if (o == 0)
+    {
+        if (open)
+            orderGiveBack(i, 0, O_YELLOW_OVERTAKE, yellowGiveBack, true, at);
+        return;
+    }
+    if (cars[o].trouble > 0 || o == flagCar[k] || o == flagCar[c.sector < 0 ? k : c.sector])
+        return;
+    if (i == 0 && open)
+        orderGiveBack(0, o, O_YELLOW_OVERTAKE, giveBackWindow, false, at);
+    else
+        c.passes.push_back({o, k});
 }
 
 void startProcedure(tSituation *s)
@@ -1366,11 +1441,58 @@ int troubleOf(tSituation *s, int i, double dt)
     if (sdAiTrackEdges(car->_distFromStartLine, &left, &right))
         near = car->_trkPos.toMiddle < left + nearEdge && car->_trkPos.toMiddle > right - nearEdge;
     if (c.stoppedClock >= stoppedConfirm && near)
+    {
+        c.cause = CAUSE_STOPPED;
         return 2;
+    }
     double confirm = normal > 0 ? troubleConfirm : stoppedConfirm;
-    if (c.slowClock >= confirm || (c.ex.active && fabs(latest(c).slip) > lostControlSlip))
-        return 1;
-    return 0;
+    double slip = fabs(latest(c).slip);
+    bool spinning = slip > spinSlip || (c.ex.active && slip > lostControlSlip);
+    if (c.slowClock < confirm && !spinning)
+        return 0;
+    if (spinning || maxSlipBetween(c, now - spinMemory, now) > spinSlip)
+        c.cause = CAUSE_SPUN;
+    else if (c.ex.active)
+        c.cause = CAUSE_OFF;
+    else
+        c.cause = CAUSE_SLOW;
+    return 1;
+}
+
+double touchedAt(int a, int b)
+{
+    return pairContact[std::min(a, b)][std::max(a, b)];
+}
+
+int lastTouched(int i)
+{
+    int best = -1;
+    for (int o = 0; o < (int)cars.size(); o++)
+        if (o != i && now - touchedAt(i, o) < playerContactWindow && (best < 0 || touchedAt(i, o) > touchedAt(i, best)))
+            best = o;
+    return best;
+}
+
+void noteTrouble(int i, int was)
+{
+    Car &c = cars[i];
+    if (c.trouble == 0)
+    {
+        c.cause = CAUSE_NONE;
+        c.playerTrouble = false;
+        return;
+    }
+    if (was == 0)
+        c.troubleSince = now - std::max(c.slowClock, c.stoppedClock);
+    if (c.playerTrouble || c.cause == CAUSE_SLOW)
+        return;
+    int touched = i == 0 ? lastTouched(0) : now - touchedAt(0, i) < playerContactWindow ? 0 : -1;
+    if (i != 0 && touched != 0)
+        return;
+    c.playerTrouble = true;
+    c.with = touched;
+    double contact = touched >= 0 ? touchedAt(i, touched) : now;
+    c.onset = std::min(c.troubleSince, contact);
 }
 
 void raise(int *levels, int k, int trouble)
@@ -1407,9 +1529,9 @@ void updateFlags(tSituation *s, double dt)
     for (int i = 0; i < s->_ncars; i++)
     {
         Car &c = cars[i];
+        int was = c.trouble;
         c.trouble = kind == KIND_SOLO ? 0 : troubleOf(s, i, dt);
-        bool touchedPlayer = i == 0 || now - pairContact[0][i] < playerContactWindow;
-        c.playerTrouble = c.trouble > 0 && (touchedPlayer || c.playerTrouble);
+        noteTrouble(i, was);
         int k = sectorOf(s->cars[i]->_distFromStartLine);
         if (c.trouble > 0)
             raise(seen, k, c.trouble);
@@ -1441,8 +1563,12 @@ void updateFlags(tSituation *s, double dt)
         double middle = (k + 0.5) * length / marshalSectors;
         if (flags[k] > was && source[k] >= 0)
         {
-            flagCar[k] = source[k];
-            post(source[k], -1, flags[k] == 2 ? O_YELLOW_DOUBLE : O_YELLOW_SINGLE, STAGE_FLAG, P_NONE, k, middle, flags[k], 0);
+            int i = source[k];
+            Car &c = cars[i];
+            double at = s->cars[i]->_distFromStartLine;
+            flagCar[k] = i;
+            if (sectorOf(at) == k)
+                post(i, c.with, flags[k] == 2 ? O_YELLOW_DOUBLE : O_YELLOW_SINGLE, STAGE_FLAG, P_NONE, now - c.onset, at, flags[k], c.cause);
         }
         else if (flags[k] == 0 && was > 0)
             post(std::max(0, flagCar[k]), -1, O_YELLOW_SINGLE, STAGE_CLEAR, P_NONE, k, middle, 0, 0);
@@ -1474,6 +1600,10 @@ void yellowCompliance(tSituation *s, int i)
             if (o != i && gap > 0 && gap < passRange && cars[o].trouble == 0 && racing(o))
                 factor = std::min(factor, holdBehind);
         }
+        double behind = c.giveBackTo >= 0 ? mine - progress(s->cars[c.giveBackTo]) : 0;
+        double wait = behind > waitClose ? std::max(waitSlow, std::min(waitFast, 0.95 - behind / waitFade)) : waitAside;
+        if (c.giveBackLapse && behind > 0 && !waitingFor(s, i))
+            factor = std::min(factor, wait);
         sdAiSetCaution(i, factor);
     }
     bool underYellow = c.sectorFlag > 0 || flags[k] > 0;
@@ -1489,9 +1619,8 @@ void yellowCompliance(tSituation *s, int i)
             continue;
         }
         signed char order = gap > 0 ? 1 : -1;
-        bool culprit = o == flagCar[k] || o == flagCar[c.sector < 0 ? k : c.sector];
-        if (was == 1 && order == -1 && underYellow && cars[o].trouble == 0 && !culprit)
-            c.passes.push_back({o, k});
+        if (was == 1 && order == -1 && underYellow)
+            yellowPass(s, i, o, k);
         was = order;
     }
     if (k == c.sector)
@@ -1779,7 +1908,7 @@ void sdStewardsTick(tSituation *s, double dt)
         if (kind == KIND_SOLO)
             continue;
         updateVisit(s, i, dt);
-        giveBack(s, i);
+        giveBack(s, i, dt);
         yellowCompliance(s, i);
         defending(s, i);
         requestAiPenalty(s, i);
@@ -1899,7 +2028,9 @@ bool sdStewardsDisqualified(int index)
 
 bool sdStewardsYield(int index)
 {
-    return index >= 0 && index < (int)cars.size() && cars[index].giveBackTo >= 0;
+    if (index < 0 || index >= (int)cars.size() || cars[index].giveBackTo < 0)
+        return false;
+    return !waitingFor(ReInfo->s, index);
 }
 
 int sdStewardsGridDrop(int index)

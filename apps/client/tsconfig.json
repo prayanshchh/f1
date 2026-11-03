@@ -9,6 +9,7 @@
     "vite.config.ts",
     "pad-server.ts",
     "api-server.ts",
-    "engine-build.ts"
+    "engine-build.ts",
+    "phone-tunnel.ts"
   ]
 }

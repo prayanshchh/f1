@@ -60,6 +60,7 @@ import {
   wearScale,
 } from "./game/tyres.ts";
 import { idealCompound } from "./game/weather.ts";
+import { IncidentCam } from "./game/incident-cam.ts";
 import { InstantReplay } from "./game/instant-replay.ts";
 import { LapTrace } from "./game/laptrace.ts";
 import { Menu } from "./game/menu.ts";
@@ -73,7 +74,15 @@ import { fetchJson, Scene } from "./game/scene.ts";
 import { GameSound, openAudio } from "./game/sound/game-sound.ts";
 import { Music } from "./game/sound/music.ts";
 import { LightCue, StartLights } from "./game/start-lights.ts";
-import { pitPenaltyFor, type StewardCar, type Turn } from "./game/stewards.ts";
+import {
+  flagCaption,
+  flagTitle,
+  pitPenaltyFor,
+  stage as stewardStage,
+  type StewardCar,
+  type StewardMessage,
+  type Turn,
+} from "./game/stewards.ts";
 import { surname } from "./game/tower.ts";
 import { Studio } from "./game/studio.ts";
 import {
@@ -1002,6 +1011,26 @@ async function main(): Promise<void> {
       sound.mute(muted);
     },
   });
+  const incident = new IncidentCam(
+    element("[data-hud=incident]"),
+    renderer,
+    scene,
+    replay.tape,
+    replay.stations,
+    engine.trackLength(),
+  );
+  const showIncidents = (messages: StewardMessage[]) => {
+    const name = (car: number) => driverName(setup.field, car);
+    for (const message of messages)
+      if (message.stage === stewardStage.flag)
+        incident.play(
+          message.car,
+          message.time,
+          message.value,
+          flagTitle(message),
+          flagCaption(message, name, turns),
+        );
+  };
   document.body.dataset["driveStatus"] = "running";
 
   const startFuel = engine.hudInfo().fuel;
@@ -1119,6 +1148,7 @@ async function main(): Promise<void> {
     const messages = engine.stewardMessages(stewardSeen);
     stewardSeen = messages.at(-1)?.id ?? stewardSeen;
     hud.updateStewards(messages, steward, engine.stewardFlags(), now);
+    showIncidents(messages);
   };
   const beepLights = () => {
     if (lightCue.next(hud.litLights)) sound.startLight();
@@ -1165,6 +1195,7 @@ async function main(): Promise<void> {
       scene.setDamage(engine.carsDamage(), frame);
     }
     scene.update(frame);
+    incident.prepare(frame);
     const info = engine.hudInfo();
     scene.setDash(info);
     scene.updateTyres(frame, tyres);
@@ -1189,6 +1220,7 @@ async function main(): Promise<void> {
     const frame = engine.update(now);
     flow?.update(now);
     scene.update(frame);
+    incident.prepare(frame);
   };
   if (wantsBuildUp(settings, setup, autostart, seek)) {
     buildingUp = true;
@@ -1241,6 +1273,7 @@ async function main(): Promise<void> {
     frameStale = false;
     canvas.style.transform = scene.mirrored ? "scaleX(-1)" : "";
     draw();
+    incident.render();
   });
 }
 

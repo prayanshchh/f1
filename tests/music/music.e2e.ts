@@ -1,6 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-
-const password = "correct horse battery";
+import { seedPlayer } from "../support/player.ts";
 
 declare global {
   interface Window {
@@ -47,21 +46,7 @@ if (process.platform !== "linux") {
     context,
   }) => {
     test.setTimeout(420_000);
-    await context.request.post("/api/auth/register", {
-      data: {
-        username: `music_${Date.now().toString(36)}`,
-        password,
-      },
-    });
-    await context.request.put("/api/me", {
-      data: {
-        firstName: "Asha",
-        lastName: "Rao",
-        nationality: "IN",
-        number: 44,
-        team: "corvus",
-      },
-    });
+    await seedPlayer(context);
     await page.addInitScript(watchMusicContexts);
     await page.addInitScript(raceWithBuildUp);
     await page.goto("/");

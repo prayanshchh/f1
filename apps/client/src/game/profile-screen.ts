@@ -184,7 +184,7 @@ export class ProfileScreen {
       el(
         "h1",
         "",
-        `${this.driver.firstName ?? ""} ${this.driver.lastName ?? this.driver.username}`,
+        `${this.driver.firstName ?? ""} ${this.driver.lastName ?? ""}`,
       ),
     );
     const foot = el("footer", "front-foot");

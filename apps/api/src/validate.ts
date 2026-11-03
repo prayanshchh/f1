@@ -9,7 +9,7 @@ export class Invalid extends Error {
 
 export type Body = Record<string, unknown>;
 
-const username = /^[A-Za-z0-9_.-]{3,24}$/;
+const playerKey = /^[A-Za-z0-9_-]{43}$/;
 const person = /^[\p{L}\p{M}][\p{L}\p{M} '.-]{0,23}$/u;
 const slug = /^[a-z0-9-]{1,64}$/;
 const country = /^[A-Z]{2}$/;
@@ -19,7 +19,6 @@ const maxLapMs = 3_600_000;
 const maxSectors = 10;
 const sectorSumSlackMs = 10;
 const maxTraceBytes = 400_000;
-const passwordLength = { min: 8, max: 128 };
 
 function matching(value: unknown, pattern: RegExp, field: string, why: string) {
   if (typeof value !== "string" || !pattern.test(value))
@@ -27,23 +26,8 @@ function matching(value: unknown, pattern: RegExp, field: string, why: string) {
   return value;
 }
 
-export function checkUsername(value: unknown): string {
-  return matching(
-    value,
-    username,
-    "username",
-    "Use 3 to 24 letters, numbers, dots, dashes or underscores.",
-  );
-}
-
-export function checkPassword(value: unknown): string {
-  if (
-    typeof value !== "string" ||
-    value.length < passwordLength.min ||
-    value.length > passwordLength.max
-  )
-    throw new Invalid("Use at least 8 characters.", "password");
-  return value;
+export function checkKey(value: unknown): string {
+  return matching(value, playerKey, "key", "key is not valid.");
 }
 
 export function checkSlug(value: unknown, field: string): string {

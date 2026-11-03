@@ -67,4 +67,14 @@ export const migrations = [
   `
   ALTER TABLE laps ADD COLUMN IF NOT EXISTS valid boolean NOT NULL DEFAULT true;
   `,
+  `
+  ALTER TABLE drivers ADD COLUMN IF NOT EXISTS key_hash text UNIQUE;
+  ALTER TABLE drivers
+    DROP COLUMN IF EXISTS username,
+    DROP COLUMN IF EXISTS username_key,
+    DROP COLUMN IF EXISTS password_hash,
+    DROP COLUMN IF EXISTS failed_logins,
+    DROP COLUMN IF EXISTS locked_until;
+  DROP TABLE IF EXISTS auth_tokens;
+  `,
 ];

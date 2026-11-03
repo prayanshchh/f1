@@ -1,28 +1,21 @@
 import { type Context, Hono } from "hono";
-import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { createMiddleware } from "hono/factory";
-import { hashPassword, newToken, tokenHash, verifyPassword } from "./auth.ts";
+import { keyHash } from "./auth.ts";
 import type { Db } from "./db.ts";
 import { padRoutes } from "./pad.ts";
 import { PadRooms, RoomsFull } from "./pad-rooms.ts";
 import {
   addLap,
-  createDriver,
   createSession,
   type Driver,
-  driverForToken,
-  dropToken,
-  findLogin,
+  driverForKey,
   finishSession,
-  isUsernameTaken,
+  joinPlayer,
   listSessions,
   loadReference,
   profileSummary,
-  recordFailedLogin,
-  recordLogin,
   saveReference,
   sessionDetail,
-  storeToken,
   updateProfile,
 } from "./store.ts";
 import {
@@ -30,26 +23,22 @@ import {
   checkDate,
   checkId,
   checkInteger,
+  checkKey,
   checkLap,
-  checkPassword,
   checkProfile,
   checkReference,
   checkSession,
   checkSlug,
-  checkUsername,
   Invalid,
 } from "./validate.ts";
 
-const cookieName = "revracers_session";
-const cookieSeconds = 60 * 60 * 24 * 60;
+const bearer = /^Bearer ([A-Za-z0-9_-]{43})$/;
 const defaultPageSize = 20;
 const maxPageSize = 50;
 
 type Env = { Variables: { driver: Driver } };
 
 export interface ApiOptions {
-  secureCookies: boolean;
-  dummyPasswordHash: string;
   padRooms?: PadRooms;
   padWait?: number;
 }
@@ -63,14 +52,6 @@ async function readBody(c: Context): Promise<Body> {
   return body as Body;
 }
 
-function text(value: unknown): string {
-  return typeof value === "string" ? value : "";
-}
-
-function isLocked(until: Date | string | null | undefined): boolean {
-  return !!until && new Date(until).getTime() > Date.now();
-}
-
 function pageSize(value: string | undefined): number {
   return value === undefined
     ? defaultPageSize
@@ -81,7 +62,7 @@ function param(c: Context, name: string): string {
   return c.req.param(name) ?? "";
 }
 
-export function createApi(db: Db, options: ApiOptions): Hono<Env> {
+export function createApi(db: Db, options: ApiOptions = {}): Hono<Env> {
   const app = new Hono<Env>();
 
   app.onError((error, c) => {
@@ -94,73 +75,25 @@ export function createApi(db: Db, options: ApiOptions): Hono<Env> {
 
   padRoutes(app, options.padRooms ?? new PadRooms(), options.padWait ?? 20_000);
 
-  const startSession = async (c: Context, driver: Driver) => {
-    const token = newToken();
-    await storeToken(db, tokenHash(token), driver.id);
-    setCookie(c, cookieName, token, {
-      httpOnly: true,
-      sameSite: "Lax",
-      secure: options.secureCookies,
-      path: "/api",
-      maxAge: cookieSeconds,
-    });
-  };
-
-  const signedIn = createMiddleware<Env>(async (c, next) => {
-    const token = getCookie(c, cookieName);
-    const driver = token ? await driverForToken(db, tokenHash(token)) : null;
-    if (!driver) return c.json({ error: "Sign in first." }, 401);
+  const knownPlayer = createMiddleware<Env>(async (c, next) => {
+    const key = bearer.exec(c.req.header("authorization") ?? "")?.[1];
+    const driver = key ? await driverForKey(db, keyHash(key)) : null;
+    if (!driver) return c.json({ error: "Unknown player." }, 401);
     c.set("driver", driver);
     await next();
     return undefined;
   });
 
-  app.post("/api/auth/register", async (c) => {
-    const body = await readBody(c);
-    const username = checkUsername(body["username"]);
-    const password = checkPassword(body["password"]);
-    const hash = await hashPassword(password);
-    const driver = await createDriver(db, username, hash).catch(
-      (error: unknown) => {
-        if (isUsernameTaken(error))
-          throw new Invalid("That name is taken.", "username");
-        throw error;
-      },
-    );
-    await startSession(c, driver);
-    return c.json({ driver }, 201);
+  app.post("/api/players", async (c) => {
+    const key = checkKey((await readBody(c))["key"]);
+    return c.json({ driver: await joinPlayer(db, keyHash(key)) });
   });
 
-  app.post("/api/auth/login", async (c) => {
-    const body = await readBody(c);
-    const found = await findLogin(db, text(body["username"]));
-    const matches = await verifyPassword(
-      text(body["password"]),
-      found?.row.password_hash ?? options.dummyPasswordHash,
-    );
-    if (isLocked(found?.row.locked_until))
-      return c.json({ error: "Too many tries. Wait a minute." }, 429);
-    if (!found || !matches) {
-      if (found) await recordFailedLogin(db, found.driver.id);
-      return c.json({ error: "Wrong name or password." }, 401);
-    }
-    await recordLogin(db, found.driver.id);
-    await startSession(c, found.driver);
-    return c.json({ driver: found.driver });
-  });
-
-  app.post("/api/auth/logout", async (c) => {
-    const token = getCookie(c, cookieName);
-    if (token) await dropToken(db, tokenHash(token));
-    deleteCookie(c, cookieName, { path: "/api" });
-    return c.json({ ok: true });
-  });
-
-  app.use("/api/me", signedIn);
-  app.use("/api/sessions/*", signedIn);
-  app.use("/api/references/*", signedIn);
-  app.use("/api/profile", signedIn);
-  app.use("/api/profile/*", signedIn);
+  app.use("/api/me", knownPlayer);
+  app.use("/api/sessions/*", knownPlayer);
+  app.use("/api/references/*", knownPlayer);
+  app.use("/api/profile", knownPlayer);
+  app.use("/api/profile/*", knownPlayer);
 
   app.get("/api/me", (c) => c.json({ driver: c.get("driver") }));
 
@@ -245,8 +178,4 @@ export function createApi(db: Db, options: ApiOptions): Hono<Env> {
   });
 
   return app;
-}
-
-export function dummyPasswordHash(): Promise<string> {
-  return hashPassword(newToken());
 }

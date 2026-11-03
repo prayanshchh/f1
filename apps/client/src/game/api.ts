@@ -3,7 +3,6 @@ import { type Deliver, Outbox } from "./race-log.ts";
 
 export interface Driver {
   id: string;
-  username: string;
   firstName: string | null;
   lastName: string | null;
   nationality: string | null;
@@ -80,6 +79,31 @@ export class ApiError extends PlayerError {
 
 const unreachable = "The server could not be reached.";
 const requestTimeoutMs = 10_000;
+const playerKeyName = "revracers.player";
+
+function newKey(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return btoa(String.fromCharCode(...bytes))
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/, "");
+}
+
+function playerKey(): string {
+  const stored = localStorage.getItem(playerKeyName);
+  if (stored) return stored;
+  const key = newKey();
+  localStorage.setItem(playerKeyName, key);
+  void navigator.storage.persist().catch(() => false);
+  return key;
+}
+
+function headers(json: boolean): Record<string, string> {
+  return {
+    authorization: `Bearer ${playerKey()}`,
+    ...(json ? { "content-type": "application/json" } : {}),
+  };
+}
 
 async function request<T>(
   method: string,
@@ -89,11 +113,11 @@ async function request<T>(
   const signal = AbortSignal.timeout(requestTimeoutMs);
   const init: RequestInit =
     body === undefined
-      ? { method, signal }
+      ? { method, signal, headers: headers(false) }
       : {
           method,
           signal,
-          headers: { "content-type": "application/json" },
+          headers: headers(true),
           body: JSON.stringify(body),
         };
   const response = await fetch(path, init).catch(() => {
@@ -111,32 +135,12 @@ async function request<T>(
 }
 
 export const api = {
-  async me(): Promise<Driver | null> {
-    try {
-      return (await request<{ driver: Driver }>("GET", "/api/me")).driver;
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 401) return null;
-      throw error;
-    }
-  },
-  async register(username: string, password: string): Promise<Driver> {
+  async join(): Promise<Driver> {
     return (
-      await request<{ driver: Driver }>("POST", "/api/auth/register", {
-        username,
-        password,
+      await request<{ driver: Driver }>("POST", "/api/players", {
+        key: playerKey(),
       })
     ).driver;
-  },
-  async login(username: string, password: string): Promise<Driver> {
-    return (
-      await request<{ driver: Driver }>("POST", "/api/auth/login", {
-        username,
-        password,
-      })
-    ).driver;
-  },
-  async logout(): Promise<void> {
-    await request("POST", "/api/auth/logout", {});
   },
   async saveProfile(profile: DriverProfile): Promise<Driver> {
     return (await request<{ driver: Driver }>("PUT", "/api/me", profile))
@@ -173,7 +177,7 @@ const deliver: Deliver = async (call) => {
   const response = await fetch(call.path, {
     method: call.method,
     signal: AbortSignal.timeout(requestTimeoutMs),
-    headers: { "content-type": "application/json" },
+    headers: headers(true),
     body: JSON.stringify(call.body),
   });
   if (response.ok) return "done";
@@ -194,14 +198,13 @@ function cachedDriver(): Driver | null {
   }
 }
 
-export function rememberDriver(driver: Driver | null): void {
-  if (driver) localStorage.setItem(driverKey, JSON.stringify(driver));
-  else localStorage.removeItem(driverKey);
+export function rememberDriver(driver: Driver): void {
+  localStorage.setItem(driverKey, JSON.stringify(driver));
 }
 
 export async function currentDriver(): Promise<Driver | null> {
   try {
-    const driver = await api.me();
+    const driver = await api.join();
     rememberDriver(driver);
     return driver;
   } catch {

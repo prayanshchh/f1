@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -5,7 +6,6 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import {
   createApi,
   type Db,
-  dummyPasswordHash,
   embeddedDb,
   migrate,
   serverDb,
@@ -33,13 +33,8 @@ const backends: [string, () => Db][] = [
     : []),
 ];
 
-let serial = 0;
-const uniqueName = () => {
-  serial += 1;
-  return `driver_${String(serial)}_${Date.now().toString(36)}`;
-};
+const newKey = () => randomBytes(32).toString("base64url");
 const uuid = () => crypto.randomUUID();
-const password = "correct horse battery";
 
 describe.each(backends)("api on %s", (_name, open) => {
   let db: Db;
@@ -48,30 +43,22 @@ describe.each(backends)("api on %s", (_name, open) => {
   beforeAll(async () => {
     db = open();
     await migrate(db);
-    app = createApi(db, {
-      secureCookies: false,
-      dummyPasswordHash: await dummyPasswordHash(),
-    });
+    app = createApi(db);
   });
 
   afterAll(() => db.close());
 
-  const client = (): Client => {
-    let cookie = "";
-    const call: Client["call"] = async (method, url, body, headers = {}) => {
-      const response = await app.request(url, {
+  const client = (key: string | null = null): Client => {
+    const call: Client["call"] = async (method, url, body, headers = {}) =>
+      app.request(url, {
         method,
         headers: {
           ...(body === undefined ? {} : { "content-type": "application/json" }),
-          ...(cookie ? { cookie } : {}),
+          ...(key ? { authorization: `Bearer ${key}` } : {}),
           ...headers,
         },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
-      const set = response.headers.get("set-cookie");
-      if (set) cookie = set.split(";")[0] ?? "";
-      return response;
-    };
     return {
       call,
       json: async <T>(method: string, url: string, body?: unknown) => {
@@ -84,14 +71,15 @@ describe.each(backends)("api on %s", (_name, open) => {
     };
   };
 
-  const signedUp = async (username = uniqueName()) => {
-    const driver = client();
-    const response = await driver.call("POST", "/api/auth/register", {
-      username,
-      password,
-    });
-    expect(response.status).toBe(201);
-    return driver;
+  const join = async (key: string) => {
+    const response = await client().call("POST", "/api/players", { key });
+    expect(response.status).toBe(200);
+    return ((await response.json()) as { driver: { id: string } }).driver;
+  };
+
+  const signedUp = async (key = newKey()) => {
+    await join(key);
+    return client(key);
   };
 
   const session = (overrides: object = {}) => ({
@@ -125,13 +113,30 @@ describe.each(backends)("api on %s", (_name, open) => {
     team: "meridian",
   };
 
-  describe("accounts", () => {
-    test("a new driver stays signed in and is not onboarded yet", async () => {
+  describe("players", () => {
+    test("a new key makes a driver who is not onboarded yet", async () => {
       const driver = await signedUp();
       const { driver: me } = await driver.json<{
         driver: { onboarded: boolean };
       }>("GET", "/api/me");
       expect(me.onboarded).toBe(false);
+    });
+
+    test("the same key always comes back as the same driver", async () => {
+      const key = newKey();
+      const first = await join(key);
+      const again = await join(key);
+      expect(again.id).toBe(first.id);
+      const { driver: me } = await client(key).json<{
+        driver: { id: string };
+      }>("GET", "/api/me");
+      expect(me.id).toBe(first.id);
+    });
+
+    test("every key is its own driver", async () => {
+      const one = await join(newKey());
+      const two = await join(newKey());
+      expect(two.id).not.toBe(one.id);
     });
 
     test("saving the profile onboards the driver and persists it", async () => {
@@ -143,105 +148,69 @@ describe.each(backends)("api on %s", (_name, open) => {
       expect(me).toMatchObject({ ...profile, onboarded: true });
     });
 
-    test("names differing only by case are the same driver", async () => {
-      const name = uniqueName();
-      await signedUp(name);
-      const response = await client().call("POST", "/api/auth/register", {
-        username: name.toUpperCase(),
-        password,
-      });
-      expect(response.status).toBe(400);
-      expect(await response.json()).toMatchObject({ field: "username" });
+    test("renaming keeps the same driver and their laps", async () => {
+      const key = newKey();
+      const { id } = await join(key);
+      const driver = client(key);
+      await driver.json("PUT", "/api/me", profile);
+      const race = await startSession(driver);
+      await driver.json(
+        "PUT",
+        `/api/sessions/${race}/laps/1`,
+        lap(95_000, [30_000, 35_000, 30_000]),
+      );
+      const { driver: renamed } = await driver.json<{
+        driver: { id: string; firstName: string };
+      }>("PUT", "/api/me", { ...profile, firstName: "Mira" });
+      expect(renamed).toMatchObject({ id, firstName: "Mira" });
+      const summary = await driver.json<{ totals: { laps: number } }>(
+        "GET",
+        "/api/profile",
+      );
+      expect(summary.totals.laps).toBe(1);
+    });
+
+    test("two players can have the same name", async () => {
+      for (const driver of [await signedUp(), await signedUp()]) {
+        const response = await driver.call("PUT", "/api/me", profile);
+        expect(response.status).toBe(200);
+      }
+    });
+
+    test("the database never holds the key itself", async () => {
+      const key = newKey();
+      await join(key);
+      const rows = await db.query<Record<string, unknown>>(
+        "SELECT * FROM drivers",
+      );
+      expect(JSON.stringify(rows)).not.toContain(key);
     });
 
     test.each([
-      ["short name", { username: "ab", password }, "username"],
-      ["bad name", { username: "no spaces!", password }, "username"],
-      [
-        "short password",
-        { username: "valid_name", password: "1234567" },
-        "password",
-      ],
-    ])("rejects a %s", async (_label, body, field) => {
-      const response = await client().call("POST", "/api/auth/register", body);
+      ["a missing key", {}],
+      ["a short key", { key: "abc" }],
+      ["a key with bad characters", { key: `${newKey().slice(1)}!` }],
+      ["a key that is not text", { key: 12 }],
+    ])("rejects %s", async (_label, body) => {
+      const response = await client().call("POST", "/api/players", body);
       expect(response.status).toBe(400);
-      expect(await response.json()).toMatchObject({ field });
+      expect(await response.json()).toMatchObject({ field: "key" });
     });
 
-    test("a form post cannot register, which blocks cross-site forms", async () => {
-      const response = await app.request("/api/auth/register", {
+    test("a form post cannot make a player, which blocks cross-site forms", async () => {
+      const response = await app.request("/api/players", {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          username: uniqueName(),
-          password,
-        }).toString(),
+        body: new URLSearchParams({ key: newKey() }).toString(),
       });
       expect(response.status).toBe(400);
     });
 
-    test("signing in works with any case and a wrong password does not", async () => {
-      const name = uniqueName();
-      await signedUp(name);
-      const wrong = await client().call("POST", "/api/auth/login", {
-        username: name,
-        password: "wrong password",
-      });
-      expect(wrong.status).toBe(401);
-      const right = client();
-      await right.json("POST", "/api/auth/login", {
-        username: name.toUpperCase(),
-        password,
-      });
-      expect((await right.call("GET", "/api/me")).status).toBe(200);
-    });
-
-    test("an unknown driver gets the same answer as a wrong password", async () => {
-      const response = await client().call("POST", "/api/auth/login", {
-        username: uniqueName(),
-        password,
-      });
-      expect(response.status).toBe(401);
-      expect(await response.json()).toEqual({
-        error: "Wrong name or password.",
-      });
-    });
-
-    test("repeated failures lock the account even for the right password", async () => {
-      const name = uniqueName();
-      await signedUp(name);
-      for (let attempt = 0; attempt < 5; attempt++) {
-        const failed = await client().call("POST", "/api/auth/login", {
-          username: name,
-          password: "wrong password",
-        });
-        expect(failed.status).toBe(401);
-      }
-      const locked = await client().call("POST", "/api/auth/login", {
-        username: name,
-        password,
-      });
-      expect(locked.status).toBe(429);
-    });
-
-    test("signing out ends the session on the server", async () => {
-      const driver = await signedUp();
-      const replay = (await driver.call("GET", "/api/me")).status;
-      expect(replay).toBe(200);
-      await driver.json("POST", "/api/auth/logout", {});
-      expect((await driver.call("GET", "/api/me")).status).toBe(401);
-    });
-
-    test("an expired token is refused", async () => {
-      const driver = await signedUp();
-      await db.exec(
-        "UPDATE auth_tokens SET expires_at = now() - interval '1 second'",
-      );
-      expect((await driver.call("GET", "/api/me")).status).toBe(401);
-    });
-
-    test("requests without a session are refused everywhere", async () => {
+    test("requests without a known key are refused everywhere", async () => {
+      const unknown = client(newKey());
       const anonymous = client();
+      const malformed = (url: string) =>
+        anonymous.call("GET", url, undefined, { authorization: "Bearer x" });
       for (const url of [
         "/api/me",
         "/api/profile",
@@ -249,6 +218,8 @@ describe.each(backends)("api on %s", (_name, open) => {
         "/api/references/hill-country/x",
       ]) {
         expect((await anonymous.call("GET", url)).status, url).toBe(401);
+        expect((await unknown.call("GET", url)).status, url).toBe(401);
+        expect((await malformed(url)).status, url).toBe(401);
       }
     });
   });
@@ -678,24 +649,26 @@ describe("embedded database on disk", () => {
     const dataDir = path.join(directory, "not", "created", "yet");
     const first = embeddedDb(dataDir);
     await migrate(first);
-    const app = createApi(first, {
-      secureCookies: false,
-      dummyPasswordHash: await dummyPasswordHash(),
-    });
-    const created = await app.request("/api/auth/register", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ username: "restart_me", password }),
-    });
-    expect(created.status).toBe(201);
+    const key = newKey();
+    const join = (db: Db) =>
+      createApi(db).request("/api/players", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ key }),
+      });
+    const created = await join(first);
+    expect(created.status).toBe(200);
+    const { driver } = (await created.json()) as { driver: { id: string } };
     await first.close();
 
     const second = embeddedDb(dataDir);
     await migrate(second);
-    const rows = await second.query<{ username: string }>(
-      "SELECT username FROM drivers",
-    );
-    expect(rows.map((row) => row.username)).toEqual(["restart_me"]);
+    const again = (await (await join(second)).json()) as {
+      driver: { id: string };
+    };
+    expect(again.driver.id).toBe(driver.id);
+    const rows = await second.query("SELECT id FROM drivers");
+    expect(rows).toHaveLength(1);
     await second.close();
   });
 });

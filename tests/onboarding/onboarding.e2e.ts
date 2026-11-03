@@ -1,32 +1,46 @@
-import { expect, test } from "@playwright/test";
+import {
+  type Browser,
+  type BrowserContext,
+  expect,
+  type Page,
+  test,
+} from "@playwright/test";
+import { playerKeyName, seedPlayer } from "../support/player.ts";
 
-const password = "correct horse battery";
+async function storedKey(page: Page): Promise<string> {
+  const key = await page.evaluate(
+    (name) => localStorage.getItem(name),
+    playerKeyName,
+  );
+  if (!key) throw new Error("the game stored no player key");
+  return key;
+}
 
-function uniqueName(): string {
-  return `e2e_${Date.now().toString(36)}_${String(Math.floor(Math.random() * 1e4))}`;
+async function freshBrowser(
+  browser: Browser,
+  baseURL: string | undefined,
+  storageState?: Awaited<ReturnType<BrowserContext["storageState"]>>,
+) {
+  if (!baseURL) throw new Error("the onboarding tests need a baseURL");
+  const context = await browser.newContext({
+    baseURL,
+    ...(storageState ? { storageState } : {}),
+  });
+  return { context, page: await context.newPage() };
 }
 
 test.describe("driver onboarding", () => {
   test.setTimeout(180_000);
 
-  test("a new driver signs up, picks a team, and stays signed in after reload", async ({
+  test("a new player names themselves straight away and is the same driver after the browser restarts", async ({
     page,
+    context,
+    browser,
+    baseURL,
   }) => {
     await page.goto("/");
-    const username = page.locator("[data-front=username]");
-    await expect(username).toBeVisible({ timeout: 60_000 });
-
-    await username.fill("x");
-    await page.locator("[data-front=password]").fill("short");
-    await page.locator("[data-front=submit]").click();
-    await expect(page.locator("[data-front=error]")).not.toBeEmpty();
-
-    await username.fill(uniqueName());
-    await page.locator("[data-front=password]").fill(password);
-    await page.locator("[data-front=submit]").click();
-
     const name = page.locator("[data-front=name]");
-    await expect(name).toBeVisible();
+    await expect(name).toBeVisible({ timeout: 60_000 });
     await page.keyboard.press("Enter");
     await expect(page.getByText("Enter a name to continue.")).toBeVisible();
     await name.fill("Asha");
@@ -60,33 +74,42 @@ test.describe("driver onboarding", () => {
     await expect(page.locator(".front-hub")).toBeVisible();
     await expect(page.locator(".front-hub-driver")).toContainText("Corvus");
 
-    await page.reload();
-    await expect(page.locator(".front-hub-driver")).toContainText("RAO", {
+    const key = await storedKey(page);
+    expect(await page.locator("body").innerText()).not.toContain(key);
+    const me = await page.request.get("/api/me", {
+      headers: { authorization: `Bearer ${key}` },
+    });
+    const { driver } = (await me.json()) as { driver: { id: string } };
+
+    const saved = await context.storageState();
+    await context.close();
+    const restarted = await freshBrowser(browser, baseURL, saved);
+    const again = restarted.page;
+    await again.goto("/");
+    await again.mouse.move(1, 1);
+    await expect(again.locator(".front-hub-driver")).toContainText("RAO", {
       ignoreCase: true,
       timeout: 60_000,
     });
-    await expect(page.locator("[data-front=username]")).toBeHidden();
+    expect(await storedKey(again)).toBe(key);
+    const after = await again.request.get("/api/me", {
+      headers: { authorization: `Bearer ${key}` },
+    });
+    const { driver: same } = (await after.json()) as {
+      driver: { id: string };
+    };
+    expect(same.id).toBe(driver.id);
+    await restarted.context.close();
   });
 
   test("lap records show what the database holds for this driver", async ({
     page,
     context,
   }) => {
-    const username = uniqueName();
-    await context.request.post("/api/auth/register", {
-      data: { username, password },
-    });
-    await context.request.put("/api/me", {
-      data: {
-        firstName: "Asha",
-        lastName: "Rao",
-        nationality: "IN",
-        number: 44,
-        team: "corvus",
-      },
-    });
+    const headers = await seedPlayer(context);
     const session = crypto.randomUUID();
     await context.request.put(`/api/sessions/${session}`, {
+      headers,
       data: {
         track: "hill-country",
         car: "revracer-26",
@@ -97,6 +120,7 @@ test.describe("driver onboarding", () => {
       },
     });
     await context.request.put(`/api/sessions/${session}/laps/1`, {
+      headers,
       data: {
         timeMs: 95000,
         sectorsMs: [30000, 35000, 30000],
@@ -104,6 +128,7 @@ test.describe("driver onboarding", () => {
       },
     });
     await context.request.put(`/api/sessions/${session}/laps/2`, {
+      headers,
       data: {
         timeMs: 94000,
         sectorsMs: [29000, 35500, 29500],
@@ -129,28 +154,40 @@ test.describe("driver onboarding", () => {
     await expect(page.locator(".front-hub")).toBeVisible();
   });
 
-  test("signing out returns to the sign-in screen and the session stops working", async ({
+  test("another browser is a different player and never sees this driver", async ({
     page,
     context,
+    browser,
+    baseURL,
   }) => {
-    await context.request.post("/api/auth/register", {
-      data: { username: uniqueName(), password },
-    });
-    await context.request.put("/api/me", {
-      data: {
-        firstName: "Asha",
-        lastName: "Rao",
-        nationality: "IN",
-        number: 44,
-        team: "corvus",
-      },
-    });
+    await seedPlayer(context);
     await page.goto("/");
     await page.mouse.move(1, 1);
     await expect(page.locator(".front-hub")).toBeVisible({ timeout: 60_000 });
-    await page.getByRole("button", { name: /Sign Out/ }).click();
-    await expect(page.locator("[data-front=username]")).toBeVisible();
-    const me = await context.request.get("/api/me");
-    expect(me.status()).toBe(401);
+    await expect(page.getByRole("button", { name: /Sign Out/ })).toHaveCount(0);
+
+    const other = await freshBrowser(browser, baseURL);
+    await other.page.goto("/");
+    await expect(other.page.locator("[data-front=name]")).toBeVisible({
+      timeout: 60_000,
+    });
+    await expect(other.page.locator(".front-hub")).toBeHidden();
+    expect(await storedKey(other.page)).not.toBe(await storedKey(page));
+    await other.context.close();
+  });
+
+  test("a first visit while the server is down offers a retry and then carries on", async ({
+    page,
+  }) => {
+    await page.route("**/api/players", (route) => route.abort());
+    await page.goto("/");
+    await expect(page.locator("[data-front=retry]")).toBeVisible({
+      timeout: 60_000,
+    });
+    await page.locator("[data-front=retry]").click();
+    await expect(page.locator("[data-front=error]")).not.toBeEmpty();
+    await page.unroute("**/api/players");
+    await page.locator("[data-front=retry]").click();
+    await expect(page.locator("[data-front=name]")).toBeVisible();
   });
 });

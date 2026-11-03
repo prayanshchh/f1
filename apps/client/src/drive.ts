@@ -747,21 +747,16 @@ async function enterGame(
   front.open();
   music.opening();
   void studio.preloadTeams();
-  let driver = await currentDriver();
+  const known = await currentDriver();
   setStatus("");
+  let driver = known ?? (await front.welcome());
   for (;;) {
-    driver ??= await front.welcome();
     if (!driver.onboarded) {
       music.play("menu");
       driver = await front.onboard(driver);
     }
     rememberDriver(driver);
     const choice = await front.hub(driver);
-    if (choice.action === "signout") {
-      rememberDriver(null);
-      driver = null;
-      continue;
-    }
     driver = choice.driver;
     rememberDriver(driver);
     settings.car = driver.team ?? settings.car;

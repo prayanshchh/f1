@@ -1,10 +1,4 @@
-import {
-  api,
-  ApiError,
-  type Driver,
-  type DriverProfile,
-  rememberDriver,
-} from "./api.ts";
+import { api, type Driver, type DriverProfile, rememberDriver } from "./api.ts";
 import { CreditsScreen } from "./credits-screen.ts";
 import { button, el, loading, prompt } from "./dom.ts";
 import { countries, countryName, flagUrl, guessCountry } from "./flags.ts";
@@ -15,7 +9,7 @@ import { teamLogo } from "./team-logos.ts";
 import { type Team, teamOf, teams, type TeamRatings } from "./teams.ts";
 
 export interface HubChoice {
-  action: "race" | "signout";
+  action: "race";
   driver: Driver;
 }
 
@@ -135,43 +129,22 @@ export class FrontEnd {
     this.studio.frame(framings.empty);
     this.hideCar();
     return new Promise((resolve) => {
-      this.authScreen("register", resolve);
+      this.offlineScreen(resolve);
     });
   }
 
-  private authScreen(
-    mode: "register" | "login",
-    done: (driver: Driver) => void,
-  ): void {
-    const creating = mode === "register";
-    const username = el("input");
-    username.placeholder = "Driver name";
-    username.autocomplete = "username";
-    username.spellcheck = false;
-    username.dataset["front"] = "username";
-    const password = el("input");
-    password.type = "password";
-    password.placeholder = "Password";
-    password.autocomplete = creating ? "new-password" : "current-password";
-    password.dataset["front"] = "password";
+  private offlineScreen(done: (driver: Driver) => void): void {
     const message = el("p", "front-error");
     message.dataset["front"] = "error";
-    const submit = async () => {
+    const retry = async () => {
       if (go.disabled) return;
       message.textContent = "";
       go.disabled = true;
       go.replaceChildren(loading());
       try {
-        const name = username.value.trim();
-        done(
-          await (creating
-            ? api.register(name, password.value)
-            : api.login(name, password.value)),
-        );
+        done(await api.join());
       } catch (error) {
         message.textContent = errorText(error);
-        const field = error instanceof ApiError ? error.field : null;
-        (field === "password" ? password : username).focus();
       } finally {
         go.disabled = false;
         go.textContent = label;
@@ -180,35 +153,25 @@ export class FrontEnd {
     const form = el("form", "front-auth");
     form.addEventListener("submit", (event) => {
       event.preventDefault();
-      void submit();
+      void retry();
     });
-    const label = creating ? "Create Driver" : "Sign In";
+    const label = "Try Again";
     const go = el("button", "front-primary", label);
-    go.dataset["front"] = "submit";
-    const swap = button(
-      "front-link",
-      creating ? "I already have a driver" : "Create a new driver",
-      () => {
-        this.authScreen(creating ? "login" : "register", done);
-      },
-    );
-    swap.dataset["front"] = "swap";
-    form.append(username, password, message, go, swap);
+    go.dataset["front"] = "retry";
+    form.append(message, go);
     const logo = el("div", "front-brand");
     logo.innerHTML = '<svg class="brand-mark"><use href="#brand-logo" /></svg>';
     this.show(
-      { Enter: () => void submit() },
+      { Enter: () => void retry() },
       logo,
       heading(
-        creating ? "New driver" : "Welcome back",
-        creating ? "Create your driver" : "Sign in",
-        creating
-          ? "Your name, team, lap times and race history are saved to your driver."
-          : "Pick up your career where you left it.",
+        "Offline",
+        "Can't reach RevRacers",
+        "Your driver, lap times and race history load once you're back online.",
       ),
       form,
     );
-    username.focus();
+    go.focus();
   }
 
   async onboard(driver: Driver): Promise<Driver> {
@@ -638,15 +601,6 @@ export class FrontEnd {
           this.keys = {};
         },
       },
-      {
-        label: "Sign Out",
-        detail: `Signed in as ${driver.username}`,
-        run: () => {
-          void api.logout().finally(() => {
-            done({ action: "signout", driver });
-          });
-        },
-      },
     ];
     let focus = 0;
     const nav = el("nav", "front-hub");
@@ -671,7 +625,7 @@ export class FrontEnd {
     const names = el("div", "front-driver-name");
     names.append(
       el("span", "", driver.firstName ?? ""),
-      el("b", "", driver.lastName ?? driver.username),
+      el("b", "", driver.lastName ?? ""),
     );
     const meta = el("div", "front-driver-meta");
     meta.append(

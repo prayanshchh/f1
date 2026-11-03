@@ -1,10 +1,5 @@
 import { expect, test } from "@playwright/test";
-
-const password = "correct horse battery";
-
-function uniqueName(): string {
-  return `e2e_${Date.now().toString(36)}_${String(Math.floor(Math.random() * 1e4))}`;
-}
+import { asha, seedPlayer } from "../support/player.ts";
 
 test.describe("credits and licences", () => {
   test.setTimeout(180_000);
@@ -13,18 +8,7 @@ test.describe("credits and licences", () => {
     page,
     context,
   }) => {
-    await context.request.post("/api/auth/register", {
-      data: { username: uniqueName(), password },
-    });
-    await context.request.put("/api/me", {
-      data: {
-        firstName: "Asha",
-        lastName: "Rao",
-        nationality: "IN",
-        number: 9,
-        team: "corvus",
-      },
-    });
+    await seedPlayer(context, { ...asha, number: 9 });
 
     await page.goto("/");
     await page.mouse.move(1, 1);

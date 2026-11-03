@@ -171,6 +171,12 @@ export class Simulator {
     const bootedHere = device.state !== "Booted";
     if (bootedHere) await run("xcrun", ["simctl", "boot", device.udid]);
     await run("xcrun", ["simctl", "bootstatus", device.udid, "-b"]);
+    await run("xcrun", [
+      "simctl",
+      "launch",
+      device.udid,
+      "com.apple.mobilesafari",
+    ]).catch(() => undefined);
     const proxy = spawn(
       "ios_webkit_debug_proxy",
       [
@@ -192,7 +198,22 @@ export class Simulator {
       await old.evaluate(`(location.replace("about:blank"), true)`);
       old.close();
     }
-    await run("xcrun", ["simctl", "openurl", this.udid, url]);
+    for (let tries = 0; ; tries++) {
+      const opened = await run("xcrun", [
+        "simctl",
+        "openurl",
+        this.udid,
+        url,
+      ]).then(
+        () => true,
+        (error: unknown) => {
+          if (tries >= 3) throw error;
+          return false;
+        },
+      );
+      if (opened) break;
+      await new Promise((resolve) => setTimeout(resolve, 5_000));
+    }
     for (let tries = 0; tries < 100; tries++) {
       const pages = await this.pages();
       const page = pages.find((listing) => listing.url === url);

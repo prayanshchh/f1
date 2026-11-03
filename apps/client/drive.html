@@ -56,6 +56,9 @@
         <div class="tower-lap">
           Lap <b data-hud="lap">1</b><span data-hud="lap-total"></span>
         </div>
+        <div class="tower-status" data-hud="rc-status" data-state="" hidden>
+          <b data-hud="rc-label"></b><span data-hud="rc-detail"></span>
+        </div>
         <ol class="tower-rows" data-hud="rows"></ol>
       </section>
 
@@ -63,10 +66,12 @@
         <div class="timer-sectors part-sectors" data-hud="sectors"></div>
         <div class="timer-main" data-hud="main" data-state="">
           <span class="timer-pos" data-hud="position"></span>
+          <em class="timer-penalty" data-hud="penalty" hidden></em>
           <b data-hud="current">--:--.---</b>
         </div>
         <div class="timer-delta part-delta" data-hud="delta" data-state="idle">
-          <svg><use href="#stopwatch" /></svg><span>Delta</span
+          <svg><use href="#stopwatch" /></svg
+          ><span data-hud="delta-label">Delta</span
           ><b data-hud="delta-value">--.---</b>
         </div>
         <div class="timer-extra" data-hud="extra">
@@ -79,15 +84,6 @@
         </div>
       </section>
 
-      <section class="session-clock" data-hud="clock" hidden>
-        <b data-hud="clock-time">0:00</b>
-        <i
-          ><svg><use href="#stopwatch" /></svg
-        ></i>
-      </section>
-
-      <div class="car-labels" data-hud="labels"></div>
-
       <section class="toast" data-hud="toast" data-kind="">
         <div class="toast-icon">
           <svg data-hud="toast-icon"><use href="#stopwatch" /></svg>
@@ -97,10 +93,37 @@
         </div>
       </section>
 
+      <section class="steward" data-hud="steward" data-kind="">
+        <div class="steward-logo" data-hud="steward-logo"></div>
+        <div class="steward-label">Race Control</div>
+        <div class="steward-body">
+          <b data-hud="steward-title"></b
+          ><span data-hud="steward-detail"></span>
+        </div>
+      </section>
+
+      <section class="flag-panel" data-hud="flag" data-flag="" hidden>
+        <i class="flag-swatch"></i>
+        <div>
+          <b data-hud="flag-title"></b><span data-hud="flag-detail"></span>
+        </div>
+      </section>
+
       <div class="lights part-lights" data-hud="lights"></div>
+      <div class="start-hint part-lights" data-hud="start-hint">
+        Wait for lights out<span>Moving early is a jump start penalty</span>
+      </div>
+
+      <div class="lineup-fade" data-hud="lineup-fade"></div>
+      <section class="rc-screen" data-hud="rc-screen" hidden>
+        <i class="rc-screen-flag"></i>
+        <b>Red flag</b>
+        <span data-hud="rc-screen-detail"></span>
+      </section>
 
       <svg class="map part-map" data-hud="map" aria-hidden="true">
         <g data-hud="map-sectors"></g>
+        <g data-hud="map-flags"></g>
         <g data-hud="map-marks"></g>
         <g data-hud="map-field"></g>
         <circle class="map-car" r="7" data-hud="map-car" />
@@ -121,6 +144,11 @@
             ><small>Stop<br />Time</small><b data-hud="pit-stop">-.-</b></span
           >
         </div>
+      </section>
+      <section class="pit-tyres" data-hud="pit-tyres" hidden>
+        <header>Choose Tyres</header>
+        <div data-hud="pit-tyre-options"></div>
+        <small>Press 1 2 3 or T, or Tyres on the pad</small>
       </section>
       <section class="pit-turn" data-hud="pit-turn" hidden>
         <small>Turn-In</small>
@@ -223,6 +251,21 @@
               ><kbd>M</kbd>
             </div>
           </div>
+          <div class="mfd-page weather" data-for="weather">
+            <div class="weather-title">Weather Forecast</div>
+            <div class="forecast" data-hud="forecast"></div>
+            <div class="quick-row">
+              <span>Racing Line</span><b data-hud="water-line">Dry</b
+              ><kbd></kbd>
+            </div>
+            <div class="quick-row">
+              <span>Off Line</span><b data-hud="water-off">Dry</b><kbd></kbd>
+            </div>
+            <div class="quick-row selected">
+              <span>Engineer Tyre Call</span><b data-hud="tyre-call">Slicks</b
+              ><kbd></kbd>
+            </div>
+          </div>
           <div class="mfd-page gauges" data-hud="mfd-gauges">
             <svg
               class="mfd-car"
@@ -241,8 +284,8 @@
       <div class="help part-help">
         <span><kbd>Esc</kbd> Menu</span><span><kbd>Arrows</kbd> Drive</span
         ><span><kbd>E</kbd><kbd>Q</kbd> Shift</span><span><kbd>Y</kbd> MFD</span
-        ><span><kbd>P</kbd> Phone</span><span><kbd>C</kbd> Cameras</span
-        ><span><kbd>F2–F11</kbd> Cameras</span>
+        ><span><kbd>P</kbd> Phone</span><span><kbd>R</kbd> Replay</span
+        ><span><kbd>C</kbd> Cameras</span><span><kbd>F2–F11</kbd> Cameras</span>
       </div>
     </div>
 
@@ -269,6 +312,9 @@
           <button type="button" data-menu="reset">
             <i class="btn-glyph">R</i>Reset to Defaults
           </button>
+          <button type="button" data-menu="replay" hidden>
+            <i class="btn-glyph">V</i>Replay &amp; Flashback
+          </button>
           <button type="button" data-menu="resume">
             <i class="btn-glyph">Esc</i
             ><span data-menu="resume-label">Back</span>
@@ -283,6 +329,8 @@
     <div class="front" data-front="root" hidden></div>
     <div class="records" data-records="root" hidden></div>
 
+    <div class="replay" data-replay-root hidden></div>
+    <div class="reel" data-reel-root hidden></div>
     <div class="results" data-results="root" hidden>
       <div class="stage">
         <div class="results-tag" data-results="tag">Results (Overall)</div>
@@ -311,25 +359,29 @@
           <header>
             <h1 data-garage="title">Q1</h1>
             <p data-garage="subtitle"></p>
-            <b class="garage-clock" data-garage="clock">18:00</b>
+            <b class="garage-clock" data-garage="clock">0/22</b>
           </header>
           <table class="garage-table">
             <tbody data-garage="rows"></tbody>
           </table>
         </section>
         <section class="garage-panel">
-          <h2>Your Run</h2>
+          <h2>Your Lap</h2>
           <div class="garage-tyres" data-garage="tyres"></div>
           <p class="garage-note" data-garage="note"></p>
           <button type="button" class="primary" data-garage="go">
-            <i class="btn-glyph">↵</i>Go To Track
+            <i class="btn-glyph">↵</i
+            ><span data-garage="go-label">Start Your Lap</span>
           </button>
           <button type="button" data-garage="fast">
             <i class="btn-glyph">F</i
             ><span data-garage="fast-label">Fast Forward</span>
           </button>
           <button type="button" data-garage="skip">
-            <i class="btn-glyph">S</i>Skip To End Of Session
+            <i class="btn-glyph">S</i>Skip The Other Laps
+          </button>
+          <button type="button" data-garage="race" hidden>
+            <i class="btn-glyph">R</i>Skip To Race, Start Last
           </button>
         </section>
       </div>
@@ -348,22 +400,84 @@
       </div>
     </div>
 
+    <div class="ready" data-ready="root" hidden>
+      <section class="ready-card">
+        <div class="ready-demo" aria-hidden="true">
+          <span class="ready-side left">Tilt left</span>
+          <svg class="ready-phone ready-tilt" viewBox="0 0 168 88">
+            <rect
+              class="phone-body"
+              x="2"
+              y="2"
+              width="164"
+              height="84"
+              rx="16"
+            />
+            <rect
+              class="phone-pedal brake"
+              x="14"
+              y="12"
+              width="30"
+              height="64"
+              rx="8"
+            />
+            <rect
+              class="phone-pedal gas"
+              x="124"
+              y="12"
+              width="30"
+              height="64"
+              rx="8"
+            />
+            <circle class="phone-dial" cx="84" cy="44" r="18" />
+            <line class="phone-mark" x1="84" y1="22" x2="84" y2="31" />
+          </svg>
+          <span class="ready-equals">=</span>
+          <svg class="ready-wheel ready-tilt" viewBox="0 0 132 84">
+            <path
+              class="wheel-body"
+              d="M24 10h84a14 14 0 0 1 14 14v22a28 28 0 0 1-28 28H38a28 28 0 0 1-28-28V24a14 14 0 0 1 14-14z"
+            />
+            <rect
+              class="wheel-screen"
+              x="46"
+              y="20"
+              width="40"
+              height="22"
+              rx="4"
+            />
+            <line class="wheel-mark" x1="66" y1="2" x2="66" y2="14" />
+          </svg>
+          <span class="ready-side right">Tilt right</span>
+        </div>
+        <h2>Drive with your phone</h2>
+        <p data-ready="unlinked">
+          Press <kbd>P</kbd> and scan the code to connect your phone.
+        </p>
+        <p class="ready-linked" data-ready="linked" hidden>Phone connected</p>
+        <p>
+          Hold it sideways like a steering wheel. The way you tilt the phone is
+          the way the car steers.
+        </p>
+        <button type="button" class="ready-go" data-ready="go">
+          <kbd>Enter</kbd>Start<span data-ready="pedal" hidden
+            >or press Gas on your phone</span
+          >
+        </button>
+      </section>
+    </div>
+
     <div class="pad-panel" data-pad="panel" hidden>
-      <h2>Drive with your iPhone</h2>
-      <p>iPhone and Mac on the same Wi-Fi. Press P to close.</p>
+      <h2>Drive with your phone</h2>
+      <p>
+        Scan with your phone camera. Phone and computer on the same Wi-Fi, or
+        join your phone's hotspot from this computer. Press P to close.
+      </p>
       <div class="pad-codes">
-        <figure>
-          <div class="pad-qr" data-pad="setup-qr"></div>
-          <figcaption>
-            <b>1. First time only</b><br />Install the certificate<br /><span
-              data-pad="setup-url"
-            ></span>
-          </figcaption>
-        </figure>
         <figure>
           <div class="pad-qr" data-pad="pad-qr"></div>
           <figcaption>
-            <b>2. Controller</b><br />Hold sideways like a wheel<br /><span
+            <b>Controller</b><br />Hold sideways like a wheel<br /><span
               data-pad="pad-url"
             ></span>
           </figcaption>

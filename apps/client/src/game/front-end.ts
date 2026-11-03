@@ -5,6 +5,7 @@ import {
   type DriverProfile,
   rememberDriver,
 } from "./api.ts";
+import { CreditsScreen } from "./credits-screen.ts";
 import { button, el, prompt } from "./dom.ts";
 import { countries, countryName, flagUrl, guessCountry } from "./flags.ts";
 import { ProfileScreen } from "./profile-screen.ts";
@@ -597,6 +598,16 @@ export class FrontEnd {
         detail: "Name, nationality and number",
         run: () => {
           void this.onboard(driver).then(reopen);
+        },
+      },
+      {
+        label: "Credits",
+        detail: "Speed Dreams, open source and licences",
+        run: () => {
+          void new CreditsScreen().run().then(() => {
+            reopen(driver);
+          });
+          this.keys = {};
         },
       },
       {

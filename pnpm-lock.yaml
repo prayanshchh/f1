@@ -163,7 +163,7 @@ settings:
   excludeLinksFromLockfile: false
 
 patchedDependencies:
-  three@0.186.1: 06ec5c16ca44ccd57772d17fd69932b917a2d1c7f69faec4f5e87f7323164b06
+  three@0.186.1: acbc7f1ea996291e3cfe6b185b04aea02af227dbe7c34108e9d30375ac5bfe40
 
 importers:
 
@@ -240,7 +240,7 @@ importers:
         version: 3.9.10
       three:
         specifier: 0.186.1
-        version: 0.186.1(patch_hash=06ec5c16ca44ccd57772d17fd69932b917a2d1c7f69faec4f5e87f7323164b06)
+        version: 0.186.1(patch_hash=acbc7f1ea996291e3cfe6b185b04aea02af227dbe7c34108e9d30375ac5bfe40)
       typescript:
         specifier: 5.9.3
         version: 5.9.3
@@ -286,7 +286,7 @@ importers:
         version: 7.6.0
       three:
         specifier: 0.186.1
-        version: 0.186.1(patch_hash=06ec5c16ca44ccd57772d17fd69932b917a2d1c7f69faec4f5e87f7323164b06)
+        version: 0.186.1(patch_hash=acbc7f1ea996291e3cfe6b185b04aea02af227dbe7c34108e9d30375ac5bfe40)
       uqr:
         specifier: 0.1.3
         version: 0.1.3
@@ -297,15 +297,9 @@ importers:
       '@types/three':
         specifier: 0.186.0
         version: 0.186.0
-      '@types/ws':
-        specifier: 8.18.2
-        version: 8.18.2
       vite:
         specifier: 8.3.4
         version: 8.3.4(@types/node@26.6.5)(jiti@2.7.0)(yaml@2.9.1)
-      ws:
-        specifier: 8.22.0
-        version: 8.22.0
 
 packages:
 
@@ -1026,9 +1020,6 @@ packages:
 
   '@types/webxr@0.5.24':
     resolution: {integrity: sha512-h8fgEd/DpoS9CBrjEQXR+dIDraopAEfu4wYVNY2tEPwk60stPWhvZMf4Foo5FakuQ7HFZoa8WceaWFervK2Ovg==}
-
-  '@types/ws@8.18.2':
-    resolution: {integrity: sha512-67MQl+fpWKVTT1NYdnmo3U4sc/xPo/zQBncVnI74qmQa0z/b+1g6iYqNmGCPbxO+zz2aklb08a0oHfegiVd0/w==}
 
   '@typescript-eslint/eslint-plugin@8.71.2':
     resolution: {integrity: sha512-K72/pvT7qpm8q3k8G5u93NCSN1RcLxX5h7Gw0bQpbMXviBHeY6Nx1WEwmk9wP+eKTSQ8ecxvcgt/ZX/rB938xQ==}
@@ -2061,18 +2052,6 @@ packages:
     resolution: {integrity: sha512-BN22B5eaMMI9UMtjrGd5g5eCYPpCPDUy0FJXbYsaT5zYxjFOckS53SQDE3pWkVoWpHXVb3BrYcEN4Twa55B5cA==}
     engines: {node: '>=0.10.0'}
 
-  ws@8.22.0:
-    resolution: {integrity: sha512-Ydggc987+RO0AnWtZ/7Wq9FtNvcrL1b/RO0ud9mWjUPgDrsAAwQSF51sm2hm1XofbU/4jkpGEsLFsZZxU+1DOg==}
-    engines: {node: '>=10.0.0'}
-    peerDependencies:
-      bufferutil: ^4.0.1
-      utf-8-validate: '>=5.0.2'
-    peerDependenciesMeta:
-      bufferutil:
-        optional: true
-      utf-8-validate:
-        optional: true
-
   xtend@4.0.2:
     resolution: {integrity: sha512-LKYU1iAXJXUgAXn9URjiu+MWhyUXHsvfp7mcuYm9dSUKK0/CjtrUwFAxD82/mCWbtLsGjFIad0wIsod4zrTAEQ==}
     engines: {node: '>=0.4'}
@@ -2590,10 +2569,6 @@ snapshots:
       meshoptimizer: 1.1.1
 
   '@types/webxr@0.5.24': {}
-
-  '@types/ws@8.18.2':
-    dependencies:
-      '@types/node': 26.6.5
 
   '@typescript-eslint/eslint-plugin@8.71.2(@typescript-eslint/parser@8.71.2(eslint@10.13.0(jiti@2.7.0))(typescript@5.9.3))(eslint@10.13.0(jiti@2.7.0))(typescript@5.9.3)':
     dependencies:
@@ -3356,7 +3331,7 @@ snapshots:
 
   strip-json-comments@5.0.3: {}
 
-  three@0.186.1(patch_hash=06ec5c16ca44ccd57772d17fd69932b917a2d1c7f69faec4f5e87f7323164b06): {}
+  three@0.186.1(patch_hash=acbc7f1ea996291e3cfe6b185b04aea02af227dbe7c34108e9d30375ac5bfe40): {}
 
   tinybench@6.2.2: {}
 
@@ -3446,8 +3421,6 @@ snapshots:
   why-is-node-running@3.2.1: {}
 
   word-wrap@1.2.5: {}
-
-  ws@8.22.0: {}
 
   xtend@4.0.2: {}
 

@@ -70,6 +70,22 @@ describe("sector deltas against the stored personal best", () => {
     expect(state.status[0]).toBe("faster");
   });
 
+  test("a first lap that starts up the road from the line never becomes the best", () => {
+    const trace = new LapTrace(length, boundaries);
+    let clock = 0;
+    for (let distance = 60; distance < length; distance += 10) {
+      trace.sample(1, distance, clock, 0);
+      clock += 1;
+    }
+    const short = trace.sample(2, 0, 0, clock);
+    expect(short?.best).toBe(false);
+    expect(short?.sectors[0]).toBe(0);
+    expect(trace.bestTime).toBeNull();
+    const full = drive(trace, 2, [10, 10, 10]);
+    expect(full?.best).toBe(true);
+    expect(trace.bestTime).toBeCloseTo(30, 5);
+  });
+
   test("the last sector closes with the lap and adds up", () => {
     const trace = new LapTrace(length, boundaries, reference);
     const result = drive(trace, 1, [9.5, 10.5, 9.75]);

@@ -140,6 +140,7 @@ export class RaceLog {
         timeMs: toMs(result.time),
         sectorsMs: result.sectors.map(sectorMs),
         compound,
+        valid: result.valid,
       },
     });
   }

@@ -79,6 +79,9 @@ const sources = [
   path.join(glue, "car-status.cpp"),
   path.join(glue, "ai.cpp"),
   path.join(glue, "session.cpp"),
+  path.join(glue, "stewards.cpp"),
+  path.join(glue, "race-control.cpp"),
+  path.join(glue, "weather.cpp"),
   path.join(root, "engine/third_party/OpenSceneGraph/src/osg/Matrixd.cpp"),
   path.join(root, "engine/third_party/OpenSceneGraph/src/osg/Quat.cpp"),
 ];
@@ -102,6 +105,11 @@ function extractBetween(source, startPattern, endPattern) {
   const end = source.findIndex((line, i) => i > start && endPattern.test(line));
   if (start < 0 || end < 0) throw new Error(`missing block ${startPattern}`);
   return source.slice(start, end + 1).join("\n");
+}
+
+function writeGenerated(file, text) {
+  if (existsSync(file) && readFileSync(file, "utf8") === text) return;
+  writeFileSync(file, text);
 }
 
 const racetrack = lines("src/modules/racing/standardgame/racetrack.cpp");
@@ -132,7 +140,7 @@ const raceTrackFunctions = [
   "void reTrackSetPolar(",
 ];
 
-writeFileSync(
+writeGenerated(
   path.join(generated, "race-extract.cpp"),
   [
     "#include <cstdlib>",
@@ -178,7 +186,7 @@ const mirrorEnd = camera.findIndex((line) =>
 );
 if (mirrorStart < 0 || mirrorEnd < mirrorStart)
   throw new Error("missing SDCarCamMirror section");
-writeFileSync(
+writeGenerated(
   path.join(generated, "camera-extract.cpp"),
   [
     ...camera
@@ -195,7 +203,7 @@ writeFileSync(
   ].join("\n"),
 );
 
-writeFileSync(
+writeGenerated(
   path.join(generated, "view-extract.cpp"),
   [
     "#include <cstdio>",
@@ -330,6 +338,7 @@ const exported = [
   "_sdFieldPlayer",
   "_sdFieldAutopilot",
   "_sdFieldPlayerBox",
+  "_sdPracticeGridSlot",
   "_sdFieldCount",
   "_sdCars",
   "_sdTimeScale",
@@ -343,7 +352,8 @@ const exported = [
   "_sdSessionInfo",
   "_sdTiming",
   "_sdSessionStats",
-  "_sdSessionPlayerGarage",
+  "_sdSessionPasses",
+  "_sdSessionPlayerRun",
   "_sdSessionAdvance",
   "_sdSessionSimulate",
   "_sdSessionPitCompound",
@@ -351,7 +361,6 @@ const exported = [
   "_sdSessionReference",
   "_sdQualifyingTimes",
   "_sdFieldPlan",
-  "_sdFieldRun",
   "_sdFieldStint",
   "_sdRaceCountdown",
   "_sdKey",
@@ -386,6 +395,7 @@ const exported = [
   "_sdCarStatus",
   "_sdCarDamageSet",
   "_sdCarImpact",
+  "_sdCarBreakDown",
   "_sdTyreDamage",
   "_sdEnergyDifferential",
   "_sdEnergyStraight",
@@ -394,6 +404,12 @@ const exported = [
   "_sdCarParamNum",
   "_sdCarParamCount",
   "_sdViewKey",
+  "_sdWeatherConfigure",
+  "_sdWeatherSet",
+  "_sdWeatherInfo",
+  "_sdResync",
+  "_sdInputRelease",
+  "_sdCarsDamage",
   "_sdViewResize",
   "_malloc",
   "_free",

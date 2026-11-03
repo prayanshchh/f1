@@ -1,4 +1,16 @@
+import { execFileSync } from "node:child_process";
+import os from "node:os";
+import path from "node:path";
 import { defineConfig } from "@playwright/test";
+
+function dockerRunning(): boolean {
+  try {
+    execFileSync("docker", ["info"], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 const softwareGpuArguments = [
   "--enable-unsafe-webgpu",
@@ -23,11 +35,31 @@ export default defineConfig({
       args: process.platform === "linux" ? softwareGpuArguments : [],
     },
   },
+  projects: [
+    { name: "app", testIgnore: "**/pad/**" },
+    {
+      name: "phone-pad",
+      testMatch: "pad/**/*.e2e.ts",
+      testIgnore: ["**/ios-simulator.e2e.ts", "**/network/**"],
+    },
+    ...(process.env["CI"] || dockerRunning()
+      ? [{ name: "pad-network", testMatch: "pad/network/*.e2e.ts" }]
+      : []),
+    ...(process.platform === "darwin"
+      ? [{ name: "ios-simulator", testMatch: "pad/ios-simulator.e2e.ts" }]
+      : []),
+  ],
   webServer: {
     command:
       "pnpm run build && pnpm --filter ./apps/client run preview --host 127.0.0.1 --port 4173 --strictPort",
     url: "http://127.0.0.1:4173",
     reuseExistingServer: false,
     timeout: 180_000,
+    env: {
+      REVRACERS_DATA_DIR: path.join(
+        os.tmpdir(),
+        `revracers-e2e-${String(process.pid)}`,
+      ),
+    },
   },
 });

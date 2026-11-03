@@ -286,6 +286,8 @@ describe("output safety", () => {
       lock: next(),
       brake: next(),
       impact: next(),
+      rain: next(),
+      spray: next(),
       master: 1,
     }));
     expect(signal.every(Number.isFinite)).toBe(true);

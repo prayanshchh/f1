@@ -16,6 +16,8 @@ export interface CarAudio {
   gear: number;
   speed: number;
   damage: number;
+  rain: number;
+  water: number;
   wheels: WheelAudio[];
 }
 
@@ -29,6 +31,7 @@ const lockSpeed = 6;
 const scrubStart = 0.08;
 const damageForFullImpact = 400;
 const brakeFullSpeed = 70;
+const sprayFullSpeed = 60;
 
 function grounded(wheel: WheelAudio, speed: number): boolean {
   return wheel.load > minimumLoad && speed > minimumSpeed;
@@ -90,6 +93,8 @@ export function soundState(
     lock: worstLock(car),
     brake: car.brake * Math.min(1, car.speed / brakeFullSpeed),
     impact: hit > 0 ? Math.min(1, hit / damageForFullImpact) : 0,
+    rain: car.rain,
+    spray: Math.min(1, car.water * 2) * Math.min(1, car.speed / sprayFullSpeed),
     master,
   };
 }

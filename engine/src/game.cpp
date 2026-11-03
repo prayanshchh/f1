@@ -18,6 +18,8 @@
 #include "ai.h"
 #include "game.h"
 #include "session.h"
+#include "stewards.h"
+#include "race-control.h"
 #include "sim.h"
 
 tRmInfo *ReInfo = nullptr;
@@ -64,6 +66,7 @@ bool sdPlayerAutopilot()
 static double frame[SD_FRAME_SIZE];
 static double simuTick = RCM_MAX_DT_SIMU;
 static double clockNow = 0.0;
+static double playerDriveTime = 0.0;
 static int damageLimit = 0;
 
 int sdDamageLimit()
@@ -229,10 +232,26 @@ static void placeCar(tCarElt *car, double distance, double lateral, double heigh
     car->_speed_x = 0;
 }
 
-void sdCarTeleport(int index, double distance, double lateral)
+static int practiceSlot = -1;
+
+static void placeCarAt(tCarElt *car, double x, double y, double yaw, double height)
+{
+    tTrkLocPos pos;
+    RtTrackGlobal2Local(ReInfo->track->seg->next, (tdble)x, (tdble)y, &pos, TR_LPOS_MAIN);
+    car->_trkPos = pos;
+    car->_pos_X = (tdble)x;
+    car->_pos_Y = (tdble)y;
+    car->_yaw = (tdble)yaw;
+    car->_pos_Z = RtTrackHeightL(&pos) + height;
+    FLOAT_NORM0_2PI(car->_yaw);
+    car->_speed_x = 0;
+    if (RtGetDistFromStart(car) < ReInfo->track->length / 2)
+        car->_laps = 1;
+}
+
+static void syncTeleported(int index)
 {
     tCarElt *elt = ReInfo->s->cars[index];
-    placeCar(elt, distance, lateral, 0.05);
     tCar *car = &SimCarTable[index];
     car->DynGCg.pos.x = elt->_pos_X;
     car->DynGCg.pos.y = elt->_pos_Y;
@@ -251,6 +270,28 @@ void sdCarTeleport(int index, double distance, double lateral)
     ReInfo->_reCarInfo[index].prevTrkPos = elt->_trkPos;
     ReInfo->_reCarInfo[index].sTime = (tdble)ReInfo->s->currentTime;
     ReInfo->_reCarInfo[index].lapFlag = 0;
+    sdCarStatusTeleported(index);
+}
+
+void sdCarTeleport(int index, double distance, double lateral)
+{
+    placeCar(ReInfo->s->cars[index], distance, lateral, 0.05);
+    syncTeleported(index);
+}
+
+int sdCarToGrid(int index, int slot)
+{
+    double x = 0, y = 0, yaw = 0;
+    if (!sdAiGridPose(slot, &x, &y, &yaw))
+        return -1;
+    tCarElt *elt = ReInfo->s->cars[index];
+    int laps = elt->_laps;
+    elt->_laps = 0;
+    placeCarAt(elt, x, y, yaw, 0.05);
+    int startLaps = elt->_laps;
+    elt->_laps = laps;
+    syncTeleported(index);
+    return startLaps;
 }
 
 void sdServiceCar(int index, int compound)
@@ -261,6 +302,7 @@ void sdServiceCar(int index, int compound)
     car->pitcmd.tireChange = tCarPitCmd::ALL;
     car->pitcmd.tiresetChange = tCarPitCmd::NON_CHANGE;
     SimReConfig(car);
+    sdStewardsNoteService(index);
     sdTyresService(index, compound);
     sdCarStatusRepair(index);
     sdEnergyRestore(index);
@@ -288,10 +330,11 @@ static void manageCar(tCarElt *car)
             if (info->lapFlag == 0)
             {
                 car->_laps++;
+                sdStewardsLapCompleted(car->index);
                 if (car->_laps > 1)
                 {
                     car->_lastLapTime = s->currentTime - info->sTime;
-                    if (car->_bestLapTime == 0 || car->_lastLapTime < car->_bestLapTime)
+                    if (!sdStewardsLastLapInvalid(car->index) && (car->_bestLapTime == 0 || car->_lastLapTime < car->_bestLapTime))
                         car->_bestLapTime = car->_lastLapTime;
                 }
                 info->sTime = (tdble)s->currentTime;
@@ -312,6 +355,22 @@ static void manageCar(tCarElt *car)
     car->_distRaced = (car->_laps - 1) * ReInfo->track->length + car->_distFromStartLine;
 }
 
+static void drivePlayer(tSituation *s, double limit)
+{
+    tCarElt *car = s->cars[0];
+    double tick = s->deltaTime;
+    double since = s->currentTime - playerDriveTime;
+    s->deltaTime = since > 0 && since < limit ? since : limit;
+    sdInputUpdate(car, s->deltaTime);
+    if ((car->_state & RM_CAR_STATE_NO_SIMU) == 0)
+        car->robot->rbDrive(car->robot->index, car, s);
+    sdInputLaunch(car, s);
+    sdInputApplyHold(car);
+    sdCarStatusDriveLimit(car);
+    s->deltaTime = tick;
+    playerDriveTime = s->currentTime;
+}
+
 static void runOneStep(double deltaTimeIncrement)
 {
     tRmInfo *pCurrReInfo = ReInfo;
@@ -329,9 +388,9 @@ static void runOneStep(double deltaTimeIncrement)
         if (pCurrReInfo->_reTimeMult < 0)
             pCurrReInfo->_reTimeMult = 1;
         else
-            pCurrReInfo->s->_raceState = RM_RACE_PRESTART;
+            pCurrReInfo->s->_raceState = RM_RACE_STARTING;
     }
-    else if (pCurrReInfo->s->_raceState == RM_RACE_PRESTART)
+    else if (pCurrReInfo->s->_raceState == RM_RACE_STARTING)
     {
         pCurrReInfo->s->_raceState = RM_RACE_RUNNING;
         s->currentTime = 0.0;
@@ -340,31 +399,38 @@ static void runOneStep(double deltaTimeIncrement)
 
     s->accelTime = s->currentTime;
 
+    bool freshInput = sdInputFresh();
     if ((s->currentTime - pCurrReInfo->_reLastRobTime) >= RCM_MAX_DT_ROBOTS)
     {
         s->deltaTime = s->currentTime - pCurrReInfo->_reLastRobTime;
-        sdSessionTick(s, s->deltaTime);
+        sdStewardsTick(s, s->deltaTime);
+        sdRaceControlTick(s, s->deltaTime);
+        sdSessionTick(s);
         bool playerOnAi = playerAutopilot && sdFieldActive();
         if (!playerOnAi)
-            sdInputUpdate(s->cars[0], s->deltaTime);
-        for (int i = 0; i < s->_ncars; i++)
+            drivePlayer(s, s->deltaTime);
+        for (int i = playerOnAi ? 0 : 1; i < s->_ncars; i++)
         {
             if ((s->cars[i]->_state & RM_CAR_STATE_NO_SIMU) != 0)
                 continue;
-            if (i > 0 || playerOnAi)
-            {
-                sdAiDrive(i, s->cars[i], s);
-                continue;
-            }
-            tRobotItf *robot = s->cars[i]->robot;
-            robot->rbDrive(robot->index, s->cars[i], s);
+            sdAiDrive(i, s->cars[i], s);
         }
-        if (!playerOnAi)
-            sdInputApplyHold(s->cars[0]);
-        sdCarStatusDriveLimit(s->cars[0]);
+        if (sdRaceControlHolding(s))
+            for (int i = playerOnAi ? 0 : 1; i < s->_ncars; i++)
+            {
+                s->cars[i]->_brakeCmd = 1.0f;
+                s->cars[i]->_clutchCmd = 1.0f;
+            }
+        for (int i = 0; i < s->_ncars; i++)
+            sdCarStatusDriveLimit(s->cars[i]);
         pCurrReInfo->_reLastRobTime = s->currentTime;
     }
+    else if (freshInput && !(playerAutopilot && sdFieldActive()))
+    {
+        drivePlayer(s, RCM_MAX_DT_ROBOTS);
+    }
 
+    sdWeatherStep(s, deltaTimeIncrement);
     for (int i = 0; i < s->_ncars; i++)
     {
         sdTyresStep(s->cars[i], deltaTimeIncrement);
@@ -377,6 +443,7 @@ static void runOneStep(double deltaTimeIncrement)
         sdCarStatusStep(s->cars[i], deltaTimeIncrement);
         manageCar(s->cars[i]);
     }
+    sdStewardsStep(s);
     sdSessionAfterStep(s);
 }
 
@@ -406,8 +473,8 @@ static void startRace()
         SimUpdate(s, RCM_MAX_DT_SIMU);
 
     ReInfo->_reTimeMult = 1.0;
-    ReInfo->_reLastRobTime = -1.0;
-    s->currentTime = raceCountdown > 0.0 ? -raceCountdown : sdSessionStartClock();
+    s->currentTime = (raceCountdown > 0.0 ? -raceCountdown : sdSessionStartClock());
+    ReInfo->_reLastRobTime = s->currentTime - RCM_MAX_DT_ROBOTS;
     s->deltaTime = RCM_MAX_DT_SIMU;
     s->_raceState = RM_RACE_STARTING;
     ReInfo->_reRunning = 1;
@@ -657,17 +724,28 @@ EMSCRIPTEN_KEEPALIVE int sdInit(const char *trackCategory, const char *trackName
         for (int i = 0; i < carCount; i++)
         {
             const FieldEntry &entry = i == 0 ? playerEntry : fieldEntries[i - 1];
-            double distance = 0, lateral = 0;
-            sdSessionStartPlace(i, entry.slot, sdFieldBay(entry.teamIndex, entry.seat), &distance, &lateral);
-            placeCar(s->cars[i], distance, lateral, 0.2);
+            double distance = 0, lateral = 0, x = 0, y = 0, yaw = 0;
+            bool grid = sdSessionStartPlace(i, entry.slot, sdFieldBay(entry.teamIndex, entry.seat), &distance, &lateral);
+            if (grid && sdAiGridPose(entry.slot, &x, &y, &yaw))
+                placeCarAt(s->cars[i], x, y, yaw, 0.2);
+            else
+                placeCar(s->cars[i], distance, lateral, 0.2);
             RePhysicsEngine().configureCar(s->cars[i]);
         }
     }
     else
     {
-        sdInitStartingGrid();
+        double x = 0, y = 0, yaw = 0;
+        if (hasModel && sdAiGridPose(practiceSlot, &x, &y, &yaw))
+        {
+            placeCarAt(s->cars[0], x, y, yaw, 0.2);
+            RePhysicsEngine().configureCar(s->cars[0]);
+        }
+        else
+            sdInitStartingGrid();
     }
     startRace();
+    sdWeatherReset();
     for (int i = 0; i < carCount; i++)
     {
         sdTyresReset(s->cars[i]);
@@ -675,9 +753,16 @@ EMSCRIPTEN_KEEPALIVE int sdInit(const char *trackCategory, const char *trackName
         sdCarStatusReset(s->cars[i]);
     }
     sdSessionBegin(s);
+    sdStewardsBegin(s, sdSessionKindOf(), sdSessionTotalLaps());
+    sdRaceControlBegin(s, sdSessionKindOf());
     sdCameraReset();
     fillFrame();
     return 0;
+}
+
+EMSCRIPTEN_KEEPALIVE void sdPracticeGridSlot(int slot)
+{
+    practiceSlot = slot;
 }
 
 EMSCRIPTEN_KEEPALIVE void sdKey(int key, int state)
@@ -699,6 +784,12 @@ EMSCRIPTEN_KEEPALIVE int sdUpdate(double now)
     }
     fillFrame();
     return steps;
+}
+
+EMSCRIPTEN_KEEPALIVE void sdResync(double now)
+{
+    clockNow = now;
+    ReInfo->_reCurTime = now;
 }
 
 EMSCRIPTEN_KEEPALIVE int sdStep(int count)
@@ -747,6 +838,7 @@ EMSCRIPTEN_KEEPALIVE void sdPitService(double fuel, int frontWing)
     car->pitcmd.tireChange = tCarPitCmd::ALL;
     car->pitcmd.tiresetChange = tCarPitCmd::NON_CHANGE;
     SimReConfig(car);
+    sdStewardsNoteService(0);
     sdTyresService(0, sdPitCompound());
     car->pitcmd.fuel = 0;
     car->pitcmd.repair = 0;

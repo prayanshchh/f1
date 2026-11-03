@@ -4,5 +4,11 @@
     "types": ["@webgpu/types", "vite/client", "emscripten"],
     "resolveJsonModule": true
   },
-  "include": ["src/**/*.ts", "vite.config.ts", "pad-server.ts", "api-server.ts"]
+  "include": [
+    "src/**/*.ts",
+    "vite.config.ts",
+    "pad-server.ts",
+    "api-server.ts",
+    "engine-build.ts"
+  ]
 }

@@ -1,35 +1,72 @@
 import { existsSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import {
+  LightCue,
   StartLights,
   startLightCount,
 } from "../../apps/client/src/game/start-lights.ts";
 import { startingGrid, teams } from "../../apps/client/src/game/teams.ts";
+import { wasm } from "../support/speed-dreams.ts";
 import {
-  type SpeedDreams,
-  startCircuit,
-  wasm,
-} from "../support/speed-dreams.ts";
+  planWeekend,
+  type WeekendPlan,
+} from "../../apps/client/src/game/weekend.ts";
+import {
+  offence,
+  penalty,
+  stage,
+} from "../../apps/client/src/game/stewards.ts";
+import {
+  sessionKind,
+  startField,
+  type Weekend,
+} from "../support/race-weekend.ts";
+import {
+  frameOf,
+  type Stewarded,
+  stewardMessages,
+} from "../support/stewards.ts";
 
 const speedIndex = 45;
 const timeIndex = 0;
 
 describe("start light sequence", () => {
-  test("race lights come on one a second and go out at zero", () => {
+  test("race lights stay dark for a second, come on one a second and go out at zero", () => {
     const lights = StartLights.race(0.5);
     const start = -lights.countdown;
-    expect(lights.lit(start)).toBe(1);
-    expect(lights.lit(start + 0.99)).toBe(1);
-    expect(lights.lit(start + 1)).toBe(2);
-    expect(lights.lit(start + 4)).toBe(5);
+    expect(lights.lit(start)).toBe(0);
+    expect(lights.lit(start + 0.99)).toBe(0);
+    expect(lights.lit(start + 1)).toBe(1);
+    expect(lights.lit(start + 1.99)).toBe(1);
+    expect(lights.lit(start + 2)).toBe(2);
+    expect(lights.lit(start + 5)).toBe(5);
     expect(lights.lit(-0.001)).toBe(startLightCount);
     expect(lights.lit(0)).toBe(0);
     expect(lights.lit(30)).toBe(0);
   });
 
   test("the hold after five lights is random between 0.2 and 3 seconds", () => {
-    expect(StartLights.race(0).countdown).toBeCloseTo(5.2, 5);
-    expect(StartLights.race(1).countdown).toBeCloseTo(8, 5);
+    expect(StartLights.race(0).countdown).toBeCloseTo(6.2, 5);
+    expect(StartLights.race(1).countdown).toBeCloseTo(9, 5);
+  });
+
+  test("each light beeps once as it comes on, lights out is silent, and a restart beeps again", () => {
+    const frame = 1 / 60;
+    const cue = new LightCue();
+    const beeps: number[] = [];
+    const run = (lights: StartLights, from: number, to: number) => {
+      for (let t = from; t < to; t += frame)
+        if (cue.next(lights.lit(t))) beeps.push(t);
+    };
+    const race = StartLights.race(0.5);
+    run(race, -race.countdown, 3);
+    expect(beeps).toHaveLength(startLightCount);
+    beeps.forEach((at, i) => {
+      expect(at - -race.countdown).toBeCloseTo(1 + i, 1);
+    });
+    const restart = StartLights.restart(6.4);
+    run(restart, -restart.countdown, 1);
+    expect(beeps).toHaveLength(2 * startLightCount);
   });
 
   test("a restart uses the short sequence and still ends lit at zero", () => {
@@ -41,33 +78,89 @@ describe("start light sequence", () => {
 });
 
 describe.runIf(existsSync(wasm))("engine race start", () => {
-  interface Module extends SpeedDreams {
-    _sdRaceCountdown: (seconds: number) => void;
-  }
-
-  const frame = (m: Module) =>
-    new Float64Array(m.HEAPF64.buffer, m._sdFrame(), 88);
-
-  test("the car cannot leave before lights out and can afterwards", async () => {
-    const m = await startCircuit<Module>((module) => {
-      module._sdRaceCountdown(6);
-    });
+  const rpmIndex = 46;
+  const distanceIndex = 53;
+  const fullRevs = 10000 * (Math.PI / 30);
+  const duel = (): WeekendPlan => {
+    const [player, rival] = planWeekend("corvus", 0, null).entrants;
+    if (!player || !rival) throw new Error("season data has no field");
+    return { entrants: [player, rival], slots: [0, 1] };
+  };
+  const start = async () => {
+    const m = (await startField({
+      kind: sessionKind.race,
+      laps: 6,
+      seed: 4,
+      plan: duel(),
+      autopilot: false,
+    })) as Weekend & Stewarded;
     m._sdStep(1);
-    expect(frame(m)[timeIndex]).toBeLessThan(-5.9);
-    m._sdInputAnalog(1, 0, 1, 0);
-    let peakBeforeStart = 0;
-    while ((frame(m)[timeIndex] ?? 0) < 0) {
-      m._sdStep(10);
-      if ((frame(m)[timeIndex] ?? 0) < 0)
-        peakBeforeStart = Math.max(
-          peakBeforeStart,
-          Math.abs(frame(m)[speedIndex] ?? 0),
-        );
+    return m;
+  };
+  const time = (m: Weekend) => frameOf(m)[timeIndex] ?? 0;
+  const runTo = (
+    m: Weekend,
+    until: number,
+    input: (t: number) => [number, number],
+  ) => {
+    while (time(m) < until) {
+      const [throttle, brake] = input(time(m));
+      m._sdInputAnalog(1, 0, throttle, brake);
+      m._sdStep(5);
     }
-    expect(peakBeforeStart).toBeLessThan(1);
-    m._sdStep(1000);
-    expect(frame(m)[speedIndex]).toBeGreaterThan(10);
-  });
+  };
+  const startCalls = (m: Weekend & Stewarded, car: number) =>
+    stewardMessages(m).filter(
+      (message) =>
+        message.car === car &&
+        message.stage === stage.decision &&
+        (message.offence === offence.jumpStart ||
+          message.offence === offence.gridPosition),
+    );
+
+  test("throttle before lights out moves the car and the stewards penalise the jump start", async () => {
+    const m = await start();
+    expect(time(m)).toBeLessThan(-5);
+    const grid = frameOf(m)[distanceIndex] ?? 0;
+    runTo(m, -2, () => [0, 1]);
+    runTo(m, 0, () => [1, 0]);
+    expect((frameOf(m)[distanceIndex] ?? 0) - grid).toBeGreaterThan(1);
+    expect(Math.abs(frameOf(m)[speedIndex] ?? 0)).toBeGreaterThan(1);
+    runTo(m, 20, () => [0, 1]);
+    const calls = startCalls(m, 0);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.offence).toBe(offence.jumpStart);
+    expect([penalty.time10, penalty.driveThrough]).toContain(calls[0]?.penalty);
+    expect(startCalls(m, 1)).toHaveLength(0);
+  }, 60_000);
+
+  test("brake and throttle together hold the car at high revs, then it launches at lights out with no penalty", async () => {
+    const m = await start();
+    const grid = frameOf(m)[distanceIndex] ?? 0;
+    let revs = 0;
+    runTo(m, 0, (t) => {
+      if (t > -1) revs = Math.max(revs, frameOf(m)[rpmIndex] ?? 0);
+      return [1, 1];
+    });
+    expect(Math.abs((frameOf(m)[distanceIndex] ?? 0) - grid)).toBeLessThan(
+      0.05,
+    );
+    expect(revs).toBeGreaterThan(fullRevs);
+    runTo(m, 2, () => [1, 0]);
+    expect(Math.abs(frameOf(m)[speedIndex] ?? 0)).toBeGreaterThan(10);
+    runTo(m, 20, () => [0, 1]);
+    expect(startCalls(m, 0)).toHaveLength(0);
+    expect(startCalls(m, 1)).toHaveLength(0);
+  }, 60_000);
+
+  test("a car left alone does not creep off its grid slot", async () => {
+    const m = await start();
+    const grid = frameOf(m)[distanceIndex] ?? 0;
+    runTo(m, -0.01, () => [0, 0]);
+    expect(Math.abs((frameOf(m)[distanceIndex] ?? 0) - grid)).toBeLessThan(
+      0.05,
+    );
+  }, 60_000);
 });
 
 describe("starting grid", () => {

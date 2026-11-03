@@ -7,11 +7,21 @@ bool sdFieldActive();
 int sdFieldBay(int teamIndex, int seat);
 int sdPitCompound();
 double sdSessionStartClock();
-void sdSessionStartPlace(int index, int slot, int bay, double *distance, double *lateral);
+bool sdSessionStartPlace(int index, int slot, int bay, double *distance, double *lateral);
 void sdSessionBegin(tSituation *s);
-void sdSessionTick(tSituation *s, double dt);
+void sdSessionTick(tSituation *s);
 void sdSessionAfterStep(tSituation *s);
 bool sdSessionCarVisible(int index);
+int sdSessionKindOf();
+int sdSessionTotalLaps();
+bool sdSessionRacing(int index);
+bool sdSessionFinished(int index);
+int sdSessionPositionOf(int index);
+void sdSessionDisqualify(int index);
+int sdSessionStartSlot(int index);
+double sdSessionReferenceLap();
+bool sdSessionChequered();
+void sdSessionRestartTiming(tSituation *s);
 void sdSessionClearPlans();
 
 #endif

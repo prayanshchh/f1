@@ -8,6 +8,7 @@
 #include <playerpref.h>
 
 #include "game.h"
+#include "race-control.h"
 
 static const double axisScale = 20000.0;
 static const double frontSlipLimit = 8.0 * PI / 180.0;
@@ -29,7 +30,7 @@ static const double blipMax = 0.5;
 static const double wheelLockLimit = 0.17;
 static const double absCut = 30.0;
 static const double absRecover = 3.0;
-static const double analogSteerTime = 0.05;
+static const double directSteerTime = 0.05;
 static const double analogThrottleTime = 0.08;
 static const double steerHalfSpeed = 33.0;
 static const double steerMinShare = 0.08;
@@ -46,16 +47,22 @@ static const double trailBrakeSteer = 0.1;
 static const double limiterGain = 0.5;
 static const double limiterMargin = 0.3;
 static const double limiterBrake = 0.15;
+static const double launchWindow = 20.0;
+static const double launchSpeed = 3.0;
+static const double launchBrake = 0.05;
+static const double launchThrottle = 0.02;
 
 static bool assist = true;
 static bool antiLock = false;
 static bool steerDirect = false;
 static bool analog;
+static bool analogFresh;
 static double analogSteer, analogThrottle, analogBrake;
 static bool left, right, up, down;
 static double steer, throttle, brake, traction = 1.0, braking = 1.0;
 static double speedLimit;
 static bool pitHold;
+static bool launching = true;
 
 static double approach(double value, double target, double rate, double dt)
 {
@@ -141,8 +148,10 @@ static void updateKeys(tCarElt *car, double dt)
 static void updateAnalog(tCarElt *car, double dt)
 {
     int dir = analogSteer >= 0 ? 1 : -1;
-    double target = steerDirect ? analogSteer : dir * steerCurve(car, analogSteer);
-    steer = approach(steer, target, std::max(steerMinStep, fabs(target - steer)) / (analogSteerTime * steerSlowdown(car)), dt);
+    if (steerDirect)
+        steer = approach(steer, analogSteer, std::max(steerMinStep, fabs(analogSteer - steer)) / (directSteerTime * steerSlowdown(car)), dt);
+    else
+        steer = dir * steerCurve(car, analogSteer);
     throttle = approach(throttle, analogThrottle, 1.0 / analogThrottleTime, dt);
     brake = analogBrake;
 }
@@ -212,6 +221,30 @@ static void applySpeedLimit(tCarElt *car)
         brake = std::max(brake, std::min(1.0, -room * limiterBrake));
 }
 
+void sdInputLaunch(tCarElt *car, tSituation *s)
+{
+    if (!assist)
+        return;
+    double since = sdRaceControlSinceSignal(s);
+    if (since > launchWindow || (since > 0 && fabs(car->_speed_x) > launchSpeed))
+        launching = false;
+    if (!launching)
+        return;
+    double wanted = analog ? analogThrottle : throttle;
+    double held = analog ? analogBrake : brake;
+    if (held < launchBrake && wanted >= launchThrottle)
+        return;
+    car->_clutchCmd = 1.0f;
+    car->_accelCmd = (tdble)wanted;
+    car->_brakeCmd = (tdble)std::max(held, launchBrake);
+    car->_gearCmd = 1;
+}
+
+void sdInputRelaunch()
+{
+    launching = true;
+}
+
 void sdInputApplyHold(tCarElt *car)
 {
     if (!pitHold)
@@ -253,6 +286,7 @@ void sdInputConfigure()
     steer = throttle = brake = 0;
     traction = 1.0;
     braking = 1.0;
+    launching = true;
 }
 
 void sdInputState(double *out)
@@ -275,6 +309,13 @@ void sdInputKey(int key, int state)
         up = pressed;
     else if (key == GFUIK_DOWN)
         down = pressed;
+}
+
+bool sdInputFresh()
+{
+    bool fresh = analogFresh && analog && !steerDirect;
+    analogFresh = false;
+    return fresh;
 }
 
 void sdInputUpdate(tCarElt *car, double dt)
@@ -301,12 +342,21 @@ void sdInputUpdate(tCarElt *car, double dt)
 
 extern "C" {
 
+EMSCRIPTEN_KEEPALIVE void sdInputRelease()
+{
+    left = right = up = down = false;
+}
+
 EMSCRIPTEN_KEEPALIVE void sdInputAnalog(int active, double steerValue, double throttleValue, double brakeValue)
 {
+    double nextSteer = std::max(-1.0, std::min(1.0, steerValue));
+    double nextThrottle = std::max(0.0, std::min(1.0, throttleValue));
+    double nextBrake = std::max(0.0, std::min(1.0, brakeValue));
+    analogFresh = analogFresh || nextSteer != analogSteer || nextThrottle != analogThrottle || nextBrake != analogBrake;
     analog = active != 0;
-    analogSteer = std::max(-1.0, std::min(1.0, steerValue));
-    analogThrottle = std::max(0.0, std::min(1.0, throttleValue));
-    analogBrake = std::max(0.0, std::min(1.0, brakeValue));
+    analogSteer = nextSteer;
+    analogThrottle = nextThrottle;
+    analogBrake = nextBrake;
 }
 
 EMSCRIPTEN_KEEPALIVE void sdInputAssist(int on)

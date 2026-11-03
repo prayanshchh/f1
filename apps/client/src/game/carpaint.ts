@@ -20,6 +20,7 @@ import {
   vec2,
 } from "three/tsl";
 import { carFile } from "./teams.ts";
+import { releaseOnceUploaded } from "./preload.ts";
 
 const envWidth = 512;
 const envHeight = 256;
@@ -164,7 +165,7 @@ export interface CarTextures {
 }
 
 function loaded(url: string, sRgb: boolean, anisotropy: number): THREE.Texture {
-  const map = new THREE.TextureLoader().load(url);
+  const map = releaseOnceUploaded(new THREE.TextureLoader().load(url));
   map.flipY = false;
   map.colorSpace = sRgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
   map.anisotropy = anisotropy;
@@ -423,6 +424,8 @@ export interface CarMaterials {
 
 const rev = uniform(0);
 const brakeHeat = uniform(0);
+export const rainLight = uniform(0);
+const rainLightColour = new THREE.Color(9, 0.25, 0.12);
 
 function brakeGlow(physical: THREE.MeshPhysicalNodeMaterial): void {
   physical.emissiveNode = color(brakeColour).mul(brakeHeat);
@@ -489,6 +492,8 @@ function partMaterial(
   }
   if (satinParts.test(name)) physical.roughness = satinRoughness;
   if (name.startsWith("led-") && name !== "led-red") ledGlow(physical);
+  if (name === "led-red")
+    physical.emissiveNode = color(rainLightColour).mul(rainLight);
   return physical;
 }
 

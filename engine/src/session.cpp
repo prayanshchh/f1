@@ -12,6 +12,7 @@
 #include "ai.h"
 #include "game.h"
 #include "session.h"
+#include "stewards.h"
 
 namespace
 {
@@ -42,17 +43,26 @@ enum CarStatus
     STATUS_GARAGE,
     STATUS_FINISHED,
     STATUS_RETIRED,
-    STATUS_KNOCKED_OUT
+    STATUS_KNOCKED_OUT,
+    STATUS_QUEUED,
+    STATUS_DISQUALIFIED
+};
+
+enum RunState
+{
+    RUN_WAITING,
+    RUN_OUT,
+    RUN_FLYING,
+    RUN_DONE
 };
 
 const int timingPoints = 128;
 const int timingLaps = 3;
 const int segments = 3;
-const double segmentLength[segments] = {18.0 * 60.0, 15.0 * 60.0, 13.0 * 60.0};
 const int segmentKnockouts[segments] = {6, 6, 0};
 const double raceFuelPerLap = 1.6;
 const double qualifyingFuel = 7.0;
-const double playerQualifyingFuel = 14.0;
+const double runTimeout = 420.0;
 const double contactWindow = 0.8;
 const double detectionShare = 0.94;
 const double overtakeWindow = 1.0;
@@ -62,7 +72,6 @@ const double lapNoiseSize = 0.0012;
 const double raceFormSwing = 0.006;
 const double reactionLow = 0.16;
 const double reactionHigh = 0.38;
-const double flagTimeout = 150.0;
 const double trackGripStart = 0.982;
 const double raceTrackGrip = 1.0;
 const double softCompound = 0;
@@ -72,17 +81,17 @@ const int shortRaceLaps = 20;
 const int shortRaceCompound = 1;
 const double missedCompoundPenalty = 30.0;
 const double damagePitLimit = 0.35;
-const double garageService = 0.4;
 const double defaultReference = 97.5;
 const double lapPerSpeed = 0.33;
 const double lapPerPower = 0.25;
 const double simulatedNoise = 0.0018;
-const double lastCallSeconds = 300.0;
-const double lateCallSeconds = 190.0;
-const int dangerMargin = 2;
-const double qualifyingYieldTime = 5.0;
 const double retireStuckSeconds = 45.0;
-const double spoiledLapMargin = 1.015;
+const double weatherPatienceLow = 4.0;
+const double weatherPatienceHigh = 40.0;
+const double weatherLookLow = 30.0;
+const double weatherLookHigh = 150.0;
+const int hardFromLaps = 28;
+const int mediumFromLaps = 11;
 
 struct Stint
 {
@@ -93,7 +102,6 @@ struct Stint
 struct CarPlan
 {
     std::vector<Stint> stints;
-    std::vector<double> runs[segments];
     double speed = 1.0;
     double raceSpeed = 1.0;
     double power = 1.0;
@@ -131,14 +139,25 @@ struct Timing
     int stintStartLap = 0;
     double stintStartWear = 0;
     double pitJitter = 0;
-    size_t runIndex = 0;
-    bool rescued = false;
+    int run = RUN_WAITING;
+    double runStart = 0;
     double progress = 0;
     int contacts = 0;
-    bool invalidLap = false;
-    int offTrackEvents = 0;
-    bool offTrackNow = false;
     double penalties = 0;
+    bool disqualified = false;
+    double weatherDue = 0;
+    double weatherPatience = 0;
+    double weatherLook = 0;
+    bool weatherStop = false;
+};
+
+struct PassEvent
+{
+    double time;
+    int passer;
+    int passed;
+    int position;
+    int lap;
 };
 
 struct Stats
@@ -147,7 +166,6 @@ struct Stats
     int playerContacts = 0;
     int wallHits = 0;
     int overtakes = 0;
-    int offTracks = 0;
     int pits = 0;
 };
 
@@ -155,22 +173,23 @@ Kind kind = KIND_SOLO;
 Phase phase = PHASE_RUNNING;
 int totalLaps = 0;
 int segment = 0;
-double clockLeft = 0;
-double elapsedFlag = 0;
-double durationScale = 1.0;
 double startDelay = 2.0;
 double difficultyScale = 1.0;
 double referenceLap = defaultReference;
 unsigned seed = 1;
 std::mt19937 rng(1);
+std::mt19937 weatherRng(1);
 std::vector<Timing> timing;
 std::vector<CarPlan> plans;
 std::vector<int> order;
 std::vector<int> previousOrder;
 Stats stats;
+std::vector<PassEvent> passLog;
 int finishers = 0;
 int playerPitCompound = -1;
-bool playerInGarage = false;
+int onTrack = -1;
+bool playerQueued = false;
+std::vector<int> runOrder;
 bool chequered = false;
 double chequeredAt = 0;
 int playerStartCompound = -1;
@@ -182,6 +201,11 @@ double uniform(double low, double high)
     return std::uniform_real_distribution<double>(low, high)(rng);
 }
 
+double weatherUniform(double low, double high)
+{
+    return std::uniform_real_distribution<double>(low, high)(weatherRng);
+}
+
 double carProgress(tCarElt *car, double length)
 {
     return (car->_laps - 1) + car->_distFromStartLine / length;
@@ -190,6 +214,23 @@ double carProgress(tCarElt *car, double length)
 bool playerDriven(tCarElt *car)
 {
     return car->index == 0 && !sdPlayerAutopilot();
+}
+
+int tyreFamily(int compound)
+{
+    return compound < 3 ? 0 : compound - 2;
+}
+
+int dryCompoundFor(int lapsLeft)
+{
+    if (lapsLeft > hardFromLaps)
+        return 2;
+    return lapsLeft > mediumFromLaps ? 1 : 0;
+}
+
+int pushCompound()
+{
+    return sdWeatherIdealCompound(sdWeatherFutureLine(0), (int)softCompound);
 }
 
 void recordTiming(tSituation *s, int i, double length)
@@ -225,6 +266,8 @@ void updateOrder(tSituation *s)
                 return tx < ty;
             return x.segmentBestAt < y.segmentBestAt;
         }
+        if (x.disqualified != y.disqualified)
+            return y.disqualified;
         if (x.retired != y.retired)
             return y.retired;
         if (x.finished != y.finished)
@@ -233,7 +276,7 @@ void updateOrder(tSituation *s)
         {
             if (x.finishLaps != y.finishLaps)
                 return x.finishLaps > y.finishLaps;
-            return x.finishTime + x.penalties < y.finishTime + y.penalties;
+            return x.finishTime + x.penalties + sdStewardsTimeAdded(a) < y.finishTime + y.penalties + sdStewardsTimeAdded(b);
         }
         return x.progress > y.progress;
     });
@@ -284,7 +327,10 @@ void countOvertakes(tSituation *s)
         int up = order[rank];
         int down = order[rank + 1];
         if (before[up] > before[down] && !sdAiInPitLane(down) && !sdAiInPitLane(up) && (s->cars[down]->_state & RM_CAR_STATE_NO_SIMU) == 0)
+        {
             stats.overtakes++;
+            passLog.push_back({s->currentTime, up, down, rank + 1, std::max(1, s->cars[up]->_laps)});
+        }
     }
     previousOrder = order;
 }
@@ -316,7 +362,7 @@ void closeLapsRace(tSituation *s)
         t.laps = car->_laps;
         t.lastLap = car->_lastLapTime;
         sdAiSetLapNoise(i, 1.0 + uniform(-raceFormSwing, raceFormSwing));
-        if (car->_laps > 1 && car->_lastLapTime > 0 && (t.bestLap == 0 || car->_lastLapTime < t.bestLap))
+        if (car->_laps > 1 && car->_lastLapTime > 0 && !sdStewardsLastLapInvalid(i) && (t.bestLap == 0 || car->_lastLapTime < t.bestLap))
             t.bestLap = car->_lastLapTime;
     }
 }
@@ -377,9 +423,42 @@ void raceFinish(tSituation *s)
     }
 }
 
+bool weatherCall(tSituation *s, int i)
+{
+    tCarElt *car = s->cars[i];
+    Timing &t = timing[i];
+    int lapsLeft = totalLaps - car->_laps + 1;
+    if (lapsLeft <= 1)
+        return false;
+    double soon = sdWeatherFutureLine(t.weatherLook);
+    double now = sdWeatherFutureLine(0);
+    int fitted = sdTyresCompound(i);
+    int wanted = sdWeatherIdealCompound(std::max(now, soon), dryCompoundFor(lapsLeft));
+    if (soon < now)
+        wanted = sdWeatherIdealCompound(soon, dryCompoundFor(lapsLeft));
+    if (tyreFamily(wanted) == tyreFamily(fitted))
+    {
+        t.weatherDue = 0;
+        return false;
+    }
+    t.weatherDue += s->deltaTime;
+    if (t.weatherDue < t.weatherPatience)
+        return false;
+    t.weatherDue = 0;
+    t.weatherStop = true;
+    t.stintIndex = plans[i].stints.empty() ? 0 : plans[i].stints.size() - 1;
+    sdAiRequestPit(i, wanted, stopTimeBase + weatherUniform(-0.3, 0.6) + sdStewardsOwedTime(i));
+    t.pits++;
+    t.stintStartLap = car->_laps + 1;
+    t.stintStartWear = 0;
+    stats.pits++;
+    return true;
+}
+
 void raceStrategy(tSituation *s)
 {
-    if (sdTyresCompound(0) != playerStartCompound)
+    int playerTyre = sdTyresCompound(0);
+    if (playerTyre != playerStartCompound || sdWeatherWetCompound(playerTyre))
         playerChangedCompound = true;
     for (int i = 0; i < s->_ncars; i++)
     {
@@ -390,7 +469,9 @@ void raceStrategy(tSituation *s)
         const CarPlan &plan = plans[i];
         if (t.finished || t.retired || sdAiInPitLane(i) || sdAiPitPending(i))
             continue;
-        bool hasNext = totalLaps >= shortRaceLaps && t.stintIndex + 1 < plan.stints.size();
+        if (weatherCall(s, i))
+            continue;
+        bool hasNext = !t.weatherStop && totalLaps >= shortRaceLaps && t.stintIndex + 1 < plan.stints.size();
         bool dueNext = hasNext && (double)car->_laps >= std::max(2.0, plan.stints[t.stintIndex + 1].from * totalLaps + t.pitJitter);
         double wearNow = sdTyresWorstWear(i);
         double perLap = car->_laps > t.stintStartLap ? (wearNow - t.stintStartWear) / (car->_laps - t.stintStartLap) : 0.0;
@@ -408,7 +489,9 @@ void raceStrategy(tSituation *s)
         }
         else if (compound == 0)
             compound = 2;
-        sdAiRequestPit(i, compound, stopTimeBase + uniform(-0.3, 0.6));
+        if (tyreFamily(compound) == 0)
+            compound = sdWeatherIdealCompound(sdWeatherFutureLine(0), compound);
+        sdAiRequestPit(i, compound, stopTimeBase + uniform(-0.3, 0.6) + sdStewardsOwedTime(i));
         t.pits++;
         t.stintStartLap = car->_laps + 1;
         t.stintStartWear = 0;
@@ -432,121 +515,15 @@ void blueFlags(tSituation *s)
             double behind = sdAiWrap(car->_distFromStartLine - s->cars[k]->_distFromStartLine);
             if (behind > v * blueFlagGap)
                 continue;
-            bool lapping = timing[k].progress - timing[i].progress > 0.5;
-            wave = lapping;
-            if (kind == KIND_QUALIFYING)
-            {
-                SdAiTask task = sdAiTask(i);
-                bool slow = task == AI_OUT_LAP || task == AI_IN_LAP || task == AI_COOL_DOWN;
-                bool pushing = playerDriven(s->cars[k]) ? !playerInGarage && s->cars[k]->_speed_x > car->_speed_x + 5.0 : sdAiTask(k) == AI_PUSH_LAP;
-                wave = slow && pushing && behind < v * qualifyingYieldTime;
-            }
+            wave = timing[k].progress - timing[i].progress > 0.5;
         }
-        sdAiSetBlueFlag(i, wave);
+        sdAiSetBlueFlag(i, wave || sdStewardsYield(i));
     }
 }
 
-void updateOffTrack(tSituation *s)
+bool humanPlayer(tSituation *s, int i)
 {
-    tCarElt *car = s->cars[0];
-    Timing &t = timing[0];
-    bool off = true;
-    for (int i = 0; i < 4 && off; i++)
-    {
-        const tTrackSeg *seg = car->_wheelSeg(i);
-        off = seg && (seg->type2 == TR_LSIDE || seg->type2 == TR_RSIDE);
-    }
-    bool pitZone = sdAiInPitLaneAt(car->_distFromStartLine, car->_trkPos.toMiddle);
-    if (pitZone)
-        off = false;
-    if (off && !t.offTrackNow)
-    {
-        t.offTrackEvents++;
-        t.invalidLap = kind == KIND_QUALIFYING;
-        stats.offTracks++;
-    }
-    t.offTrackNow = off;
-}
-
-void startSegmentFor(tSituation *s, int i)
-{
-    tCarElt *car = s->cars[i];
-    Timing &t = timing[i];
-    double distance = 0, lateral = 0;
-    sdAiBoxOf(sdAiBayOf(i), &distance, &lateral);
-    sdCarTeleport(i, distance, lateral);
-    t.segmentBest = 0;
-    t.segmentBestAt = 0;
-    t.runIndex = 0;
-    t.rescued = false;
-    t.invalidLap = false;
-    t.offTrackNow = false;
-    t.lastLaps = car->_laps;
-    sdAiResetAtBox(i);
-    if (t.eliminated)
-    {
-        t.status = STATUS_KNOCKED_OUT;
-        sdAiSetTask(i, AI_PARKED);
-        if (!playerDriven(car))
-            car->_state |= RM_CAR_STATE_ELIMINATED;
-        return;
-    }
-    t.status = STATUS_GARAGE;
-    sdAiSetTask(i, AI_GARAGE);
-    sdServiceCar(i, (int)softCompound);
-    sdCarSetFuel(i, playerDriven(car) ? playerQualifyingFuel : qualifyingFuel);
-}
-
-void startSegment(tSituation *s, int number)
-{
-    segment = number;
-    clockLeft = segmentLength[segment] * durationScale;
-    elapsedFlag = 0;
-    phase = PHASE_RUNNING;
-    for (int i = 0; i < s->_ncars; i++)
-        startSegmentFor(s, i);
-    playerInGarage = true;
-}
-
-double totalQualifying()
-{
-    double total = 0;
-    for (int i = 0; i < segments; i++)
-        total += segmentLength[i];
-    return total;
-}
-
-void updateTrackEvolution()
-{
-    double done = 0;
-    for (int i = 0; i < segment; i++)
-        done += segmentLength[i];
-    done += segmentLength[segment] - clockLeft / std::max(0.01, durationScale);
-    sdTyresSetTrackGrip(trackGripStart + (1.0 - trackGripStart) * std::min(1.0, done / totalQualifying()));
-}
-
-void noteQualifyingLap(tSituation *s, int i)
-{
-    tCarElt *car = s->cars[i];
-    Timing &t = timing[i];
-    double lap = car->_lastLapTime;
-    double started = s->currentTime - lap;
-    if (lap <= 0 || car->_laps <= 1)
-    {
-        t.invalidLap = false;
-        return;
-    }
-    bool beforeFlag = started <= s->currentTime + 1.0 && (phase == PHASE_RUNNING || started < elapsedFlag);
-    if (!t.invalidLap && beforeFlag && (t.segmentBest == 0 || lap < t.segmentBest))
-    {
-        t.segmentBest = lap;
-        t.segmentBestAt = s->currentTime;
-        t.segmentTimes[segment] = lap;
-        if (t.bestLap == 0 || lap < t.bestLap)
-            t.bestLap = lap;
-    }
-    t.lastLap = lap;
-    t.invalidLap = false;
+    return playerDriven(s->cars[i]);
 }
 
 double expectedLap(int i)
@@ -557,118 +534,169 @@ double expectedLap(int i)
     return referenceLap * (1.0 + lapPerSpeed * speedLoss + lapPerPower * powerLoss);
 }
 
-bool inDanger(int i)
+void parkInGarage(tSituation *s, int i)
 {
-    int alive = 0;
-    for (const Timing &t : timing)
-        if (!t.eliminated)
-            alive++;
-    int safe = alive - segmentKnockouts[segment] - dangerMargin;
-    const Timing &t = timing[i];
-    return t.segmentBest == 0 || t.position > safe || t.segmentBest > expectedLap(i) * spoiledLapMargin;
+    double distance = 0, lateral = 0;
+    sdAiBoxOf(sdAiBayOf(i), &distance, &lateral);
+    sdCarTeleport(i, distance, lateral);
+    sdAiResetAtBox(i);
+    Timing &t = timing[i];
+    t.lastLaps = s->cars[i]->_laps;
+    if (t.eliminated)
+    {
+        t.status = STATUS_KNOCKED_OUT;
+        sdAiSetTask(i, AI_PARKED);
+        if (!humanPlayer(s, i))
+            s->cars[i]->_state |= RM_CAR_STATE_ELIMINATED;
+        return;
+    }
+    t.status = STATUS_GARAGE;
+    sdAiSetTask(i, AI_GARAGE);
 }
 
-void qualifyingCar(tSituation *s, int i, double elapsed)
+void recordRunLap(tSituation *s, int i, double lap, bool valid)
+{
+    Timing &t = timing[i];
+    t.lastLap = lap;
+    if (!valid || lap <= 0)
+        return;
+    t.segmentBest = lap;
+    t.segmentBestAt = s->currentTime;
+    t.segmentTimes[segment] = lap;
+    if (t.bestLap == 0 || lap < t.bestLap)
+        t.bestLap = lap;
+}
+
+void endRun(tSituation *s, int i)
+{
+    timing[i].run = RUN_DONE;
+    if (onTrack == i)
+        onTrack = -1;
+    parkInGarage(s, i);
+}
+
+void launchRun(tSituation *s, int i)
 {
     tCarElt *car = s->cars[i];
     Timing &t = timing[i];
-    if (t.eliminated)
-        return;
+    int compound = humanPlayer(s, i) && playerPitCompound >= 0 ? playerPitCompound : pushCompound();
+    sdServiceCar(i, compound);
+    sdCarSetFuel(i, qualifyingFuel);
+    if (humanPlayer(s, i))
+    {
+        car->_laps = 0;
+        playerQueued = false;
+    }
+    else
+    {
+        sdAiLeaveGarage(i);
+        sdAiSetTask(i, AI_OUT_LAP);
+    }
+    t.lastLaps = car->_laps;
+    t.run = RUN_OUT;
+    t.runStart = s->currentTime;
+    t.status = STATUS_OUT_LAP;
+    onTrack = i;
+}
+
+void followRun(tSituation *s, int i)
+{
+    tCarElt *car = s->cars[i];
+    Timing &t = timing[i];
     bool crossed = car->_laps != t.lastLaps;
-    if (crossed)
+    t.lastLaps = car->_laps;
+    t.laps = car->_laps;
+    if (crossed && t.run == RUN_OUT)
     {
-        t.lastLaps = car->_laps;
-        t.laps = car->_laps;
-        noteQualifyingLap(s, i);
-    }
-    if (playerDriven(car))
-        return;
-    SdAiTask task = sdAiTask(i);
-    const std::vector<double> &runs = plans[i].runs[segment];
-    if (task == AI_GARAGE)
-    {
-        t.status = STATUS_GARAGE;
-        bool planned = t.runIndex < runs.size() && elapsed >= runs[t.runIndex] * durationScale;
-        bool rescue = !t.rescued && clockLeft < lastCallSeconds * durationScale && clockLeft > lateCallSeconds * durationScale && inDanger(i);
-        if (rescue)
-            t.rescued = true;
-        if (phase == PHASE_RUNNING && (planned || rescue))
-        {
-            t.runIndex++;
-            sdServiceCar(i, (int)softCompound);
-            sdCarSetFuel(i, qualifyingFuel);
-            sdAiLeaveGarage(i);
-            sdAiSetTask(i, AI_OUT_LAP);
-            t.status = STATUS_OUT_LAP;
-        }
-        return;
-    }
-    if (task == AI_OUT_LAP && crossed)
-    {
-        if (phase == PHASE_RUNNING)
+        t.run = RUN_FLYING;
+        t.status = STATUS_PUSH_LAP;
+        if (!humanPlayer(s, i))
         {
             sdAiSetTask(i, AI_PUSH_LAP);
             sdAiSetLapNoise(i, 1.0 + uniform(-lapNoiseSize, lapNoiseSize));
-            t.status = STATUS_PUSH_LAP;
-        }
-        else
-        {
-            sdAiSetTask(i, AI_IN_LAP);
-            sdAiToGarage(i, (int)softCompound, garageService);
-            t.status = STATUS_IN_LAP;
         }
         return;
     }
-    if (task == AI_PUSH_LAP && crossed)
+    if (crossed && t.run == RUN_FLYING)
     {
-        sdAiSetTask(i, AI_IN_LAP);
-        sdAiToGarage(i, (int)softCompound, garageService);
-        t.status = STATUS_IN_LAP;
+        recordRunLap(s, i, car->_lastLapTime, !sdStewardsLastLapInvalid(i));
+        endRun(s, i);
         return;
     }
-    if (task == AI_IN_LAP && sdAiPitDone(i))
-    {
-        sdAiSetTask(i, AI_GARAGE);
-        t.status = STATUS_GARAGE;
-    }
+    if (s->currentTime - t.runStart > runTimeout)
+        endRun(s, i);
 }
 
-bool anyoneFlying(tSituation *s)
+int nextRunner(tSituation *s)
 {
-    for (int i = 0; i < s->_ncars; i++)
-    {
-        if (timing[i].eliminated)
-            continue;
-        if (playerDriven(s->cars[i]))
-        {
-            bool started = !playerInGarage && s->cars[0]->_laps >= 1;
-            if (started && s->currentTime - s->cars[0]->_curLapTime < elapsedFlag)
-                return true;
-            continue;
-        }
-        if (sdAiTask(i) == AI_PUSH_LAP)
-            return true;
-    }
-    return false;
+    if (playerQueued && !timing[0].eliminated && timing[0].run == RUN_WAITING)
+        return 0;
+    for (int i : runOrder)
+        if (!timing[i].eliminated && timing[i].run == RUN_WAITING && !humanPlayer(s, i))
+            return i;
+    return -1;
 }
 
-void qualifyingTick(tSituation *s, double dt)
+bool segmentDone()
 {
-    if (phase == PHASE_COMPLETE || phase == PHASE_WEEKEND_DONE)
-        return;
-    double elapsed = segmentLength[segment] * durationScale - clockLeft;
-    clockLeft = std::max(0.0, clockLeft - dt);
-    updateTrackEvolution();
-    if (phase == PHASE_RUNNING && clockLeft <= 0)
-    {
-        phase = PHASE_FLAG;
-        elapsedFlag = s->currentTime;
-        chequeredAt = s->currentTime;
-    }
+    for (const Timing &t : timing)
+        if (!t.eliminated && t.run != RUN_DONE)
+            return false;
+    return true;
+}
+
+void buildRunOrder(tSituation *s)
+{
+    runOrder.clear();
     for (int i = 0; i < s->_ncars; i++)
-        qualifyingCar(s, i, elapsed);
-    if (phase == PHASE_FLAG && (!anyoneFlying(s) || s->currentTime - chequeredAt > flagTimeout))
+        if (!timing[i].eliminated)
+            runOrder.push_back(i);
+    std::stable_sort(runOrder.begin(), runOrder.end(), [](int a, int b) {
+        double ta = segment == 0 ? expectedLap(a) : timing[a].segmentTimes[segment - 1];
+        double tb = segment == 0 ? expectedLap(b) : timing[b].segmentTimes[segment - 1];
+        return ta > tb;
+    });
+}
+
+void startSegment(tSituation *s, int number)
+{
+    segment = number;
+    phase = PHASE_RUNNING;
+    onTrack = -1;
+    playerQueued = false;
+    sdTyresSetTrackGrip(trackGripStart + (1.0 - trackGripStart) * (segment + 0.5) / segments);
+    for (int i = 0; i < s->_ncars; i++)
+    {
+        Timing &t = timing[i];
+        t.segmentBest = 0;
+        t.segmentBestAt = 0;
+        t.run = RUN_WAITING;
+        parkInGarage(s, i);
+    }
+    buildRunOrder(s);
+}
+
+void qualifyingTick(tSituation *s)
+{
+    if (phase != PHASE_RUNNING)
+        return;
+    if (onTrack >= 0)
+        followRun(s, onTrack);
+    if (onTrack < 0)
+    {
+        int next = nextRunner(s);
+        if (next >= 0)
+            launchRun(s, next);
+    }
+    if (segmentDone())
         phase = PHASE_COMPLETE;
+}
+
+void simulateRun(tSituation *s, int i)
+{
+    double evolution = 1.0 - 0.01 * ((double)segment + 1.0) / 3.0 + 0.01;
+    recordRunLap(s, i, expectedLap(i) * evolution * (1.0 + uniform(-simulatedNoise, simulatedNoise)), true);
+    endRun(s, i);
 }
 
 void simulateRemaining(tSituation *s)
@@ -676,33 +704,11 @@ void simulateRemaining(tSituation *s)
     for (int i = 0; i < s->_ncars; i++)
     {
         Timing &t = timing[i];
-        if (t.eliminated || playerDriven(s->cars[i]))
-            continue;
-        const CarPlan &plan = plans[i];
-        int attempts = 0;
-        for (size_t r = t.runIndex; r < plan.runs[segment].size(); r++)
-            attempts++;
-        if (sdAiTask(i) == AI_PUSH_LAP || sdAiTask(i) == AI_OUT_LAP)
-            attempts++;
-        if (t.segmentBest == 0 && attempts == 0)
-            attempts = 1;
-        double base = expectedLap(i);
-        for (int a = 0; a < attempts; a++)
-        {
-            double evolution = 1.0 - 0.01 * ((double)segment + 1.0) / 3.0 + 0.01;
-            double lap = base * evolution * (1.0 + uniform(-simulatedNoise, simulatedNoise));
-            if (t.segmentBest == 0 || lap < t.segmentBest)
-            {
-                t.segmentBest = lap;
-                t.segmentBestAt = s->currentTime + a;
-                t.segmentTimes[segment] = lap;
-                if (t.bestLap == 0 || lap < t.bestLap)
-                    t.bestLap = lap;
-            }
-        }
+        if (!t.eliminated && t.run != RUN_DONE && !humanPlayer(s, i))
+            simulateRun(s, i);
     }
-    clockLeft = 0;
-    phase = PHASE_COMPLETE;
+    if (segmentDone())
+        phase = PHASE_COMPLETE;
     updateOrder(s);
 }
 
@@ -754,10 +760,12 @@ void beginRace(tSituation *s)
         sdAiSetTask(i, AI_RACE);
         sdAiSetReaction(i, uniform(reactionLow, reactionHigh));
         timing[i].pitJitter = uniform(-1.2, 1.2) * std::min(1.0, totalLaps / 20.0 + 0.3);
-        if (totalLaps < shortRaceLaps)
-            sdTyresService(i, shortRaceCompound);
-        else if (!plan.stints.empty())
-            sdTyresService(i, plan.stints[0].compound);
+        timing[i].weatherPatience = weatherUniform(weatherPatienceLow, weatherPatienceHigh);
+        timing[i].weatherLook = weatherUniform(weatherLookLow, weatherLookHigh);
+        int dry = totalLaps < shortRaceLaps ? shortRaceCompound : plan.stints.empty() ? sdTyresCompound(i) : plan.stints[0].compound;
+        int start = sdWeatherIdealCompound(sdWeatherFutureLine(0), dry);
+        timing[i].weatherStop = start != dry;
+        sdTyresService(i, start);
     }
 }
 
@@ -788,17 +796,15 @@ double sdSessionStartClock()
     return -startDelay;
 }
 
-void sdSessionStartPlace(int index, int slot, int bay, double *distance, double *lateral)
+bool sdSessionStartPlace(int index, int slot, int bay, double *distance, double *lateral)
 {
     if ((int)startSlots.size() <= index)
         startSlots.resize(index + 1, 0);
     startSlots[index] = slot;
-    if (kind == KIND_QUALIFYING)
-    {
-        sdAiBoxOf(bay, distance, lateral);
-        return;
-    }
-    sdAiGridSlot(slot, distance, lateral);
+    if (kind != KIND_QUALIFYING)
+        return true;
+    sdAiBoxOf(bay, distance, lateral);
+    return false;
 }
 
 void sdSessionClearPlans()
@@ -811,6 +817,7 @@ void sdSessionBegin(tSituation *s)
     if (kind == KIND_SOLO)
         return;
     rng.seed(seed);
+    weatherRng.seed(seed ^ 0x5bd1e995u);
     int n = s->_ncars;
     timing.assign(n, Timing());
     plans.resize(n);
@@ -819,6 +826,7 @@ void sdSessionBegin(tSituation *s)
     finishers = 0;
     chequered = false;
     stats = Stats();
+    passLog.clear();
     phase = PHASE_RUNNING;
     int capacity = timingPoints * timingLaps;
     for (int i = 0; i < n; i++)
@@ -843,7 +851,7 @@ void sdSessionBegin(tSituation *s)
             sdAiSetTask(i, AI_PUSH_LAP);
 }
 
-void sdSessionTick(tSituation *s, double dt)
+void sdSessionTick(tSituation *s)
 {
     if (kind == KIND_SOLO || kind == KIND_LAPPING)
         return;
@@ -852,27 +860,20 @@ void sdSessionTick(tSituation *s, double dt)
         recordTiming(s, i, length);
     if (kind == KIND_RACE)
         closeLapsRace(s);
-    if (s->currentTime > 0)
-    {
-        updateOffTrack(s);
-        if (kind == KIND_QUALIFYING)
-            qualifyingTick(s, dt);
-    }
+    if (s->currentTime > 0 && kind == KIND_QUALIFYING)
+        qualifyingTick(s);
     if (kind != KIND_RACE || s->currentTime > 0)
         updateOrder(s);
     updateGaps(s);
     if (kind == KIND_RACE)
         countOvertakes(s);
-    if (s->currentTime <= 0)
+    if (s->currentTime <= 0 || kind != KIND_RACE)
         return;
     blueFlags(s);
-    if (kind == KIND_RACE)
-    {
-        armOvertakes(s, length);
-        raceStrategy(s);
-        retireStuckCars(s);
-        raceFinish(s);
-    }
+    armOvertakes(s, length);
+    raceStrategy(s);
+    retireStuckCars(s);
+    raceFinish(s);
 }
 
 void sdSessionAfterStep(tSituation *s)
@@ -880,6 +881,83 @@ void sdSessionAfterStep(tSituation *s)
     if (kind == KIND_SOLO || kind == KIND_LAPPING)
         return;
     trackContacts(s);
+}
+
+int sdSessionKindOf()
+{
+    return kind;
+}
+
+int sdSessionTotalLaps()
+{
+    return totalLaps;
+}
+
+bool sdSessionRacing(int index)
+{
+    if (timing.empty() || index >= (int)timing.size())
+        return true;
+    const Timing &t = timing[index];
+    if (t.finished || t.retired || t.eliminated || t.disqualified)
+        return false;
+    return t.status != STATUS_GARAGE && t.status != STATUS_KNOCKED_OUT && t.status != STATUS_QUEUED;
+}
+
+bool sdSessionFinished(int index)
+{
+    return !timing.empty() && index < (int)timing.size() && timing[index].finished;
+}
+
+double sdSessionReferenceLap()
+{
+    return referenceLap;
+}
+
+int sdSessionStartSlot(int index)
+{
+    return index < (int)startSlots.size() ? startSlots[index] : index;
+}
+
+bool sdSessionChequered()
+{
+    return chequered;
+}
+
+void sdSessionRestartTiming(tSituation *s)
+{
+    int capacity = timingPoints * timingLaps;
+    double length = sdAiLength();
+    for (int i = 0; i < (int)timing.size(); i++)
+    {
+        Timing &t = timing[i];
+        tCarElt *car = s->cars[i];
+        t.points.assign(capacity, s->currentTime);
+        t.progress = carProgress(car, length);
+        t.lastPoint = std::max(-1, (int)floor((t.progress + 1.0) * timingPoints));
+        t.lastLaps = car->_laps;
+        t.laps = car->_laps;
+        t.gapLeader = 0;
+        t.gapAhead = 0;
+        t.lastDetect = car->_distFromStartLine;
+    }
+    previousOrder.clear();
+}
+
+int sdSessionPositionOf(int index)
+{
+    return timing.empty() || index >= (int)timing.size() ? 1 : timing[index].position;
+}
+
+void sdSessionDisqualify(int index)
+{
+    if (timing.empty() || index >= (int)timing.size())
+        return;
+    Timing &t = timing[index];
+    t.disqualified = true;
+    t.retired = true;
+    t.status = STATUS_DISQUALIFIED;
+    if (!playerDriven(ReInfo->s->cars[index]))
+        ReInfo->s->cars[index]->_state |= RM_CAR_STATE_ELIMINATED;
 }
 
 bool sdSessionCarVisible(int index)
@@ -891,11 +969,10 @@ bool sdSessionCarVisible(int index)
 
 extern "C" {
 
-EMSCRIPTEN_KEEPALIVE void sdSessionConfigure(int sessionKind, int laps, double scale, double difficulty, int randomSeed)
+EMSCRIPTEN_KEEPALIVE void sdSessionConfigure(int sessionKind, int laps, double difficulty, int randomSeed)
 {
     kind = (Kind)sessionKind;
     totalLaps = laps;
-    durationScale = scale;
     difficultyScale = difficulty;
     seed = (unsigned)randomSeed;
     std::mt19937 starter(seed);
@@ -916,13 +993,6 @@ EMSCRIPTEN_KEEPALIVE void sdFieldPlan(int index, double speed, double raceSpeed,
     plans[index].power = power;
 }
 
-EMSCRIPTEN_KEEPALIVE void sdFieldRun(int index, int number, double at)
-{
-    if ((int)plans.size() <= index)
-        plans.resize(index + 1);
-    plans[index].runs[number].push_back(at);
-}
-
 EMSCRIPTEN_KEEPALIVE void sdFieldStint(int index, int compound, double from)
 {
     if ((int)plans.size() <= index)
@@ -935,13 +1005,19 @@ EMSCRIPTEN_KEEPALIVE void sdSessionInfo(double *out)
     out[0] = kind;
     out[1] = phase;
     out[2] = segment;
-    out[3] = clockLeft;
+    int toRun = 0;
+    for (const Timing &t : timing)
+        if (!t.eliminated && t.run != RUN_DONE)
+            toRun++;
+    out[3] = toRun;
     out[4] = totalLaps;
     out[5] = startDelay;
     out[6] = chequered ? 1 : 0;
     out[7] = timing.empty() || order.empty() ? 0 : timing[order[0]].laps;
-    out[8] = timing.empty() ? 0 : timing[0].invalidLap ? 1 : 0;
-    out[9] = timing.empty() ? 0 : timing[0].offTrackEvents;
+    out[8] = sdStewardsLapInvalid(0) ? 1 : 0;
+    out[9] = sdStewardsOffTracks(0);
+    out[10] = timing.empty() ? 0 : playerQueued ? -1 : timing[0].run;
+    out[11] = onTrack;
 }
 
 EMSCRIPTEN_KEEPALIVE void sdTiming(double *out)
@@ -963,8 +1039,8 @@ EMSCRIPTEN_KEEPALIVE void sdTiming(double *out)
         c[9] = sdTyresAge(i);
         c[10] = t.pits;
         c[11] = t.segmentBest;
-        c[12] = t.finished ? 1 : t.retired ? 2 : 0;
-        c[13] = t.finishTime + t.penalties;
+        c[12] = t.disqualified ? 3 : t.finished ? 1 : t.retired ? 2 : 0;
+        c[13] = t.finishTime + t.penalties + sdStewardsTimeAdded(i);
         c[14] = t.eliminated ? 1 : 0;
         c[15] = t.contacts;
         c[16] = t.progress;
@@ -980,21 +1056,47 @@ EMSCRIPTEN_KEEPALIVE void sdQualifyingTimes(int index, double *out)
         out[i] = timing[index].segmentTimes[i];
 }
 
+EMSCRIPTEN_KEEPALIVE int sdSessionPasses(double *out, int max, int from)
+{
+    int total = (int)passLog.size();
+    for (int k = std::max(0, from); k < total && k - from < max; k++)
+    {
+        const PassEvent &p = passLog[k];
+        double *row = &out[(k - from) * 5];
+        row[0] = p.time;
+        row[1] = p.passer;
+        row[2] = p.passed;
+        row[3] = p.position;
+        row[4] = p.lap;
+    }
+    return total;
+}
+
 EMSCRIPTEN_KEEPALIVE void sdSessionStats(double *out)
 {
     out[0] = stats.contactEvents;
     out[1] = stats.playerContacts;
     out[2] = stats.wallHits;
     out[3] = stats.overtakes;
-    out[4] = stats.offTracks;
+    int offTracks = 0;
+    for (int i = 0; i < (int)timing.size(); i++)
+        offTracks += sdStewardsOffTracks(i);
+    out[4] = offTracks;
     out[5] = stats.pits;
 }
 
-EMSCRIPTEN_KEEPALIVE void sdSessionPlayerGarage(int on)
+EMSCRIPTEN_KEEPALIVE int sdSessionPlayerRun()
 {
-    playerInGarage = on != 0;
-    if (!timing.empty())
-        timing[0].status = playerInGarage ? STATUS_GARAGE : STATUS_OUT_LAP;
+    if (kind != KIND_QUALIFYING || phase != PHASE_RUNNING || timing.empty())
+        return 0;
+    Timing &t = timing[0];
+    if (t.eliminated || t.run != RUN_WAITING || playerQueued)
+        return 0;
+    playerQueued = true;
+    t.status = STATUS_QUEUED;
+    if (onTrack > 0)
+        simulateRun(ReInfo->s, onTrack);
+    return 1;
 }
 
 EMSCRIPTEN_KEEPALIVE int sdSessionAdvance()
@@ -1043,9 +1145,17 @@ EMSCRIPTEN_KEEPALIVE void sdSessionPitCompound(int compound)
 
 EMSCRIPTEN_KEEPALIVE int sdSessionGrid(int *out)
 {
-    for (int i = 0; i < (int)order.size(); i++)
-        out[i] = order[i];
-    return (int)order.size();
+    std::vector<double> key(order.size());
+    for (int rank = 0; rank < (int)order.size(); rank++)
+    {
+        int drop = sdStewardsGridDrop(order[rank]);
+        key[order[rank]] = rank + (drop > 0 ? drop + 0.5 : 0.0);
+    }
+    std::vector<int> grid = order;
+    std::stable_sort(grid.begin(), grid.end(), [&](int a, int b) { return key[a] < key[b]; });
+    for (int i = 0; i < (int)grid.size(); i++)
+        out[i] = grid[i];
+    return (int)grid.size();
 }
 
 }

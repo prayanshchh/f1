@@ -34,9 +34,13 @@ export const choices = {
     { id: "race", label: "Race" },
     { id: "weekend", label: "Race Weekend" },
   ],
-  qualifyingLength: [
-    { id: "full", label: "Full (18 / 15 / 13 min)" },
-    { id: "short", label: "Short (9 / 7.5 / 6.5 min)" },
+  qualifying: [
+    { id: "run", label: "Q1 Q2 Q3" },
+    { id: "skip", label: "Skip - Start Last" },
+  ],
+  rivalLaps: [
+    { id: "simulate", label: "Simulate - Drive Only Yours" },
+    { id: "watch", label: "Watch On Track" },
   ],
   timeOfDay: [
     { id: "dawn", label: "Dawn" },
@@ -62,6 +66,7 @@ export const choices = {
     { id: "little", label: "Light" },
     { id: "medium", label: "Medium" },
     { id: "heavy", label: "Heavy" },
+    { id: "dynamic", label: "Dynamic" },
     { id: "random", label: "Random" },
   ],
   season: [
@@ -85,6 +90,16 @@ export const choices = {
     { id: "auto", label: "Automatic" },
     { id: "sequential", label: "Sequential (E up · Q down)" },
   ],
+  safetyCar: [
+    { id: "off", label: "Off" },
+    { id: "reduced", label: "Reduced" },
+    { id: "standard", label: "Standard" },
+    { id: "increased", label: "Increased" },
+  ],
+  startType: [
+    { id: "standing", label: "Standing" },
+    { id: "rolling", label: "Rolling (Safety Car)" },
+  ],
 } as const;
 
 type ChoiceId<K extends keyof typeof choices> =
@@ -95,10 +110,12 @@ export interface Settings {
   car: string;
   session: ChoiceId<"session">;
   buildUp: boolean;
+  musicVolume: number;
   laps: number;
   difficulty: number;
   startSlot: number;
-  qualifyingLength: ChoiceId<"qualifyingLength">;
+  qualifying: ChoiceId<"qualifying">;
+  rivalLaps: ChoiceId<"rivalLaps">;
   fuel: number;
   compound: string;
   tyreWear: ChoiceId<"tyreWear">;
@@ -116,6 +133,9 @@ export interface Settings {
   assist: boolean;
   antiLock: boolean;
   pitExperience: ChoiceId<"pitExperience">;
+  safetyCar: ChoiceId<"safetyCar">;
+  redFlags: boolean;
+  startType: ChoiceId<"startType">;
   abs: boolean;
   tc: boolean;
   steerSensitivity: number;
@@ -146,10 +166,12 @@ export const defaults: Settings = {
   car: "velza",
   session: "weekend",
   buildUp: true,
+  musicVolume: 70,
   laps: 10,
   difficulty: 90,
   startSlot: 10,
-  qualifyingLength: "full",
+  qualifying: "skip",
+  rivalLaps: "simulate",
   fuel: 0,
   compound: "medium",
   tyreWear: "real",
@@ -167,6 +189,9 @@ export const defaults: Settings = {
   assist: true,
   antiLock: false,
   pitExperience: "immersive",
+  safetyCar: "standard",
+  redFlags: true,
+  startType: "standing",
   abs: true,
   tc: true,
   steerSensitivity: 0.6,
@@ -186,12 +211,17 @@ export const defaults: Settings = {
 };
 
 const storageKey = "revracers.settings";
+const settingsVersion = 2;
+
+type Stored = Partial<Settings> & { version?: number };
 
 function storedSettings(): Partial<Settings> {
   try {
-    return JSON.parse(
+    const { version = 1, ...stored } = JSON.parse(
       localStorage.getItem(storageKey) ?? "{}",
-    ) as Partial<Settings>;
+    ) as Stored;
+    if (version < settingsVersion) delete stored.qualifying;
+    return stored;
   } catch {
     return {};
   }
@@ -215,6 +245,14 @@ export function loadSettings(params: URLSearchParams): Settings {
       options.find((laps) => laps >= settings.laps) ?? defaults.laps;
   if (!choices.tyreWear.some((c) => c.id === settings.tyreWear))
     settings.tyreWear = defaults.tyreWear;
+  if (!choices.qualifying.some((c) => c.id === settings.qualifying))
+    settings.qualifying = defaults.qualifying;
+  if (!choices.rivalLaps.some((c) => c.id === settings.rivalLaps))
+    settings.rivalLaps = defaults.rivalLaps;
+  if (!choices.safetyCar.some((c) => c.id === settings.safetyCar))
+    settings.safetyCar = defaults.safetyCar;
+  if (!choices.startType.some((c) => c.id === settings.startType))
+    settings.startType = defaults.startType;
   return settings;
 }
 
@@ -230,7 +268,10 @@ export function stageOf(
   weekendStage: Stage | null,
 ): Stage | null {
   if (settings.session === "practice") return null;
-  if (settings.session === "weekend") return weekendStage ?? "qualifying";
+  if (settings.session === "weekend")
+    return (
+      weekendStage ?? (settings.qualifying === "skip" ? "race" : "qualifying")
+    );
   return settings.session;
 }
 
@@ -247,7 +288,10 @@ function startFuel(settings: Settings, stage: Stage | null): number {
 }
 
 export function saveSettings(settings: Settings): void {
-  localStorage.setItem(storageKey, JSON.stringify(settings));
+  localStorage.setItem(
+    storageKey,
+    JSON.stringify({ ...settings, version: settingsVersion }),
+  );
 }
 
 export function carOf(settings: Settings): (typeof cars)[number] {
@@ -573,7 +617,11 @@ export function applySettings(
   );
   race.setStr("Quick Race", "time of day", settings.timeOfDay);
   race.setStr("Quick Race", "clouds", settings.clouds);
-  race.setStr("Quick Race", "rain", settings.rain);
+  race.setStr(
+    "Quick Race",
+    "rain",
+    settings.rain === "dynamic" ? "none" : settings.rain,
+  );
   race.setStr("Quick Race", "season", settings.season);
   race.setStr("Quick Race", "weather", "config");
   race.write(fs, racePath);

@@ -26,6 +26,8 @@ const kneelStart = 0.25;
 const kneelEnd = 0.75;
 const jackHeight = 0.2;
 const faceWheel = Math.PI / 2;
+const memberCentre = new THREE.Vector3(0, 0, 1);
+const memberReach = 2.5;
 
 const flat = (colour: number, roughness = 0.65) => {
   const material = new THREE.MeshStandardNodeMaterial({
@@ -70,6 +72,30 @@ const ramp = (value: number, from: number, to: number) =>
   Math.min(1, Math.max(0, (value - from) / (to - from)));
 const smooth = (t: number) => t * t * (3 - 2 * t);
 
+function shareSkeleton(meshes: THREE.SkinnedMesh[]): void {
+  const [first, ...rest] = meshes;
+  if (!first) return;
+  const { bones, boneInverses } = first.skeleton;
+  for (const mesh of rest) {
+    const other = mesh.skeleton;
+    const same =
+      other.bones.length === bones.length &&
+      other.bones.every((bone, i) => bone === bones[i]) &&
+      other.boneInverses.every((inverse, i) =>
+        inverse.equals(boneInverses[i] ?? inverse),
+      );
+    if (same) mesh.bind(first.skeleton, mesh.bindMatrix);
+  }
+}
+
+function memberBounds(mesh: THREE.Mesh): THREE.Sphere {
+  const toMesh = mesh.matrixWorld.clone().invert();
+  return new THREE.Sphere(
+    memberCentre.clone().applyMatrix4(toMesh),
+    memberReach / mesh.matrixWorld.getMaxScaleOnAxis(),
+  );
+}
+
 function makeTyre(): THREE.Group {
   const tyre = new THREE.Group();
   const rubber = new THREE.Mesh(
@@ -111,6 +137,7 @@ export class PitCrew {
   private readonly levers: { member: Member; end: Spot; mesh: THREE.Mesh }[] =
     [];
   private lastTime = 0;
+  private pending: { progress: number; active: boolean } | null = null;
   private readonly anchor = new THREE.Matrix4();
   private readonly target = new THREE.Vector3();
   private readonly left = new THREE.Vector3();
@@ -193,14 +220,17 @@ export class PitCrew {
     inner.matrixAutoUpdate = false;
     inner.matrix.copy(gltfToSdWorld);
     const body = cloneRig(this.model);
+    const skinned: THREE.SkinnedMesh[] = [];
     body.traverse((object) => {
-      if (object instanceof THREE.Mesh) {
-        object.castShadow = true;
-        object.frustumCulled = false;
-      }
+      if (object instanceof THREE.Mesh) object.castShadow = true;
+      if (object instanceof THREE.SkinnedMesh)
+        skinned.push(object as THREE.SkinnedMesh);
     });
     inner.add(body);
     root.add(inner);
+    root.updateMatrixWorld(true);
+    shareSkeleton(skinned);
+    for (const mesh of skinned) mesh.boundingSphere = memberBounds(mesh);
     this.live.add(root);
     const mixer = new THREE.AnimationMixer(body);
     const actions = new Map<string, THREE.AnimationAction>();
@@ -288,7 +318,7 @@ export class PitCrew {
     return (progress * 2) % 1;
   }
 
-  private poseMember(
+  private advanceMember(
     member: Member,
     progress: number,
     active: boolean,
@@ -301,6 +331,10 @@ export class PitCrew {
       delta / moveTime,
     );
     member.engaged += Math.sign(wanted - member.engaged) * change;
+    member.phase = (member.phase + delta / runCycle) % 1;
+  }
+
+  private poseMember(member: Member, progress: number): void {
     const e = smooth(member.engaged);
     member.root.position.set(
       mix(member.rest.x, member.active.x, e),
@@ -309,7 +343,6 @@ export class PitCrew {
     );
     member.root.rotation.z = member.face;
     const moving = 4 * e * (1 - e);
-    member.phase = (member.phase + delta / runCycle) % 1;
     const set = (name: string, weight: number, time: number) => {
       const action = member.actions.get(name);
       if (!action) return;
@@ -364,7 +397,7 @@ export class PitCrew {
     }
   }
 
-  private pose(
+  private advance(
     progress: number,
     active: boolean,
     carMatrix: THREE.Matrix4 | null,
@@ -372,10 +405,18 @@ export class PitCrew {
   ): void {
     this.root.matrix.copy(carMatrix ?? this.anchor);
     this.root.matrixWorldNeedsUpdate = true;
+    for (const member of this.members)
+      this.advanceMember(member, progress, active, delta);
+    this.pending = { progress, active };
+  }
+
+  prepare(): void {
+    if (!this.pending) return;
+    const { progress, active } = this.pending;
+    this.pending = null;
     this.root.updateMatrixWorld(true);
     this.inverse.copy(this.root.matrixWorld).invert();
-    for (const member of this.members)
-      this.poseMember(member, progress, active, delta);
+    for (const member of this.members) this.poseMember(member, progress);
     this.poseTyres(progress, active);
     this.poseLevers();
   }
@@ -404,7 +445,8 @@ export class PitCrew {
   }
 
   bake(): void {
-    this.pose(0, false, null, 0);
+    this.advance(0, false, null, 0);
+    this.prepare();
     this.live.updateMatrixWorld(true);
     const groups = new Map<THREE.Material, THREE.BufferGeometry[]>();
     const add = (object: THREE.Object3D) => {
@@ -440,11 +482,12 @@ export class PitCrew {
     this.far.visible = !near;
     if (!near) {
       this.root.matrix.copy(this.anchor);
+      this.pending = null;
       return { lift: 0, wheelsOff: false };
     }
     const delta = Math.min(0.1, Math.max(0, now - this.lastTime));
     this.lastTime = now;
-    this.pose(progress, active, carMatrix, delta);
+    this.advance(progress, active, carMatrix, delta);
     const jacked = active && progress > reachIn && progress < jackDown;
     return {
       lift: jacked ? liftHeight : 0,

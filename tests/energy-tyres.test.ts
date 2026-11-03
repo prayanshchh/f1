@@ -53,7 +53,8 @@ describe("MFD status colours", () => {
   });
 
   test("pages cycle through the panel and wrap", () => {
-    expect(nextPage("quick")).toBe("temps");
+    expect(nextPage("quick")).toBe("weather");
+    expect(nextPage("weather")).toBe("temps");
     expect(nextPage("temps")).toBe("wear");
     expect(nextPage("wear")).toBe("pressure");
     expect(nextPage("pressure")).toBe("quick");

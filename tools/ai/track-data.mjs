@@ -3,6 +3,27 @@ import path from "node:path";
 
 const bayRows = 14;
 const firstFreeBay = 2;
+const gridSetback = 2;
+
+function gridCar(track, slot) {
+  const points = track.centerline;
+  const count = points.length;
+  const f =
+    (((slot.distance - gridSetback) % track.length) / track.length) * count;
+  const i = Math.floor(f);
+  const t = f - i;
+  const at = (k) => points[((k % count) + count) % count];
+  const a = at(i);
+  const b = at(i + 1);
+  const fx = at(i + 1).x - at(i - 1).x;
+  const fz = at(i + 1).z - at(i - 1).z;
+  const size = Math.hypot(fx, fz);
+  return {
+    x: a.x + (b.x - a.x) * t + (fz / size) * slot.offset,
+    z: a.z + (b.z - a.z) * t - (fx / size) * slot.offset,
+    heading: Math.atan2(-fz, fx),
+  };
+}
 
 function section(name, values) {
   return `${name} ${String(values.length)}\n${values.join(" ")}\n`;
@@ -84,12 +105,16 @@ export function writeTrackData(root, target) {
       firstFreeBay,
     ]),
     section(
-      "grid_distance",
-      track.grid.map((g) => g.distance),
+      "grid_x",
+      track.grid.map((g) => gridCar(track, g).x),
     ),
     section(
-      "grid_offset",
-      track.grid.map((g) => g.offset),
+      "grid_z",
+      track.grid.map((g) => gridCar(track, g).z),
+    ),
+    section(
+      "grid_heading",
+      track.grid.map((g) => gridCar(track, g).heading),
     ),
     section("gain", calibration.gain),
   ];

@@ -93,6 +93,7 @@ CROWD_BANK_DENSITY = 0.42
 CROWD_GROVE_SCALE = 1 / 45.0
 CROWD_GROVE = 0.42
 CROWD_SHIRTS = ((0.62, 0.06, 0.05), (0.72, 0.1, 0.06), (0.06, 0.14, 0.5), (0.08, 0.2, 0.62), (0.75, 0.74, 0.72), (0.82, 0.82, 0.8), (0.05, 0.05, 0.06), (0.1, 0.11, 0.13), (0.75, 0.42, 0.06), (0.06, 0.34, 0.16), (0.42, 0.14, 0.42), (0.7, 0.6, 0.12))
+START_LINE = 323.0
 GRID_BEHIND_LINE = 16.0
 GRID_SPACING = 8.0
 GRID_OFFSET = 3.5
@@ -651,8 +652,9 @@ def main():
             "fastLane": FAST_LANE_CENTRE,
         },
         "sectors": sorted(sectors),
+        "startLine": START_LINE,
         "grid": [
-            {"distance": round(length - GRID_BEHIND_LINE - GRID_SPACING * i, 3), "offset": GRID_OFFSET * (-1 if i % 2 == 0 else 1)}
+            {"distance": round(START_LINE - GRID_BEHIND_LINE - GRID_SPACING * i, 3), "offset": GRID_OFFSET * (-1 if i % 2 == 0 else 1)}
             for i in range(GRID_SLOTS)
         ],
     }
@@ -669,7 +671,6 @@ def main():
     layout_data = venue(osm, ground_height, points, origin_height)
     (build / "venue.json").write_text(json.dumps(layout_data))
     print("crowd", crowd(layout_data["stands"], ground_height, points, n, offsets, origin_height, root / "crowd.bin"))
-    print(f"trees {len(forest)}")
     heading = np.degrees(np.arctan2(tangents[:, 1], tangents[:, 0]))
     jump = np.abs(np.diff(gaussian_filter1d(curvature(points, tangents), 0.5, mode="wrap"))) / step
     print(

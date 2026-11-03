@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import {
   CulledForest,
   CulledMesh,
+  frustumContains,
   type SphereTest,
 } from "../../apps/client/src/game/world-culler.ts";
 
@@ -28,7 +29,7 @@ function strip(): THREE.Mesh {
 }
 
 const seenBelow = (limit: number): SphereTest => ({
-  intersectsSphere: (sphere) => sphere.center.x < limit,
+  intersectsSphere: (sphere) => sphere.center.x - sphere.radius < limit,
 });
 
 const indexOf = (mesh: THREE.Mesh) =>
@@ -142,7 +143,8 @@ describe("world culler forest", () => {
     const culled = new CulledForest(mesh);
     culled.update({
       intersectsSphere: (sphere) =>
-        sphere.center.x < 400 || sphere.center.x > 1500,
+        sphere.center.x - sphere.radius < 400 ||
+        sphere.center.x + sphere.radius > 1500,
     });
     const now = Array.from(mesh.instanceMatrix.array);
     expect(now.slice(0, 32)).toEqual(original.slice(0, 32));
@@ -155,10 +157,127 @@ describe("world culler forest", () => {
     const mesh = forest();
     const original = Array.from(mesh.instanceMatrix.array);
     const culled = new CulledForest(mesh);
-    culled.update({ intersectsSphere: (sphere) => sphere.center.x < 500 });
+    culled.update(seenBelow(450));
     expect(mesh.count).toBe(2);
     culled.update({ intersectsSphere: () => true });
     expect(Array.from(mesh.instanceMatrix.array)).toEqual(original);
     expect(mesh.count).toBe(columns);
+  });
+});
+
+describe("world culler hierarchy", () => {
+  function scattered(count: number, seed: number): THREE.Mesh {
+    let state = seed;
+    const random = () => {
+      state = (state * 1664525 + 1013904223) % 4294967296;
+      return state / 4294967296;
+    };
+    const positions: number[] = [];
+    for (let i = 0; i < count; i++) {
+      const x = (random() - 0.5) * 30000;
+      const z = (random() - 0.5) * 30000;
+      const y = random() * 300;
+      const size = 1 + random() * 150;
+      positions.push(x, y, z, x + size, y, z, x, y + size * 0.3, z + size);
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(positions, 3),
+    );
+    geometry.setIndex(
+      new THREE.Uint32BufferAttribute(
+        Array.from({ length: count * 3 }, (_, i) => i),
+        1,
+      ),
+    );
+    return new THREE.Mesh(geometry);
+  }
+
+  function view(seed: number): THREE.Frustum {
+    const camera = new THREE.PerspectiveCamera(
+      40 + (seed % 5) * 12,
+      1.7,
+      1,
+      41000,
+    );
+    const angle = seed * 1.37;
+    camera.position.set(
+      Math.cos(angle) * 4000,
+      40 + seed * 3,
+      Math.sin(angle) * 6000,
+    );
+    camera.lookAt(
+      Math.cos(angle * 2.1) * 9000,
+      0,
+      Math.sin(angle * 0.7) * 9000,
+    );
+    camera.updateMatrixWorld();
+    return new THREE.Frustum().setFromProjectionMatrix(
+      new THREE.Matrix4().multiplyMatrices(
+        camera.projectionMatrix,
+        camera.matrixWorldInverse,
+      ),
+    );
+  }
+
+  test("culls exactly the same triangles as testing every cell on its own", () => {
+    const fast = scattered(6000, 7);
+    const slow = scattered(6000, 7);
+    const fastCulled = new CulledMesh(fast, cellSize, true);
+    const slowCulled = new CulledMesh(slow, cellSize, true);
+    let calls = 0;
+    for (let seed = 0; seed < 40; seed++) {
+      const frustum = view(seed);
+      fastCulled.update({
+        intersectsSphere: (sphere) => {
+          calls++;
+          return frustum.intersectsSphere(sphere);
+        },
+        containsSphere: (sphere) => frustumContains(frustum, sphere),
+      });
+      slowCulled.update({
+        intersectsSphere: (sphere) => frustum.intersectsSphere(sphere),
+      });
+      expect(indexOf(fast)).toEqual(indexOf(slow));
+      expect(fast.geometry.drawRange.count).toBe(slow.geometry.drawRange.count);
+      expect(fast.visible).toBe(slow.visible);
+    }
+    expect(calls / 40).toBeLessThan(6000 / 4);
+  });
+
+  test("matches every cell on its own for planes cutting through the world", () => {
+    const fast = scattered(4000, 11);
+    const slow = scattered(4000, 11);
+    const fastCulled = new CulledMesh(fast, cellSize, true);
+    const slowCulled = new CulledMesh(slow, cellSize, true);
+    for (let seed = 0; seed < 300; seed++) {
+      const angle = seed * 2.399;
+      const plane = new THREE.Plane(
+        new THREE.Vector3(Math.cos(angle), 0.1, Math.sin(angle)).normalize(),
+        ((seed % 13) - 6) * 2000,
+      );
+      const seen = (sphere: THREE.Sphere) =>
+        plane.distanceToPoint(sphere.center) >= -sphere.radius;
+      fastCulled.update({
+        intersectsSphere: seen,
+        containsSphere: (sphere) =>
+          plane.distanceToPoint(sphere.center) >= sphere.radius,
+      });
+      slowCulled.update({ intersectsSphere: seen });
+      expect(indexOf(fast)).toEqual(indexOf(slow));
+    }
+  });
+
+  test("brings back cells that come into view after a long time hidden", () => {
+    const mesh = strip();
+    const original = indexOf(mesh);
+    const culled = new CulledMesh(mesh, cellSize, true);
+    for (let i = 0; i < 5; i++) culled.update(seenBelow(-1));
+    expect(mesh.visible).toBe(false);
+    culled.update(seenBelow(1000));
+    culled.update(seenBelow(-1));
+    culled.update(seenBelow(Infinity));
+    expect(indexOf(mesh)).toEqual(original);
   });
 });

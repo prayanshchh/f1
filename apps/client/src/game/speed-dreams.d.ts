@@ -68,18 +68,17 @@ declare module "*/wasm/speed-dreams.js" {
     _sdFieldPlayer(teamIndex: number, seat: number, slot: number): void;
     _sdFieldAutopilot(on: number): void;
     _sdFieldPlayerBox(): number;
+    _sdPracticeGridSlot(slot: number): void;
     _sdFieldPlan(
       index: number,
       speed: number,
       raceSpeed: number,
       power: number,
     ): void;
-    _sdFieldRun(index: number, segment: number, at: number): void;
     _sdFieldStint(index: number, compound: number, from: number): void;
     _sdSessionConfigure(
       kind: number,
       laps: number,
-      lengthScale: number,
       difficulty: number,
       seed: number,
     ): void;
@@ -88,10 +87,23 @@ declare module "*/wasm/speed-dreams.js" {
     _sdAiPlayerLaneClear: () => number;
     _sdSessionAdvance(): number;
     _sdSessionSimulate(): void;
-    _sdSessionPlayerGarage(on: number): void;
+    _sdSessionPlayerRun(): number;
     _sdSessionPitCompound(compound: number): void;
     _sdQualifyingTimes(index: number, out: number): void;
     _sdTiming(out: number): void;
+    _sdSessionGrid(out: number): number;
+    _sdStewardsLights(interval: number): void;
+    _sdStewardsMessages(out: number, max: number, after: number): number;
+    _sdSessionPasses(out: number, max: number, from: number): number;
+    _sdStewardsCar(index: number, out: number): void;
+    _sdStewardsFlags(out: number, max: number): number;
+    _sdRaceControlConfigure(
+      safetyCar: number,
+      redFlags: number,
+      rollingStart: number,
+    ): void;
+    _sdRaceControlInfo(out: number): void;
+    _sdSafetyCarPose(out: number): number;
     _sdCars(out: number): void;
     _sdTimeScale(scale: number): void;
     _sdKey(key: number, state: number): void;
@@ -124,6 +136,11 @@ declare module "*/wasm/speed-dreams.js" {
       brake: number,
     ): void;
     _sdTyresConfigure(compound: number, scale: number): void;
+    _sdWeatherConfigure(dynamic: number, seed: number): void;
+    _sdWeatherInfo(out: number): void;
+    _sdResync(now: number): void;
+    _sdInputRelease(): void;
+    _sdCarsDamage(out: number): number;
     _sdTyresInfo(out: number): void;
     _sdEnergyConfigure(
       race: number,

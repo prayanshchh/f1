@@ -1,7 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import { apiServer } from "./api-server.ts";
-import { padRelay } from "./pad-server.ts";
+import { engineBuild } from "./engine-build.ts";
 
 const headers = {
   "Cross-Origin-Opener-Policy": "same-origin",
@@ -9,7 +9,7 @@ const headers = {
 };
 
 export default defineConfig({
-  plugins: [apiServer(), padRelay()],
+  plugins: [engineBuild(), apiServer()],
   server: {
     headers,
     fs: { allow: [fileURLToPath(new URL("../..", import.meta.url))] },
@@ -18,6 +18,7 @@ export default defineConfig({
   assetsInclude: ["**/*.glb"],
   build: {
     target: "es2023",
+    license: { fileName: "third-party-licenses.md" },
     rollupOptions: {
       input: {
         index: fileURLToPath(new URL("./index.html", import.meta.url)),

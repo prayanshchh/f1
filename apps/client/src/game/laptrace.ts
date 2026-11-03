@@ -4,6 +4,7 @@ export interface LapResult {
   sectors: number[];
   best: boolean;
   delta: number | null;
+  valid: boolean;
 }
 
 type SectorStatus = "pb" | "faster" | "slower";
@@ -21,8 +22,23 @@ export interface StoredReference {
   fastestSectors?: number[];
 }
 
+const lineSlack = 30;
+
+export interface LapTraceState {
+  current: Float64Array;
+  best: Float64Array | null;
+  bestSectors: number[];
+  fastestSectors: number[];
+  lastDistance: number;
+  lap: number;
+  sectorTimes: (number | null)[];
+  sectorStatus: SectorState["status"];
+  sectorDeltas: SectorState["deltas"];
+}
+
 export class LapTrace {
   private current: Float64Array;
+  private fromLine = false;
   private best: Float64Array | null;
   private bestSectors: number[];
   private lastDistance = -1;
@@ -49,6 +65,36 @@ export class LapTrace {
     this.sectorDeltas = this.sectorTimes.map(() => null);
   }
 
+  save(): LapTraceState {
+    return {
+      current: this.current.slice(),
+      best: this.best ? this.best.slice() : null,
+      bestSectors: [...this.bestSectors],
+      fastestSectors: [...this.fastestSectors],
+      lastDistance: this.lastDistance,
+      lap: this.lap,
+      sectorTimes: [...this.sectorTimes],
+      sectorStatus: [...this.sectorStatus],
+      sectorDeltas: [...this.sectorDeltas],
+    };
+  }
+
+  load(state: LapTraceState): void {
+    this.current = state.current.slice();
+    this.best = state.best ? state.best.slice() : null;
+    this.bestSectors = [...state.bestSectors];
+    this.fastestSectors.splice(
+      0,
+      this.fastestSectors.length,
+      ...state.fastestSectors,
+    );
+    this.lastDistance = state.lastDistance;
+    this.lap = state.lap;
+    this.sectorTimes = [...state.sectorTimes];
+    this.sectorStatus = [...state.sectorStatus];
+    this.sectorDeltas = [...state.sectorDeltas];
+  }
+
   get bestTime(): number | null {
     return this.bestLapTime();
   }
@@ -64,11 +110,12 @@ export class LapTrace {
     distance: number,
     time: number,
     lastLapTime: number,
+    valid = true,
   ): LapResult | null {
     let result: LapResult | null = null;
     if (lap !== this.lap) {
       if (this.lap >= 1 && lap === this.lap + 1 && lastLapTime > 0)
-        result = this.finish(this.lap, lastLapTime);
+        result = this.finish(this.lap, lastLapTime, valid);
       this.startLap(lap);
     }
     if (lap >= 1) this.record(distance, time);
@@ -79,6 +126,7 @@ export class LapTrace {
     this.lap = lap;
     this.current.fill(Number.NaN);
     this.lastDistance = -1;
+    this.fromLine = false;
     this.sectorTimes = this.sectorTimes.map(() => null);
     this.sectorStatus = this.sectorStatus.map(() => null);
     this.sectorDeltas = this.sectorDeltas.map(() => null);
@@ -92,6 +140,7 @@ export class LapTrace {
     if (this.lastDistance < 0) {
       this.current[bin] = time;
       this.lastDistance = bin;
+      this.fromLine = bin < lineSlack;
       return;
     }
     if (bin <= this.lastDistance || bin - this.lastDistance >= 200) return;
@@ -145,6 +194,7 @@ export class LapTrace {
 
   private crossSectors(from: number, to: number): void {
     this.boundaries.forEach((boundary, index) => {
+      if (index === 0 && !this.fromLine) return;
       if (from >= 0 && from < boundary && to >= boundary)
         this.closeSector(index, this.current[Math.floor(boundary)] ?? 0);
     });
@@ -172,12 +222,13 @@ export class LapTrace {
     return this.current[Math.floor(boundary)] ?? 0;
   }
 
-  private finish(lap: number, lapTime: number): LapResult {
+  private finish(lap: number, lapTime: number, valid: boolean): LapResult {
     const last = this.boundaries.length;
     this.closeSector(last, lapTime);
     const sectors = this.sectorTimes.map((t) => t ?? 0);
     const previous = this.bestLapTime();
-    const best = previous === null || lapTime < previous;
+    const best =
+      this.fromLine && valid && (previous === null || lapTime < previous);
     const delta = previous === null ? null : lapTime - previous;
     if (best && sectors.every((t) => t > 0)) {
       const trace = Float64Array.from(this.current);
@@ -185,6 +236,6 @@ export class LapTrace {
       this.best = trace;
       this.bestSectors = sectors;
     }
-    return { lap, time: lapTime, sectors, best, delta };
+    return { lap, time: lapTime, sectors, best, delta, valid };
   }
 }

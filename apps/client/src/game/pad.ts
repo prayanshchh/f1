@@ -1,7 +1,24 @@
 import { renderSVG } from "uqr";
+import {
+  controlChannel,
+  delay,
+  gathered,
+  inputChannel,
+  type PadOffer,
+  peerConfig,
+  postAnswer,
+  waitOffers,
+} from "../pad-signal.ts";
 
 const staleAfter = 0.6;
 const feedbackInterval = 0.1;
+const connectTimeout = 15_000;
+const listenRetry = 2000;
+const releaseDelay = 500;
+const lostAfter = 3000;
+const roomKey = "revracers.padRoom";
+const roomPattern = /^[A-Za-z0-9_-]{22}$/;
+const inputBytes = 36;
 
 export interface PadInput {
   steer: number;
@@ -14,47 +31,84 @@ export interface PadCommands {
   ers: number;
   page: number;
   wing: number;
+  tyre: number;
 }
 
-interface PadInfo {
-  padUrl: string;
-  setupUrl: string;
+interface Phone {
+  pc: RTCPeerConnection;
+  control: RTCDataChannel | null;
 }
 
-function isPadInfo(value: unknown): value is PadInfo {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "padUrl" in value &&
-    "setupUrl" in value
-  );
+const idle: PadInput = { steer: 0, throttle: 0, brake: 0 };
+const commandNames = ["boost", "ers", "page", "wing", "tyre"] as const;
+
+function newRoom(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return btoa(String.fromCharCode(...bytes))
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/, "");
+}
+
+function padRoom(): string {
+  const saved = sessionStorage.getItem(roomKey);
+  if (saved && roomPattern.test(saved)) return saved;
+  const room = newRoom();
+  sessionStorage.setItem(roomKey, room);
+  return room;
 }
 
 export class PadLink {
-  private socket: WebSocket | null = null;
-  private input: PadInput = { steer: 0, throttle: 0, brake: 0 };
-  private commands: PadCommands = { boost: 0, ers: 0, page: 0, wing: 0 };
+  private readonly room = padRoom();
+  private phone: Phone | null = null;
+  private input: PadInput = idle;
+  private readonly totals: PadCommands = {
+    boost: 0,
+    ers: 0,
+    page: 0,
+    wing: 0,
+    tyre: 0,
+  };
+  private counters: number[] | null = null;
+  private sequence = -1;
   private receivedAt = -Infinity;
   private sentAt = -Infinity;
+  private seen = 0;
+  private linked = false;
 
   constructor(
     private readonly panel: HTMLElement,
     private readonly badge: HTMLElement,
   ) {
-    this.connect();
-    void this.loadInfo();
+    this.showCode();
+    window.addEventListener("pagehide", () => {
+      this.phone?.pc.close();
+    });
+    void this.listen();
   }
 
   toggle(): void {
     this.panel.hidden = !this.panel.hidden;
   }
 
+  close(): void {
+    this.panel.hidden = true;
+  }
+
+  get connected(): boolean {
+    return this.linked;
+  }
+
+  get panelOpen(): boolean {
+    return !this.panel.hidden;
+  }
+
   current(now: number): PadInput | null {
-    return now - this.receivedAt < staleAfter ? this.input : null;
+    return this.phone && now - this.receivedAt < staleAfter ? this.input : null;
   }
 
   pressed(): PadCommands {
-    return this.commands;
+    return { ...this.totals };
   }
 
   feedback(
@@ -65,80 +119,134 @@ export class PadLink {
     battery: number,
     mode: string,
   ): void {
-    if (
-      now - this.sentAt < feedbackInterval ||
-      this.socket?.readyState !== WebSocket.OPEN
-    )
+    const control = this.phone?.control;
+    if (now - this.sentAt < feedbackInterval || control?.readyState !== "open")
       return;
     this.sentAt = now;
-    this.socket.send(JSON.stringify({ speed, gear, rumble, battery, mode }));
+    control.send(JSON.stringify({ speed, gear, rumble, battery, mode }));
   }
 
-  private connect(): void {
-    const socket = new WebSocket(`ws://${location.host}/__pad/ws?role=game`);
-    socket.binaryType = "arraybuffer";
-    socket.addEventListener("message", (event) => {
-      this.receive(event.data);
+  private async listen(): Promise<void> {
+    for (;;) {
+      const offers = await waitOffers(this.room, this.seen).catch(() => null);
+      if (!offers) {
+        await delay(listenRetry);
+        continue;
+      }
+      for (const offer of offers) {
+        this.seen = Math.max(this.seen, offer.seq);
+        void this.accept(offer).catch(() => undefined);
+      }
+    }
+  }
+
+  private async accept(offer: PadOffer): Promise<void> {
+    const pc = new RTCPeerConnection(peerConfig);
+    const phone: Phone = { pc, control: null };
+    pc.addEventListener("datachannel", (event) => {
+      this.attach(phone, event.channel);
     });
-    socket.addEventListener("close", () => {
-      this.socket = null;
-      this.setPads(0);
-      window.setTimeout(() => {
-        this.connect();
-      }, 2000);
+    let lostTimer = 0;
+    pc.addEventListener("connectionstatechange", () => {
+      window.clearTimeout(lostTimer);
+      if (pc.connectionState === "failed") this.drop(phone);
+      else if (pc.connectionState === "disconnected")
+        lostTimer = window.setTimeout(() => {
+          this.drop(phone);
+        }, lostAfter);
     });
-    this.socket = socket;
+    window.setTimeout(() => {
+      if (this.phone !== phone && pc.connectionState !== "connected")
+        pc.close();
+    }, connectTimeout);
+    await pc.setRemoteDescription({ type: "offer", sdp: offer.sdp });
+    await pc.setLocalDescription(await pc.createAnswer());
+    if (!(await postAnswer(this.room, offer.id, await gathered(pc))))
+      pc.close();
+  }
+
+  private attach(phone: Phone, channel: RTCDataChannel): void {
+    channel.binaryType = "arraybuffer";
+    channel.addEventListener("close", () => {
+      this.drop(phone);
+    });
+    if (channel.label === controlChannel) {
+      phone.control = channel;
+      return;
+    }
+    if (channel.label !== inputChannel) return;
+    channel.addEventListener("message", (event) => {
+      if (this.phone === phone) this.receive(event.data);
+    });
+    channel.addEventListener("open", () => {
+      this.activate(phone);
+    });
+    if (channel.readyState === "open") this.activate(phone);
+  }
+
+  private activate(phone: Phone): void {
+    if (this.phone === phone) return;
+    const old = this.phone;
+    this.phone = phone;
+    this.input = idle;
+    this.counters = null;
+    this.sequence = -1;
+    this.receivedAt = -Infinity;
+    this.setConnected(true);
+    if (old) this.replace(old);
+  }
+
+  private replace(phone: Phone): void {
+    if (phone.control?.readyState === "open")
+      phone.control.send(JSON.stringify({ replaced: true }));
+    window.setTimeout(() => {
+      phone.pc.close();
+    }, releaseDelay);
+  }
+
+  private drop(phone: Phone): void {
+    if (this.phone === phone) {
+      this.phone = null;
+      this.input = idle;
+      this.receivedAt = -Infinity;
+      this.setConnected(false);
+    }
+    phone.pc.close();
   }
 
   private receive(data: unknown): void {
-    if (data instanceof ArrayBuffer) this.receiveInput(data);
-    else if (typeof data === "string") this.receiveStatus(data);
-  }
-
-  private receiveInput(data: ArrayBuffer): void {
-    if (data.byteLength < 12) return;
-    const [steer = 0, throttle = 0, brake = 0] = new Float32Array(data, 0, 3);
-    this.input = { steer, throttle, brake };
-    if (data.byteLength >= 28) {
-      const [boost = 0, ers = 0, page = 0, wing = 0] = new Float32Array(
-        data,
-        12,
-        4,
-      );
-      this.commands = { boost, ers, page, wing };
-    }
+    if (!(data instanceof ArrayBuffer) || data.byteLength < inputBytes) return;
+    const values = Array.from(new Float32Array(data, 0, inputBytes / 4));
+    const value = (i: number) => values[i] ?? 0;
+    if (value(8) <= this.sequence) return;
+    this.sequence = value(8);
+    this.input = { steer: value(0), throttle: value(1), brake: value(2) };
+    this.count(values.slice(3, 8));
     this.receivedAt = performance.now() / 1000;
   }
 
-  private receiveStatus(data: string): void {
-    const message: unknown = JSON.parse(data);
-    if (
-      typeof message === "object" &&
-      message !== null &&
-      "pads" in message &&
-      typeof message.pads === "number"
-    )
-      this.setPads(message.pads);
-  }
-
-  private setPads(count: number): void {
-    this.badge.hidden = count === 0;
-    if (count > 0) this.panel.hidden = true;
-  }
-
-  private async loadInfo(): Promise<void> {
-    const response = await fetch("/__pad/info");
-    const info: unknown = await response.json();
-    if (!isPadInfo(info)) return;
-    this.fill("pad", info.padUrl);
-    this.fill("setup", info.setupUrl);
-  }
-
-  private fill(name: string, url: string): void {
-    const qr = this.panel.querySelector<HTMLElement>(`[data-pad=${name}-qr]`);
-    const text = this.panel.querySelector<HTMLElement>(
-      `[data-pad=${name}-url]`,
+  private count(next: number[]): void {
+    const last = this.counters;
+    this.counters = next.map((value, i) =>
+      Math.max(value, last?.[i] ?? -Infinity),
     );
+    if (!last) return;
+    commandNames.forEach((name, i) => {
+      const pressed = (next[i] ?? 0) - (last[i] ?? 0);
+      if (pressed > 0) this.totals[name] += pressed;
+    });
+  }
+
+  private setConnected(on: boolean): void {
+    this.linked = on;
+    this.badge.hidden = !on;
+    if (on) this.panel.hidden = true;
+  }
+
+  private showCode(): void {
+    const url = `${location.origin}/pad.html#${this.room}`;
+    const qr = this.panel.querySelector<HTMLElement>("[data-pad=pad-qr]");
+    const text = this.panel.querySelector<HTMLElement>("[data-pad=pad-url]");
     if (qr) qr.innerHTML = renderSVG(url, { border: 2 });
     if (text) text.textContent = url;
   }

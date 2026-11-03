@@ -1,0 +1,6 @@
+intro.ogg, buildup.ogg and victory.ogg come from Pixabay and are used under the Pixabay Content License.
+https://pixabay.com/service/license-summary/
+menu.ogg is "Hyperflight Racing" by cynicmusic from OpenGameArt, released under CC0 1.0 Universal.
+https://creativecommons.org/publicdomain/zero/1.0/legalcode
+See MUSIC-SOURCES.json for source pages, authors, download URLs and checksums.
+tools/sound/music.py rebuilds the game files: it levels every track to the target loudness, folds the menu track's tail into its loop start and encodes Opus.

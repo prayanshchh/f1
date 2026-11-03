@@ -1,5 +1,6 @@
 import { ersModes, fuelMixes, nominalFuelPerLap } from "./energy.ts";
 import { el } from "./dom.ts";
+import { carArt } from "./mfd.ts";
 import { ParamDoc } from "./params.ts";
 import { compounds } from "./tyres.ts";
 import { raceLapOptions, raceLaps } from "./weekend.ts";
@@ -21,7 +22,7 @@ import {
   tracks,
 } from "./settings.ts";
 
-export type MenuAction = "start" | "resume" | "restart" | "back";
+export type MenuAction = "start" | "resume" | "restart" | "back" | "replay";
 
 interface Option {
   id: string;
@@ -115,7 +116,11 @@ const tabIntro: Record<string, string> = {
     "Choose the tyre you start on, how fast tyres wear, how much fuel you carry and how the battery deploys. These follow the 2026 regulations.",
   assists:
     "Contains driver assist settings that allow you to make controlling the car easier or more authentic.",
+  rules:
+    "Choose how the International Motor Racing Federation runs the race: safety cars, red flags and the type of start.",
   osd: "Contains settings that allow you to customise the way the on-screen display is shown.",
+  audio:
+    "Music plays in the menus, the pre-race build-up and after a win. There is no music while you drive.",
   Aerodynamics:
     "Adjust the front and rear wings in order to achieve the desired level of aerodynamic performance and balance.",
   Transmission:
@@ -128,6 +133,36 @@ const tabIntro: Record<string, string> = {
     "Adjust the strength of the brakes and how the braking force is split between the front and rear axles.",
   Tyres: "Adjust tyre pressures to manage grip and temperatures over a stint.",
 };
+
+const setupParts: Record<string, string> = {
+  Aerodynamics: '[data-part^="wing-"], [data-part="rear-wing"]',
+  Transmission: '[data-part="engine"], [data-part="diffuser"]',
+  "Suspension Geometry": '[data-part="wishbones"], [data-part^="suspension-"]',
+  Suspension: '[data-part="springs"]',
+  Brakes: '[data-part="brakes"]',
+  Tyres: ".tyre",
+};
+
+const sideArt = (side: string): string =>
+  `<g transform="scale(${side} 1)">
+    <path d="M-78 318 L-30 302 M-78 332 L-30 334 M-78 346 L-32 376 M-78 902 L-14 870 M-78 918 L-14 912 M-78 934 L-14 944"/>
+  </g>`;
+const springArt = (side: string): string =>
+  `<g transform="scale(${side} 1)">
+    <rect x="-24" y="300" width="12" height="56" rx="4"/>
+    <rect x="-30" y="808" width="12" height="56" rx="4"/>
+  </g>`;
+const brakeArt = (side: string): string =>
+  `<g transform="scale(${side} 1)">
+    <rect x="-128" y="298" width="16" height="66" rx="4"/>
+    <rect x="-134" y="306" width="28" height="18" rx="4"/>
+    <rect x="-132" y="880" width="16" height="70" rx="4"/>
+    <rect x="-138" y="888" width="28" height="18" rx="4"/>
+  </g>`;
+const setupArt = `
+  <g class="part setup" data-part="wishbones">${sideArt("1")}${sideArt("-1")}</g>
+  <g class="part setup" data-part="springs">${springArt("1")}${springArt("-1")}<path d="M-30 292 L30 292 M-34 800 L34 800"/></g>
+  <g class="part setup" data-part="brakes">${brakeArt("1")}${brakeArt("-1")}</g>`;
 
 const setupOrder = [
   "Aerodynamics",
@@ -152,7 +187,9 @@ function stripMode(s: Settings): string {
   if (s.session === "race") return `Race - ${String(s.laps)} Laps`;
   if (s.session === "qualifying") return "Qualifying - Q1 Q2 Q3";
   if (s.session === "weekend")
-    return `Qualifying + Race - ${String(s.laps)} Laps`;
+    return s.qualifying === "skip"
+      ? `Race From The Back - ${String(s.laps)} Laps`
+      : `Qualifying + Race - ${String(s.laps)} Laps`;
   return "Practice";
 }
 
@@ -187,6 +224,9 @@ export class Menu {
     this.find("resume").addEventListener("click", () => {
       this.finish(this.inSession ? "resume" : "back");
     });
+    this.find("replay").addEventListener("click", () => {
+      if (this.inSession) this.finish("replay");
+    });
     window.addEventListener(
       "keydown",
       (event) => {
@@ -205,6 +245,7 @@ export class Menu {
   async run(inSession: boolean): Promise<MenuAction> {
     this.inSession = inSession;
     this.find("resume-label").textContent = inSession ? "Resume" : "Back";
+    this.find("replay").hidden = !inSession;
     this.root.hidden = false;
     this.root.classList.toggle("paused", inSession);
     requestAnimationFrame(() => {
@@ -253,6 +294,9 @@ export class Menu {
       },
       r: () => {
         this.resetTab();
+      },
+      v: () => {
+        if (this.inSession) this.finish("replay");
       },
     };
     const aliases: Record<string, string> = {
@@ -309,7 +353,8 @@ export class Menu {
             laps: defaults.laps,
             difficulty: defaults.difficulty,
             startSlot: defaults.startSlot,
-            qualifyingLength: defaults.qualifyingLength,
+            qualifying: defaults.qualifying,
+            rivalLaps: defaults.rivalLaps,
             timeOfDay: defaults.timeOfDay,
             clouds: defaults.clouds,
             rain: defaults.rain,
@@ -359,6 +404,21 @@ export class Menu {
           });
         },
       },
+      {
+        id: "rules",
+        label: "Rules & Flags",
+        title: "Rules & Flags",
+        info: tabIntro["rules"] ?? "",
+        setup: false,
+        rows: () => this.rulesRows(),
+        reset: () => {
+          Object.assign(this.settings, {
+            safetyCar: defaults.safetyCar,
+            redFlags: defaults.redFlags,
+            startType: defaults.startType,
+          });
+        },
+      },
       ...setupTabs,
       {
         id: "osd",
@@ -369,6 +429,17 @@ export class Menu {
         rows: () => this.osdRows(),
         reset: () => {
           this.settings.hud = { ...defaults.hud };
+        },
+      },
+      {
+        id: "audio",
+        label: "Audio",
+        title: "Audio",
+        info: tabIntro["audio"] ?? "",
+        setup: false,
+        rows: () => this.audioRows(),
+        reset: () => {
+          this.settings.musicVolume = defaults.musicVolume;
         },
       },
     ];
@@ -538,7 +609,7 @@ export class Menu {
     const head = el("div", "info-head");
     head.append(el("h3", "", tab.label), el("p", "", tab.info));
     const parts: HTMLElement[] = [];
-    if (tab.setup) parts.push(this.carDrawing());
+    if (tab.setup) parts.push(this.carDrawing(tab.id));
     parts.push(head);
     if (row) {
       const detail = el("div", "info-row");
@@ -677,6 +748,38 @@ export class Menu {
     );
   }
 
+  private rulesRows(): Row[] {
+    const s = this.settings;
+    return [
+      this.choice(
+        "Safety Car",
+        "Only crashes you are part of count. A touch that spins nobody gets no flag; a spin or a stop waves a local yellow. The Safety Car comes out only when your car, or a car you hit, spins or stops with very heavy damage. Reduced needs a wrecked car, Increased steps in at lighter damage, Off never deploys it.",
+        choices.safetyCar,
+        () => s.safetyCar,
+        (id) => {
+          s.safetyCar = id as Settings["safetyCar"];
+        },
+      ),
+      this.toggle(
+        "Red Flags",
+        "When a car wrecked in a crash you are part of is left on the racing surface for 30 seconds, the race is suspended. Cars line up on the grid in race order, may change tyres and repair damage, and restart from a standing start.",
+        () => s.redFlags,
+        (v) => {
+          s.redFlags = v;
+        },
+      ),
+      this.choice(
+        "Race Start",
+        "Standing starts from the grid when the five red lights go out. Rolling starts behind the safety car: it peels into the pit lane after one lap and racing begins at the control line.",
+        choices.startType,
+        () => s.startType,
+        (id) => {
+          s.startType = id as Settings["startType"];
+        },
+      ),
+    ];
+  }
+
   private sessionRows(): Row[] {
     const s = this.settings;
     const rows: Row[] = [
@@ -702,7 +805,7 @@ export class Menu {
       ),
       this.choice(
         "Session Type",
-        "Practice runs an open session alone to set lap times. Qualifying runs Q1, Q2 and Q3 against the full grid. Race goes straight to the grid. Race Weekend runs qualifying and then starts the race from the position you earned.",
+        "Practice runs an open session alone to set lap times. Qualifying runs Q1, Q2 and Q3 against the full grid: an out lap, then one timed lap. Race goes straight to the grid. Race Weekend runs qualifying and then starts the race from the position you earned.",
         choices.session,
         () => s.session,
         (id) => {
@@ -727,15 +830,30 @@ export class Menu {
         format: (v) => String(v),
         range: "Min 40 - 110 Max",
       });
-    if (s.session === "qualifying" || s.session === "weekend")
+    if (s.session === "weekend")
       rows.push(
         this.choice(
-          "Qualifying Format",
-          "Full uses the 2026 session lengths: Q1 18 minutes with six knocked out, Q2 15 minutes with six more out, and a 13 minute Q3 for pole. Short halves every session. You can fast forward or skip the rest of a session from the garage.",
-          choices.qualifyingLength,
-          () => s.qualifyingLength,
+          "Qualifying",
+          "In Q1, Q2 and Q3 every car leaves the pits, does an out lap and then one timed lap. Cars go out one at a time, so there is no traffic, and the slowest six drop out after Q1 and Q2. Skip goes straight to the race and you start from the back of the grid.",
+          choices.qualifying,
+          () => s.qualifying,
           (id) => {
-            s.qualifyingLength = id as Settings["qualifyingLength"];
+            s.qualifying = id as Settings["qualifying"];
+          },
+        ),
+      );
+    if (
+      s.session === "qualifying" ||
+      (s.session === "weekend" && s.qualifying === "run")
+    )
+      rows.push(
+        this.choice(
+          "Rival Laps",
+          "Simulate gives the other 21 drivers their lap times straight away, so you only drive your own laps in Q1, Q2 and Q3. Watch sends them out on track one by one; you can still fast forward or skip from the garage.",
+          choices.rivalLaps,
+          () => s.rivalLaps,
+          (id) => {
+            s.rivalLaps = id as Settings["rivalLaps"];
           },
         ),
       );
@@ -805,7 +923,7 @@ export class Menu {
       ),
       this.choice(
         "Rain",
-        "Sets the amount of rain. Wet weather reduces grip.",
+        "Sets the amount of rain. Wet weather reduces grip, and the racing line dries first once the rain stops. Dynamic weather changes through the session and follows the forecast in the multi-function display.",
         choices.rain,
         () => s.rain,
         (id) => {
@@ -1047,6 +1165,27 @@ export class Menu {
     return rows;
   }
 
+  private audioRows(): Row[] {
+    const s = this.settings;
+    return [
+      {
+        kind: "number",
+        label: "Music Volume",
+        info: "The volume of the menu, build-up and victory music.",
+        min: 0,
+        max: 100,
+        step: 5,
+        base: defaults.musicVolume,
+        get: () => s.musicVolume,
+        set: (v) => {
+          s.musicVolume = v;
+        },
+        format: (v) => (v === 0 ? "Off" : `${String(v)}%`),
+        range: "Off - 100%",
+      },
+    ];
+  }
+
   private osdRows(): Row[] {
     const s = this.settings;
     const info: Record<HudPart, string> = {
@@ -1098,10 +1237,14 @@ export class Menu {
     };
   }
 
-  private carDrawing(): HTMLElement {
+  private carDrawing(tab: string): HTMLElement {
     const box = el("div", "info-car");
-    box.innerHTML =
-      '<svg viewBox="0 0 520 130" aria-hidden="true"><path d="M8 96 L60 92 L72 78 L118 78 L132 70 L196 66 L228 46 L262 44 L282 58 L330 60 L372 56 L420 52 L470 40 L506 40 L510 86 L470 92 L440 98 L130 100 L60 104 Z"/><circle cx="118" cy="96" r="30"/><circle cx="118" cy="96" r="8"/><circle cx="440" cy="96" r="30"/><circle cx="440" cy="96" r="8"/><path d="M468 40 L470 20 L512 18 L512 40"/><path d="M8 96 L4 108 L64 108"/><path d="M232 46 Q250 24 272 28"/></svg>';
+    box.innerHTML = `<svg viewBox="100 -192 940 384" aria-hidden="true"><g transform="rotate(-90)">${carArt}${setupArt}</g></svg>`;
+    const focus = setupParts[tab];
+    if (focus)
+      box.querySelectorAll(focus).forEach((part) => {
+        part.classList.add("on");
+      });
     return box;
   }
 

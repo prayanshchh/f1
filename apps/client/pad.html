@@ -21,16 +21,20 @@
         <div class="status">
           <i data-pad="dot"></i><span data-pad="link">Connecting</span>
         </div>
-        <div class="dial">
-          <svg viewBox="0 0 200 200" aria-hidden="true">
-            <circle class="ring" cx="100" cy="100" r="88" />
-            <g data-pad="wheel">
-              <line class="marker" x1="100" y1="4" x2="100" y2="30" />
-            </g>
-          </svg>
-          <div class="speed"><b data-pad="speed">0</b><small>km/h</small></div>
+        <div class="readout">
+          <div class="dial">
+            <svg viewBox="0 0 200 200" aria-hidden="true">
+              <circle class="ring" cx="100" cy="100" r="88" />
+              <g data-pad="wheel">
+                <line class="marker" x1="100" y1="4" x2="100" y2="30" />
+              </g>
+            </svg>
+            <div class="speed">
+              <b data-pad="speed">0</b><small>km/h</small>
+            </div>
+          </div>
+          <div class="gear" data-pad="gear">N</div>
         </div>
-        <div class="gear" data-pad="gear">N</div>
         <div class="sens">
           <button type="button" data-pad="less" aria-label="Less sensitive">
             −
@@ -53,16 +57,28 @@
           <button type="button" data-pad="wing">
             <small>Next stop</small><b>Wing</b>
           </button>
+          <button type="button" data-pad="tyre">
+            <small>Next stop</small><b>Tyres</b>
+          </button>
           <button type="button" data-pad="boost">
             <small data-pad="batt">Batt</small><b>Boost</b>
           </button>
+          <button type="button" class="center" data-pad="center">
+            <small>Steering</small><b>Center</b>
+          </button>
         </div>
-        <button type="button" data-pad="center">Set center</button>
       </section>
       <section class="pedal gas">
         <div class="track"><div class="fill" data-pad="gas"></div></div>
         <span>Gas</span>
       </section>
+      <div class="notice" data-pad="notice" hidden>
+        <b data-pad="notice-title"></b>
+        <p data-pad="notice-text"></p>
+        <button type="button" data-pad="retry" hidden>
+          Drive with this phone
+        </button>
+      </div>
       <div class="calibrate" data-pad="calibrate" hidden>
         <b data-pad="count">3</b>
         <p>Hold your phone straight and be ready</p>

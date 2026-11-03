@@ -48,6 +48,7 @@ export class Pilot {
   private readonly length: number;
   private readonly startX: number;
   private readonly startY: number;
+  offset = 0;
 
   constructor(
     private readonly m: RaceSystems,
@@ -64,8 +65,12 @@ export class Pilot {
 
   private world(index: number): [number, number] {
     const [ox = 0, , oz = 0] = track.origin;
-    const x = (line.x[index] ?? 0) - ox;
-    const y = -(line.z[index] ?? 0) + oz;
+    const next = (index + 1) % count;
+    const dx = (line.x[next] ?? 0) - (line.x[index] ?? 0);
+    const dz = (line.z[next] ?? 0) - (line.z[index] ?? 0);
+    const size = Math.hypot(dx, dz) || 1;
+    const x = (line.x[index] ?? 0) - ox + (dz / size) * this.offset;
+    const y = -((line.z[index] ?? 0) - (dx / size) * this.offset) + oz;
     const c = Math.cos(-track.heading);
     const s = Math.sin(-track.heading);
     return [this.startX + c * x - s * y, this.startY + s * x + c * y];

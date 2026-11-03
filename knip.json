@@ -5,6 +5,7 @@
         "tests/**/*.test.ts",
         "tests/**/*.e2e.ts",
         "tests/support/*.ts",
+        "tests/pad/network/*.ts",
         "*.config.ts",
         "tools/*.mjs",
         "tools/ai/*.mjs"
@@ -18,7 +19,7 @@
       ]
     },
     "apps/client": {
-      "entry": ["pad-server.ts", "api-server.ts"],
+      "entry": ["api-server.ts", "engine-build.ts"],
       "project": ["src/**/*.ts"],
       "ignoreDependencies": ["flag-icons"]
     },
@@ -27,5 +28,5 @@
       "project": ["src/**/*.ts"]
     }
   },
-  "ignoreBinaries": ["em\\+\\+", "openssl", "scutil", "blender", "uv"]
+  "ignoreBinaries": ["em\\+\\+", "blender", "uv", "ios_webkit_debug_proxy"]
 }

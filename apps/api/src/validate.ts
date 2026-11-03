@@ -105,6 +105,7 @@ export interface LapBody {
   timeMs: number;
   sectorsMs: (number | null)[];
   compound: string | null;
+  valid: boolean;
 }
 
 function checkSectors(value: unknown, timeMs: number): (number | null)[] {
@@ -127,6 +128,9 @@ function checkSectors(value: unknown, timeMs: number): (number | null)[] {
 export function checkLap(body: Body): LapBody {
   const timeMs = checkInteger(body["timeMs"], "timeMs", 1, maxLapMs);
   const compound = body["compound"];
+  const valid = body["valid"];
+  if (valid !== undefined && typeof valid !== "boolean")
+    throw new Invalid("valid must be true or false.", "valid");
   return {
     timeMs,
     sectorsMs: checkSectors(body["sectorsMs"], timeMs),
@@ -134,6 +138,7 @@ export function checkLap(body: Body): LapBody {
       compound === undefined || compound === null
         ? null
         : checkSlug(compound, "compound"),
+    valid: valid ?? true,
   };
 }
 

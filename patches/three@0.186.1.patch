@@ -32,6 +32,87 @@ index 48b30e6bf4bf114ba5524ae509c81c4a043d27ea..c031d2096c47bd672fd7c1944f21a6b7
  		const discardDepth = renderContext.sampleCount > 1 && renderTarget?.storeMultisampledDepthBuffer === false;
  		const discardStencil = renderContext.sampleCount > 1 && renderTarget?.storeMultisampledStencilBuffer === false;
  
+diff --git a/examples/jsm/tsl/display/TAAUNode.js b/examples/jsm/tsl/display/TAAUNode.js
+index 6f4a92ff19110cb4576e0dddfda6d1852efa4d27..3efe6d4910ae48a56da85fb255377e1d1154ad6f 100644
+--- a/examples/jsm/tsl/display/TAAUNode.js
++++ b/examples/jsm/tsl/display/TAAUNode.js
+@@ -172,6 +172,11 @@ class TAAUNode extends TempNode {
+ 		this._resolveRenderTarget = new RenderTarget( 1, 1, { depthBuffer: false, type: HalfFloatType } );
+ 		this._resolveRenderTarget.texture.name = 'TAAUNode.resolve';
+ 
++		this._spareRenderTarget = new RenderTarget( 1, 1, { depthBuffer: false, type: HalfFloatType } );
++		this._spareRenderTarget.texture.name = 'TAAUNode.resolve';
++
++		this._historyColorNode = texture( this._historyRenderTarget.textures[ 0 ] );
++
+ 		/**
+ 		 * Render target whose depth attachment holds the previous frame's
+ 		 * depth buffer. The depth texture must be owned by a render target
+@@ -313,6 +318,7 @@ class TAAUNode extends TempNode {
+ 
+ 		this._historyRenderTarget.setSize( outputWidth, outputHeight );
+ 		this._resolveRenderTarget.setSize( outputWidth, outputHeight );
++		this._spareRenderTarget.setSize( outputWidth, outputHeight );
+ 
+ 	}
+ 
+@@ -425,6 +431,7 @@ class TAAUNode extends TempNode {
+ 
+ 			renderer.initRenderTarget( this._historyRenderTarget );
+ 			renderer.initRenderTarget( this._resolveRenderTarget );
++			renderer.initRenderTarget( this._spareRenderTarget );
+ 
+ 			// Seed the history with a bilinear upscale of the current beauty
+ 			// buffer. Without this the first frames after a resize fade in
+@@ -438,6 +445,8 @@ class TAAUNode extends TempNode {
+ 			_quadMesh.render( renderer );
+ 			renderer.setRenderTarget( null );
+ 
++			this._historyColorNode.value = this._historyRenderTarget.textures[ 0 ];
++
+ 		}
+ 
+ 		// must run after needsRestart so it does not affect the seed reset
+@@ -452,15 +461,18 @@ class TAAUNode extends TempNode {
+ 
+ 		// resolve
+ 
+-		renderer.setRenderTarget( this._resolveRenderTarget );
++		const written = this._resolveRenderTarget;
++
++		renderer.setRenderTarget( written );
+ 		_quadMesh.material = this._resolveMaterial;
+ 		_quadMesh.name = 'TAAU';
+ 		_quadMesh.render( renderer );
+ 		renderer.setRenderTarget( null );
+ 
+-		// update history
+-
+-		renderer.copyTextureToTexture( this._resolveRenderTarget.texture, this._historyRenderTarget.texture );
++		this._textureNode.value = written.texture;
++		this._historyColorNode.value = written.texture;
++		this._resolveRenderTarget = this._spareRenderTarget;
++		this._spareRenderTarget = written;
+ 
+ 		// Copy the current scene depth into the previous-depth texture. We
+ 		// keep the destination size locked to the source's actual dimensions
+@@ -533,7 +545,7 @@ class TAAUNode extends TempNode {
+ 
+ 		}
+ 
+-		const historyNode = texture( this._historyRenderTarget.textures[ 0 ] );
++		const historyNode = this._historyColorNode;
+ 		const lockNode = texture( this._historyRenderTarget.textures[ 1 ] );
+ 
+ 		// --- TAAU resolve ---
+@@ -705,6 +717,7 @@ class TAAUNode extends TempNode {
+ 
+ 		this._historyRenderTarget.dispose();
+ 		this._resolveRenderTarget.dispose();
++		this._spareRenderTarget.dispose();
+ 		this._previousDepthRenderTarget.dispose();
+ 
+ 		this._resolveMaterial.dispose();
 diff --git a/src/nodes/lighting/ShadowNode.js b/src/nodes/lighting/ShadowNode.js
 index 7912654fdadc8cd6e3b1567feb81348763a0ab59..0bb311ec03ac19841e601307c23da4dac3dd78b3 100644
 --- a/src/nodes/lighting/ShadowNode.js

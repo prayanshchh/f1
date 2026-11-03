@@ -5,35 +5,25 @@ import type { WeekendPlan } from "./weekend.ts";
 import type { EnergyInfo } from "./energy.ts";
 import type { CarStatus } from "./mfd.ts";
 import type { TyreInfo } from "./tyres.ts";
+import type { WeatherInfo } from "./weather.ts";
 import type { SetupSource } from "./settings.ts";
 import type { CarAudio } from "./sound/sound-state.ts";
 import type { TrackLocal } from "./sky.ts";
+import {
+  carFields,
+  messageFields,
+  parseCar,
+  parseMessages,
+  type StewardCar,
+  type StewardMessage,
+} from "./stewards.ts";
 
-export const frameIndex = {
-  time: 0,
-  posMat: 1,
-  wheels: 17,
-  speed: 45,
-  rpm: 46,
-  rpmRedLine: 47,
-  gear: 48,
-  laps: 49,
-  curLapTime: 50,
-  lastLapTime: 51,
-  bestLapTime: 52,
-  distFromStart: 53,
-  toMiddle: 54,
-  steer: 55,
-  accel: 56,
-  brake: 57,
-  raceState: 58,
-  dammage: 59,
-  camera: 60,
-  brakeTemp: 84,
-  size: 88,
-} as const;
+export { carField, carStride, carWheel, frameIndex } from "./frame-layout.ts";
+import { carStride, frameIndex } from "./frame-layout.ts";
+import type { Pass } from "./highlights.ts";
 
 const telemetrySize = 40;
+const weatherFields = 13;
 const telemetryWheels = 8;
 
 export interface WheelGrip {
@@ -55,6 +45,8 @@ export interface HudInfo {
 }
 
 export interface RaceSystems {
+  dynamicWeather: boolean;
+  weatherSeed: number;
   compound: number;
   wearScale: number;
   isRace: boolean;
@@ -63,12 +55,34 @@ export interface RaceSystems {
   ersAssist: boolean;
   straightAssist: boolean;
   countdown: number;
+  lightInterval: number;
+  rules: RaceRules;
+}
+
+interface RaceRules {
+  safetyCar: number;
+  redFlags: boolean;
+  rollingStart: boolean;
+}
+
+export interface RaceControlInfo {
+  state: number;
+  safetyCarShown: boolean;
+  signalTime: number;
+  countdown: number;
+  delta: number;
+  redSectors: number;
+  suspendedLeft: number;
+  lineups: number;
+  safetyCarLights: boolean;
+  vscEndingLeft: number;
+  restarts: number;
+  caught: boolean;
 }
 
 export interface SessionPlan {
   kind: SessionKind;
   laps: number;
-  lengthScale: number;
   difficulty: number;
   seed: number;
   reference: number;
@@ -94,13 +108,15 @@ export interface SessionInfo {
   kind: number;
   phase: number;
   segment: number;
-  clock: number;
+  toRun: number;
   totalLaps: number;
   startDelay: number;
   chequered: boolean;
   leaderLaps: number;
   invalidLap: boolean;
   offTracks: number;
+  playerRun: number;
+  onTrack: number;
 }
 
 export interface CarTiming {
@@ -119,6 +135,7 @@ export interface CarTiming {
   segmentBest: number;
   finished: boolean;
   retired: boolean;
+  disqualified: boolean;
   finishTime: number;
   eliminated: boolean;
   contacts: number;
@@ -128,20 +145,14 @@ export interface CarTiming {
   segments: number[];
 }
 
-export const carStride = 49;
-export const carField = {
-  speed: 40,
-  steer: 41,
-  brake: 42,
-  rpm: 43,
-  gear: 44,
-  compound: 45,
-  visible: 46,
-  toMiddle: 47,
-  distance: 48,
-} as const;
 const timingStride = 20;
-const sessionFields = 10;
+const sessionFields = 12;
+const practiceGridSlot = 1;
+const messageBatch = 32;
+const passBatch = 32;
+const passFields = 5;
+const raceControlFields = 16;
+const marshalSectors = 24;
 
 export async function loadSpeedDreams(): Promise<SpeedDreamsModule> {
   return createSpeedDreams({
@@ -202,20 +213,20 @@ function configureField(module: SpeedDreamsModule, plan: SessionPlan): void {
         1,
       );
     module._sdFieldPlan(index, entrant.speed, entrant.raceSpeed, entrant.power);
-    entrant.runs.forEach((runs, segment) => {
-      for (const at of runs) module._sdFieldRun(index, segment, at);
-    });
     for (const stint of entrant.stints)
       module._sdFieldStint(index, stint.compound, stint.from);
   });
-  module._sdSessionConfigure(
-    plan.kind,
-    plan.laps,
-    plan.lengthScale,
-    plan.difficulty,
-    plan.seed,
-  );
+  module._sdSessionConfigure(plan.kind, plan.laps, plan.difficulty, plan.seed);
   module._sdSessionReference(plan.reference);
+}
+
+function configureRules(module: SpeedDreamsModule, race: RaceSystems): void {
+  module._sdStewardsLights(race.lightInterval);
+  module._sdRaceControlConfigure(
+    race.rules.safetyCar,
+    race.rules.redFlags ? 1 : 0,
+    race.rules.rollingStart ? 1 : 0,
+  );
 }
 
 export class Engine {
@@ -223,6 +234,8 @@ export class Engine {
   private timingMemory = 0;
   private sessionMemory = 0;
   private qualifyingMemory = 0;
+  private damageMemory = 0;
+  private passMemory = 0;
 
   private constructor(
     private readonly module: SpeedDreamsModule,
@@ -241,10 +254,13 @@ export class Engine {
     session: SessionPlan | null,
   ): Engine {
     if (session) configureField(module, session);
+    else module._sdPracticeGridSlot(practiceGridSlot);
     module._sdRaceCountdown(race.countdown);
+    configureRules(module, race);
     module._sdInputAssist(assist ? 1 : 0);
     module._sdInputAntiLock(antiLock ? 1 : 0);
     module._sdTyresConfigure(race.compound, race.wearScale);
+    module._sdWeatherConfigure(race.dynamicWeather ? 1 : 0, race.weatherSeed);
     module._sdEnergyConfigure(
       race.isRace ? 1 : 0,
       race.ersMode,
@@ -301,13 +317,15 @@ export class Engine {
       kind: at(0),
       phase: at(1),
       segment: at(2),
-      clock: at(3),
+      toRun: at(3),
       totalLaps: at(4),
       startDelay: at(5),
       chequered: at(6) !== 0,
       leaderLaps: at(7),
       invalidLap: at(8) !== 0,
       offTracks: at(9),
+      playerRun: at(10),
+      onTrack: at(11),
     };
   }
 
@@ -347,7 +365,8 @@ export class Engine {
         pits: at(10),
         segmentBest: at(11),
         finished: at(12) === 1,
-        retired: at(12) === 2,
+        retired: at(12) === 2 || at(12) === 3,
+        disqualified: at(12) === 3,
         finishTime: at(13),
         eliminated: at(14) !== 0,
         contacts: at(15),
@@ -357,6 +376,86 @@ export class Engine {
         segments: [q[0] ?? 0, q[1] ?? 0, q[2] ?? 0],
       };
     });
+  }
+
+  stewardMessages(after: number): StewardMessage[] {
+    const pointer = this.module._malloc(messageBatch * messageFields * 8);
+    const found: StewardMessage[] = [];
+    let last = after;
+    for (;;) {
+      const count = this.module._sdStewardsMessages(
+        pointer,
+        messageBatch,
+        last,
+      );
+      const batch = parseMessages(
+        new Float64Array(
+          this.module.HEAPF64.buffer,
+          pointer,
+          count * messageFields,
+        ).slice(),
+      );
+      found.push(...batch);
+      last = batch.at(-1)?.id ?? last;
+      if (count < messageBatch) break;
+    }
+    this.module._free(pointer);
+    return found;
+  }
+
+  raceControl(): RaceControlInfo {
+    const v = this.doubles(raceControlFields, (p) => {
+      this.module._sdRaceControlInfo(p);
+    });
+    const at = (i: number) => v[i] ?? 0;
+    return {
+      state: at(0),
+      safetyCarShown: at(1) !== 0,
+      signalTime: at(4),
+      countdown: at(5),
+      delta: at(6),
+      redSectors: at(7),
+      suspendedLeft: at(9),
+      lineups: at(10),
+      safetyCarLights: at(11) !== 0,
+      vscEndingLeft: at(12),
+      restarts: at(14),
+      caught: at(15) !== 0,
+    };
+  }
+
+  safetyCarPose(): number[] | null {
+    const pointer = this.module._malloc(16 * 8);
+    const shown = this.module._sdSafetyCarPose(pointer) !== 0;
+    const pose = Array.from(
+      new Float64Array(this.module.HEAPF64.buffer, pointer, 16),
+    );
+    this.module._free(pointer);
+    return shown ? pose : null;
+  }
+
+  stewardCar(index: number): StewardCar {
+    return parseCar(
+      this.doubles(carFields, (p) => {
+        this.module._sdStewardsCar(index, p);
+      }),
+    );
+  }
+
+  stewardFlags(): number[] {
+    return this.doubles(marshalSectors, (p) => {
+      this.module._sdStewardsFlags(p, marshalSectors);
+    });
+  }
+
+  grid(): number[] {
+    const pointer = this.module._malloc(this.carCount * 4);
+    const count = this.module._sdSessionGrid(pointer);
+    const order = Array.from(
+      new Int32Array(this.module.HEAPF64.buffer, pointer, count),
+    );
+    this.module._free(pointer);
+    return order;
   }
 
   pitLaneClear(): boolean {
@@ -371,8 +470,8 @@ export class Engine {
     this.module._sdSessionSimulate();
   }
 
-  playerInGarage(on: boolean): void {
-    this.module._sdSessionPlayerGarage(on ? 1 : 0);
+  queuePlayerRun(): boolean {
+    return this.module._sdSessionPlayerRun() !== 0;
   }
 
   timeScale(scale: number): void {
@@ -425,6 +524,52 @@ export class Engine {
     this.module._sdKey(code, down ? 1 : 0);
   }
 
+  carsDamage(): Float64Array {
+    const parts = 11;
+    this.damageMemory ||= this.module._malloc(this.carCount * parts * 8);
+    const count = this.module._sdCarsDamage(this.damageMemory);
+    return new Float64Array(
+      this.module.HEAPF64.buffer,
+      this.damageMemory,
+      this.carCount * count,
+    ).slice();
+  }
+
+  passes(from: number): { total: number; list: Pass[] } {
+    this.passMemory ||= this.module._malloc(passBatch * passFields * 8);
+    const total = this.module._sdSessionPasses(
+      this.passMemory,
+      passBatch,
+      from,
+    );
+    const count = Math.max(0, Math.min(passBatch, total - from));
+    const v = new Float64Array(
+      this.module.HEAPF64.buffer,
+      this.passMemory,
+      count * passFields,
+    );
+    const list = Array.from({ length: count }, (_, k): Pass => {
+      const at = (i: number) => v[k * passFields + i] ?? 0;
+      return {
+        time: at(0),
+        passer: at(1),
+        passed: at(2),
+        position: at(3),
+        lap: at(4),
+      };
+    });
+    return { total, list };
+  }
+
+  heap(): Uint8Array {
+    return new Uint8Array(this.module.HEAPF64.buffer);
+  }
+
+  resync(now: number): void {
+    this.module._sdResync(now);
+    this.module._sdInputRelease();
+  }
+
   update(now: number): Float64Array {
     this.module._sdUpdate(now);
     return this.frame();
@@ -464,6 +609,23 @@ export class Engine {
     };
   }
 
+  weather(): WeatherInfo {
+    const v = this.doubles(weatherFields, (p) => {
+      this.module._sdWeatherInfo(p);
+    });
+    const at = (i: number) => v[i] ?? 0;
+    return {
+      rain: at(0),
+      lineWater: at(1),
+      offWater: at(2),
+      carWater: at(3),
+      clock: at(4),
+      slickLimit: at(5),
+      interLimit: at(6),
+      forecast: v.slice(7, weatherFields),
+    };
+  }
+
   wheelGrip(): WheelGrip[] {
     const v = this.doubles(telemetrySize, (p) => {
       this.module._sdTelemetry(p);
@@ -486,6 +648,8 @@ export class Engine {
       brake: frame[frameIndex.brake] ?? 0,
       gear: frame[frameIndex.gear] ?? 0,
       damage: frame[frameIndex.dammage] ?? 0,
+      rain: 0,
+      water: 0,
       speed: at(20),
       wheels: [0, 1, 2, 3].map((i) => ({
         skid: at(i * 5),

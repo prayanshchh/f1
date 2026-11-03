@@ -553,6 +553,32 @@ describe.each(backends)("api on %s", (_name, open) => {
       expect(summary.bests[0]?.bestSectorsMs).toEqual([29_000, 30_000, 29_000]);
     });
 
+    test("a lap deleted for track limits stays in the history but is never a best", async () => {
+      const driver = await signedUp();
+      const race = await startSession(driver);
+      await driver.json(
+        "PUT",
+        `/api/sessions/${race}/laps/1`,
+        lap(92_000, [31_000, 31_000, 30_000]),
+      );
+      await driver.json("PUT", `/api/sessions/${race}/laps/2`, {
+        ...lap(85_000, [27_000, 29_000, 29_000]),
+        valid: false,
+      });
+      const summary = await driver.json<{
+        bests: { timeMs: number; bestSectorsMs: number[] }[];
+      }>("GET", "/api/profile");
+      expect(summary.bests[0]?.timeMs).toBe(92_000);
+      expect(summary.bests[0]?.bestSectorsMs).toEqual([31_000, 31_000, 30_000]);
+      const { session } = await driver.json<{
+        session: { lapTimes: { lap: number; valid: boolean }[] };
+      }>("GET", `/api/profile/sessions/${race}`);
+      expect(session.lapTimes).toEqual([
+        expect.objectContaining({ lap: 1, valid: true }),
+        expect.objectContaining({ lap: 2, valid: false }),
+      ]);
+    });
+
     test("an empty driver has an empty summary", async () => {
       const driver = await signedUp();
       expect(await driver.json("GET", "/api/profile")).toEqual({

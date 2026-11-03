@@ -40,7 +40,8 @@ const isPointer = (file: string) =>
 const crowdFile = path.join(directory, "crowd.bin");
 const lfsPointer = isPointer(path.join(directory, "road.glb"));
 const stride = 8;
-const metresPerRow = 1;
+const sharpRowsPerMetre = 2.5;
+const gpuTextureLimit = 16384;
 const maskColumns = 401;
 const clearanceHeight = 4;
 
@@ -128,15 +129,14 @@ describe.skipIf(lfsPointer)("Hill Country surroundings", () => {
     expect(offenders).toEqual([]);
   });
 
-  test("road-space masks line up with one row per metre of track", () => {
+  test("road-space masks resolve run-off paint finely along the lap and still fit on the GPU", () => {
     for (const name of ["apron_a.png", "apron_b.png"]) {
       const image = PNG.sync.read(
         readFileSync(path.join(directory, "textures/baked", name)),
       );
       expect(image.width).toBe(maskColumns);
-      expect(Math.abs(image.height * metresPerRow - track.length)).toBeLessThan(
-        2,
-      );
+      expect(image.height / track.length).toBeGreaterThan(sharpRowsPerMetre);
+      expect(image.height).toBeLessThanOrEqual(gpuTextureLimit);
     }
   });
 

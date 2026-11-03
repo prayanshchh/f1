@@ -21,6 +21,7 @@ import {
 import albedoUrl from "../../../../content/tracks/hill-country/textures/baked/people_albedo.png?url";
 import crowdUrl from "../../../../content/tracks/hill-country/crowd.bin?url";
 import maskUrl from "../../../../content/tracks/hill-country/textures/baked/people_mask.png?url";
+import { releaseOnceUploaded } from "./preload.ts";
 
 const stride = 8;
 const tileSize = 600;
@@ -88,7 +89,7 @@ export class Crowd {
     const crowd = new Crowd();
     const loader = new THREE.TextureLoader();
     const atlas = async (url: string, colorSpace: string) => {
-      const map = await loader.loadAsync(url);
+      const map = releaseOnceUploaded(await loader.loadAsync(url));
       map.flipY = false;
       map.colorSpace = colorSpace;
       return map;

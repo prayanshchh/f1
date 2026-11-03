@@ -1,4 +1,10 @@
-import { temperatureState, type TyreInfo } from "./tyres.ts";
+import { compounds, temperatureState, type TyreInfo } from "./tyres.ts";
+import {
+  idealCompound,
+  rainLabel,
+  waterLabel,
+  type WeatherInfo,
+} from "./weather.ts";
 import { putAttr, putData, putStyle, putText } from "./hud-dom.ts";
 
 interface PartDamage {
@@ -20,7 +26,7 @@ export interface CarStatus {
   stopped: boolean;
 }
 
-const pages = ["quick", "temps", "wear", "pressure"] as const;
+const pages = ["quick", "weather", "temps", "wear", "pressure"] as const;
 type Page = (typeof pages)[number];
 
 const brakeCold = 200;
@@ -84,6 +90,21 @@ function ringState(
   return isPressure ? pressureState(offTarget) : wearColour(wear);
 }
 
+const forecastMinutes = 5;
+const cloudPath =
+  "M8 19 h14 a4.5 4.5 0 0 0 0 -9 a6 6 0 0 0 -11.5 -1.5 a4.5 4.5 0 0 0 -2.5 10.5Z";
+
+function weatherIcon(rain: number): string {
+  if (rain < 0.05)
+    return '<svg viewBox="0 0 30 26"><circle class="sun" cx="15" cy="13" r="6"/></svg>';
+  const drops = rain < 0.45 ? 1 : rain < 0.8 ? 2 : 3;
+  const lines = Array.from({ length: drops }, (_, i) => {
+    const x = 10 + i * 5 - (drops - 1) * 2.5 + 3;
+    return `<path class="drop" d="M${String(x)} 21 l-2 4"/>`;
+  }).join("");
+  return `<svg viewBox="0 0 30 26"><path d="${cloudPath}" transform="translate(0 -4)"/>${lines}</svg>`;
+}
+
 export function nextPage(page: string): Page {
   const index = pages.findIndex((p) => p === page);
   return pages[(index + 1) % pages.length] ?? "quick";
@@ -118,7 +139,7 @@ function upright(id: string, side: number, y: number, h: number): string {
   return `<g class="part damage" data-part="suspension-${id}"><rect x="${String(x)}" y="${String(y)}" width="20" height="${String(h)}" rx="5"/></g>`;
 }
 
-const carArt = `${frame}
+export const carArt = `${frame}
   <g class="part damage" data-part="wing-left"><path d="${wingShape}"/></g>
   <g class="part damage" data-part="wing-right"><path d="${wingShape}" transform="scale(-1 1)"/></g>
   <g class="part damage" data-part="sidepod-left"><path d="${sidepodShape}"/></g>
@@ -233,12 +254,55 @@ export class Mfd {
     this.setPage(nextPage(this.page));
   }
 
-  update(tyres: TyreInfo, status: CarStatus): void {
+  private forecastSlots: HTMLElement[] = [];
+  private shownForecast = "";
+
+  update(tyres: TyreInfo, status: CarStatus, weather: WeatherInfo): void {
     if (this.page === "quick") return;
+    if (this.page === "weather") {
+      this.updateWeather(tyres, weather);
+      return;
+    }
     corners.forEach((corner, i) => {
       this.updateCorner(i, corner.wheel, tyres, status);
     });
     this.updateCar(status);
+  }
+
+  private updateWeather(tyres: TyreInfo, weather: WeatherInfo): void {
+    const host = this.root.querySelector<HTMLElement>("[data-hud=forecast]");
+    if (host && this.forecastSlots.length === 0) {
+      this.forecastSlots = Array.from({ length: 6 }, () => {
+        const slot = document.createElement("div");
+        slot.className = "forecast-slot";
+        host.append(slot);
+        return slot;
+      });
+    }
+    const rains = [weather.rain, ...weather.forecast.slice(0, 5)];
+    const key = rains.map((r) => rainLabel(r)).join();
+    if (key !== this.shownForecast) {
+      this.shownForecast = key;
+      rains.forEach((rain, i) => {
+        const slot = this.forecastSlots[i];
+        if (!slot) return;
+        const when = i === 0 ? "Now" : `${String(i * forecastMinutes)} min`;
+        slot.innerHTML = `<span>${when}</span>${weatherIcon(rain)}<em>${rainLabel(rain)}</em>`;
+      });
+    }
+    const set = (id: string, text: string) => {
+      const node = this.root.querySelector<HTMLElement>(`[data-hud=${id}]`);
+      if (node) putText(node, text);
+    };
+    set("water-line", waterLabel(weather.lineWater));
+    set("water-off", waterLabel(weather.offWater));
+    const dry = tyres.compound > 2 ? 1 : tyres.compound;
+    const call = idealCompound(
+      Math.max(weather.lineWater, weather.forecast[0] ?? 0),
+      weather,
+      dry,
+    );
+    set("tyre-call", call > 2 ? (compounds[call]?.label ?? "") : "Slicks");
   }
 
   private setPage(page: Page): void {

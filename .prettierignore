@@ -9,5 +9,6 @@ content/tracks/hill-country/racing-line.json
 content/tracks/hill-country/sd-frame.json
 content/tracks/hill-country/source/
 apps/client/src/game/sound/tables.json
-tests/sound/onboard-fingerprint.json
+apps/client/src/game/sound/start-beep.json
+tests/sound/start-beep-fingerprint.json
 content/tracks/hill-country/circuit-map.json

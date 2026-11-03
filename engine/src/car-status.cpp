@@ -136,6 +136,7 @@ struct CarStatus
     int retirement;
     double retiredFor;
     bool stopped;
+    bool brokenDown;
 };
 
 std::vector<CarStatus> field(1);
@@ -408,6 +409,11 @@ double sdDamageDrag(int index)
     return 1.0 + wings + pods + floorDrag * share(state, FLOOR) - rearWingDragDrop * share(state, REAR_WING);
 }
 
+double sdCarWreckage(int index)
+{
+    return index >= 0 && index < (int)field.size() ? wreckage(field[index]) : 0.0;
+}
+
 double sdCarDamageShare(int index)
 {
     const CarStatus &state = field[index];
@@ -478,6 +484,17 @@ void sdCarStatusReset(tCarElt *elt)
     state.retirement = RUNNING;
     state.retiredFor = 0.0;
     state.stopped = false;
+    state.brokenDown = false;
+}
+
+void sdCarStatusTeleported(int index)
+{
+    if (index < 0 || index >= (int)field.size())
+        return;
+    CarStatus &state = field[index];
+    state.previousVelX = SimCarTable[index].DynGCg.vel.x;
+    state.previousVelY = SimCarTable[index].DynGCg.vel.y;
+    state.contactTotal = 0.0;
 }
 
 void sdCarStatusRepair(int index)
@@ -499,10 +516,12 @@ double sdCarStatusReplaceWing()
 
 void sdCarStatusDriveLimit(tCarElt *elt)
 {
-    if (field[elt->index].retirement == RUNNING)
+    const CarStatus &state = field[elt->index];
+    if (state.retirement == RUNNING || (elt->index != 0 && !state.brokenDown))
         return;
     elt->_accelCmd = 0.0f;
     elt->_gearCmd = 0;
+    elt->ctrl.singleWheelBrakeMode = 0;
     elt->_brakeCmd = std::max(elt->_brakeCmd, (tdble)retiredBrake);
 }
 
@@ -550,10 +569,27 @@ EMSCRIPTEN_KEEPALIVE void sdCarStatus(double *out)
     out[7 + PART_COUNT] = sdDamagePower(0);
 }
 
+EMSCRIPTEN_KEEPALIVE int sdCarsDamage(double *out)
+{
+    int cars = ReInfo->s->_ncars;
+    for (int c = 0; c < cars && c < (int)field.size(); c++)
+        for (int i = 0; i < PART_COUNT; i++)
+            out[c * PART_COUNT + i] = share(field[c], i);
+    return PART_COUNT;
+}
+
 EMSCRIPTEN_KEEPALIVE void sdCarDamageSet(int part, double value)
 {
     if (part >= 0 && part < PART_COUNT)
         field[0].parts[part] = clamp01(value);
+}
+
+EMSCRIPTEN_KEEPALIVE void sdCarBreakDown(int index)
+{
+    if (index < 0 || index >= (int)field.size())
+        return;
+    retire(field[index], RETIRED_ENGINE);
+    field[index].brokenDown = true;
 }
 
 EMSCRIPTEN_KEEPALIVE void sdCarImpact(double forward, double left, double dvForward, double dvLeft)

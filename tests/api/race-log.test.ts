@@ -156,6 +156,7 @@ describe("RaceLog", () => {
     sectors: [30.0004, 31.5, 30.623],
     best: true,
     delta: null,
+    valid: true,
   };
 
   test("a session with no laps writes nothing", async () => {
@@ -186,6 +187,7 @@ describe("RaceLog", () => {
       timeMs: 92123,
       sectorsMs: [30000, null, 30623],
       compound: "soft",
+      valid: true,
     });
   });
 

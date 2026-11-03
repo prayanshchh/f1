@@ -101,6 +101,7 @@ function fastestSectors(laps: LapRow[]): (number | null)[] {
   const count = laps[0]?.sectorsMs.length ?? 3;
   return Array.from({ length: count }, (_, index) => {
     const known = laps
+      .filter((lap) => lap.valid)
       .map((lap) => lap.sectorsMs[index])
       .filter((ms): ms is number => typeof ms === "number");
     return known.length ? Math.min(...known) : null;
@@ -116,7 +117,9 @@ function compoundLetter(id: string | null): HTMLElement {
 
 function lapTable(session: SessionDetail): HTMLTableElement {
   const laps = session.lapTimes;
-  const best = Math.min(...laps.map((lap) => lap.timeMs));
+  const best = Math.min(
+    ...laps.filter((lap) => lap.valid).map((lap) => lap.timeMs),
+  );
   const sectors = fastestSectors(laps);
   const table = el("table", "records-table");
   const head = el("thead");
@@ -134,6 +137,7 @@ function lapTable(session: SessionDetail): HTMLTableElement {
     ...laps.map((lap) => {
       const row = el("tr");
       row.classList.toggle("best", lap.timeMs === best);
+      row.classList.toggle("deleted", !lap.valid);
       const tyre = el("td");
       tyre.append(compoundLetter(lap.compound));
       row.append(

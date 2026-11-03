@@ -8,6 +8,7 @@ import {
   postOffer,
   waitAnswer,
 } from "./pad-signal.ts";
+import { PlayerError, playerMessage } from "./game/player-error.ts";
 
 const fullLock = Math.PI / 4 / 1.3;
 const sensitivities = [0.5, 0.65, 0.8, 0.9, 1, 1.15, 1.3, 1.5, 1.75, 2, 2.5, 3];
@@ -263,7 +264,7 @@ class Pad {
 
   async start(): Promise<void> {
     if (isPortrait())
-      throw new Error("Turn the phone sideways, then tap Start.");
+      throw new PlayerError("Turn the phone sideways, then tap Start.");
     await this.requestMotion();
     void this.keepAwake();
     this.baseAngle = screen.orientation.angle;
@@ -371,7 +372,9 @@ class Pad {
     if (asks.length === 0) return;
     const states = await Promise.all(asks);
     if (states.some((state) => state !== "granted"))
-      throw new Error("Motion access was not allowed. Reload and tap Allow.");
+      throw new PlayerError(
+        "Motion access was not allowed. Reload and tap Allow.",
+      );
   }
 
   private onVisibility(): void {
@@ -651,7 +654,9 @@ element("go").addEventListener("click", () => {
       watchPortrait();
     })
     .catch((error: unknown) => {
-      element("error").textContent =
-        error instanceof Error ? error.message : String(error);
+      element("error").textContent = playerMessage(
+        error,
+        "The pad could not start. Reload and tap Start again.",
+      );
     });
 });

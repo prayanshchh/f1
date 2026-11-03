@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import { type SpeedDreams, startCota, wasm } from "../support/speed-dreams.ts";
 
 const speedIndex = 45;
+const steerIndex = 55;
 const lateralIndex = 4;
 const settleTicks = 200;
 const sampleTicks = 100;
@@ -29,7 +30,32 @@ async function lateralG(speed: number, input: number): Promise<number> {
   return total / sampleTicks;
 }
 
+async function steerChange(speed: number) {
+  const m: SpeedDreams = await startCota();
+  const frame = () => new Float64Array(m.HEAPF64.buffer, m._sdFrame(), 88);
+  m._sdStep(1000);
+  while ((frame()[speedIndex] ?? 0) < speed) {
+    m._sdInputAnalog(1, 0, 1, 0);
+    m._sdStep(1);
+  }
+  m._sdInputAnalog(1, 0.8, 0.3, 0);
+  m._sdStep(1);
+  const next = frame()[steerIndex] ?? 0;
+  m._sdStep(25);
+  return { next, held: frame()[steerIndex] ?? 0 };
+}
+
 describe.runIf(existsSync(wasm))("phone steering response", () => {
+  test.each([0, 120 / 3.6, 200 / 3.6])(
+    "at %d m/s a steering change from the phone reaches the car on the next physics step",
+    async (speed) => {
+      const { next, held } = await steerChange(speed);
+      expect(held).toBeGreaterThan(0.01);
+      expect(Math.abs(next - held)).toBeLessThan(held * 0.05);
+    },
+    60_000,
+  );
+
   test.each([
     [60 / 3.6, 1.6],
     [120 / 3.6, 2.4],

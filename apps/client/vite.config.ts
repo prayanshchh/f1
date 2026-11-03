@@ -1,7 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import { apiServer } from "./api-server.ts";
-import { padRelay } from "./pad-server.ts";
 
 const headers = {
   "Cross-Origin-Opener-Policy": "same-origin",
@@ -9,7 +8,7 @@ const headers = {
 };
 
 export default defineConfig({
-  plugins: [apiServer(), padRelay()],
+  plugins: [apiServer()],
   server: {
     headers,
     fs: { allow: [fileURLToPath(new URL("../..", import.meta.url))] },

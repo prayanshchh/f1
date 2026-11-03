@@ -9,7 +9,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="theme-color" content="#000000" />
     <link rel="icon" href="data:," />
-    <title>F1 Pad</title>
+    <title>Lightsout Pad</title>
   </head>
   <body>
     <main class="pad" data-pad="root">
@@ -66,6 +66,13 @@
         <div class="track"><div class="fill" data-pad="gas"></div></div>
         <span>Gas</span>
       </section>
+      <div class="notice" data-pad="notice" hidden>
+        <b data-pad="notice-title"></b>
+        <p data-pad="notice-text"></p>
+        <button type="button" data-pad="retry" hidden>
+          Drive with this phone
+        </button>
+      </div>
       <div class="calibrate" data-pad="calibrate" hidden>
         <b data-pad="count">3</b>
         <p>Hold your phone straight and be ready</p>
@@ -75,7 +82,7 @@
       </div>
     </main>
     <div class="start" data-pad="start">
-      <h1>F1 Pad</h1>
+      <h1>Lightsout Pad</h1>
       <button type="button" data-pad="go">Start</button>
       <p>
         Hold the phone sideways like a wheel and tilt to steer.<br />Hold Gas or

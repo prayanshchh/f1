@@ -27,20 +27,34 @@ jobs:
       - uses: ./.github/actions/setup
       - run: pnpm run test
   browser:
-    name: Browser integration
-    runs-on: ubuntu-latest
+    name: Browser integration (${{ matrix.project }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - project: app
+            os: ubuntu-latest
+          - project: phone-pad
+            os: ubuntu-latest
+          - project: pad-network
+            os: ubuntu-latest
+          - project: ios-simulator
+            os: macos-15
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: ./.github/actions/setup
         with:
           emscripten: "true"
           chrome: "true"
-      - run: pnpm run test:e2e
+      - if: matrix.project == 'ios-simulator'
+        run: brew install ios-webkit-debug-proxy
+      - run: pnpm exec playwright test --project ${{ matrix.project }}
       - uses: actions/upload-artifact@v7.0.2
-        if: failure()
+        if: always()
         with:
-          name: browser-integration-failures
+          name: browser-${{ matrix.project }}
           path: test-results/
-          if-no-files-found: warn
+          if-no-files-found: ignore
           retention-days: 7

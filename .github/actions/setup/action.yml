@@ -23,7 +23,7 @@ runs:
       with:
         version: 6.0.13
         actions-cache-folder: emsdk-cache
-    - name: Install Chrome
+    - name: Install Chrome and WebKit
       if: inputs.chrome == 'true'
       shell: bash
-      run: pnpm exec playwright install chrome
+      run: pnpm exec playwright install chrome && pnpm exec playwright install --with-deps webkit

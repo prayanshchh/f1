@@ -19,7 +19,7 @@
       ]
     },
     "apps/client": {
-      "entry": ["api-server.ts", "engine-build.ts"],
+      "entry": ["api-server.ts", "engine-build.ts", "phone-tunnel.ts"],
       "project": ["src/**/*.ts"],
       "ignoreDependencies": ["flag-icons"]
     },
@@ -28,5 +28,11 @@
       "project": ["src/**/*.ts"]
     }
   },
-  "ignoreBinaries": ["em\\+\\+", "blender", "uv", "ios_webkit_debug_proxy"]
+  "ignoreBinaries": [
+    "cloudflared",
+    "em\\+\\+",
+    "blender",
+    "uv",
+    "ios_webkit_debug_proxy"
+  ]
 }

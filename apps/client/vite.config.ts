@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import { apiServer } from "./api-server.ts";
 import { engineBuild } from "./engine-build.ts";
+import { phoneTunnel } from "./phone-tunnel.ts";
 
 const headers = {
   "Cross-Origin-Opener-Policy": "same-origin",
@@ -9,9 +10,10 @@ const headers = {
 };
 
 export default defineConfig({
-  plugins: [engineBuild(), apiServer()],
+  plugins: [engineBuild(), phoneTunnel(), apiServer()],
   server: {
     headers,
+    allowedHosts: [".trycloudflare.com"],
     fs: { allow: [fileURLToPath(new URL("../..", import.meta.url))] },
   },
   preview: { headers },

@@ -9,6 +9,7 @@ import {
   postAnswer,
   waitOffers,
 } from "../pad-signal.ts";
+import { padAddress, phoneSite } from "./pad-address.ts";
 
 const staleAfter = 0.6;
 const feedbackInterval = 0.1;
@@ -19,6 +20,9 @@ const lostAfter = 3000;
 const roomKey = "f1.padRoom";
 const roomPattern = /^[A-Za-z0-9_-]{22}$/;
 const inputBytes = 36;
+const siteRetry = 1500;
+const siteTries = 80;
+const openingNote = "Opening a secure link for your phone…";
 
 export interface PadInput {
   steer: number;
@@ -80,7 +84,7 @@ export class PadLink {
     private readonly panel: HTMLElement,
     private readonly badge: HTMLElement,
   ) {
-    this.showCode();
+    void this.showCode();
     window.addEventListener("pagehide", () => {
       this.phone?.pc.close();
     });
@@ -243,11 +247,24 @@ export class PadLink {
     if (on) this.panel.hidden = true;
   }
 
-  private showCode(): void {
-    const url = `${location.origin}/pad.html#${this.room}`;
+  private async showCode(): Promise<void> {
+    for (let attempt = 0; attempt < siteTries; attempt++) {
+      const site = await phoneSite();
+      const url = padAddress(location.origin, site, this.room);
+      if (url) {
+        this.paintCode(url, url);
+        return;
+      }
+      this.paintCode(null, site?.problem ?? openingNote);
+      if (site?.problem) return;
+      await delay(siteRetry);
+    }
+  }
+
+  private paintCode(url: string | null, caption: string): void {
     const qr = this.panel.querySelector<HTMLElement>("[data-pad=pad-qr]");
     const text = this.panel.querySelector<HTMLElement>("[data-pad=pad-url]");
-    if (qr) qr.innerHTML = renderSVG(url, { border: 2 });
-    if (text) text.textContent = url;
+    if (qr) qr.innerHTML = url ? renderSVG(url, { border: 2 }) : "";
+    if (text) text.textContent = caption;
   }
 }

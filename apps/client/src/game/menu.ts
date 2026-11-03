@@ -451,11 +451,24 @@ export class Menu {
     return all.find((t) => t.id === this.tab) ?? (all[0] as Tab);
   }
 
+  private tabStrip(): HTMLElement {
+    const existing = this.tabBar.querySelector<HTMLElement>(".tab-strip");
+    if (existing) return existing;
+    const strip = el("div", "tab-strip");
+    this.tabBar.replaceChildren(
+      el("i", "btn-glyph", "Q"),
+      strip,
+      el("i", "btn-glyph", "E"),
+    );
+    return strip;
+  }
+
   private show(tab: string, focus = 0, animate = true): void {
     this.tab = tab;
     const all = this.tabs();
     const active = this.current();
-    this.tabBar.replaceChildren(
+    const strip = this.tabStrip();
+    strip.replaceChildren(
       ...all.map((t) => {
         const button = el("button", "tab", t.label);
         button.type = "button";
@@ -465,9 +478,15 @@ export class Menu {
         });
         return button;
       }),
-      el("i", "btn-glyph", "Q"),
-      el("i", "btn-glyph", "E"),
     );
+    const shown = strip.querySelector<HTMLElement>(".tab.active");
+    if (shown) {
+      const left = shown.offsetLeft;
+      const right = left + shown.offsetWidth;
+      if (left < strip.scrollLeft) strip.scrollLeft = left;
+      else if (right > strip.scrollLeft + strip.clientWidth)
+        strip.scrollLeft = right - strip.clientWidth;
+    }
     this.root.dataset["setup"] = active.setup ? "1" : "";
     this.rows = active.rows();
     this.focus = Math.max(0, Math.min(this.rows.length - 1, focus));

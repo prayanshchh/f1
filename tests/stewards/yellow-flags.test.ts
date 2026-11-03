@@ -57,7 +57,7 @@ function aboutPlayer(m: Raced, at: number): StewardMessage[] {
   );
 }
 
-async function stopMidRace() {
+async function reachStopPoint() {
   const m = (await startField({
     kind: sessionKind.race,
     laps: 3,
@@ -72,6 +72,11 @@ async function stopMidRace() {
       (frameOf(m)[lapIndex] ?? 0) === 1 &&
       (frameOf(m)[distanceIndex] ?? 0) > stopAt,
   );
+  return { m, pilot };
+}
+
+async function stopMidRace() {
+  const { m, pilot } = await reachStopPoint();
   let stoppedAt = -1;
   while (stoppedAt < 0 || time(m) < stoppedAt + stopFor) {
     const speed = Math.abs(frameOf(m)[speedIndex] ?? 0);
@@ -167,6 +172,33 @@ describe.runIf(existsSync(wasm))("yellow flags", () => {
     expect(
       stewardMessages(m).filter(
         (message) => message.offence === offence.yellowOvertake,
+      ),
+    ).toEqual([]);
+  }, 600_000);
+
+  test("cars that pass the player limping back from the gravel under its own yellow keep the place and are never told to give it back", async () => {
+    const { m, pilot } = await reachStopPoint();
+    const before = timingOf(m, fieldCars).map((row) => row.position);
+    const wide = time(m) + 3;
+    pilot.offset = 14;
+    pilot.driveUntil(() => time(m) > wide);
+    pilot.offset = 0;
+    const finish = time(m) + 40;
+    pilot.driveUntil(() => time(m) > finish);
+    const after = timingOf(m, fieldCars).map((row) => row.position);
+    const passed = before.flatMap((position, car) =>
+      position > (before[0] ?? 0) && (after[car] ?? 0) < (after[0] ?? 0)
+        ? [car]
+        : [],
+    );
+    expect(flags(m).filter((message) => message.car === 0)).not.toEqual([]);
+    expect(passed.length).toBeGreaterThan(0);
+    expect(aboutPlayer(m, stage.instruction)).toEqual([]);
+    expect(
+      stewardMessages(m).filter(
+        (message) =>
+          message.offence === offence.yellowOvertake &&
+          (message.other === 0 || message.stage === stage.instruction),
       ),
     ).toEqual([]);
   }, 600_000);

@@ -18,7 +18,10 @@ const teams = JSON.parse(
   readFileSync(path.join(carsDirectory, "teams.json"), "utf8"),
 ) as Team[];
 const track = JSON.parse(
-  readFileSync(path.join(repoRoot, "content/tracks/cota/track.json"), "utf8"),
+  readFileSync(
+    path.join(repoRoot, "content/tracks/hill-country/track.json"),
+    "utf8",
+  ),
 ) as { grid: unknown[] };
 const carsPerTeam = 2;
 const corners = ["fl", "fr", "rl", "rr"];

@@ -2,7 +2,7 @@ import {
   planWeekend,
   type WeekendPlan,
 } from "../../apps/client/src/game/weekend.ts";
-import { type SpeedDreams, startCota } from "./speed-dreams.ts";
+import { type SpeedDreams, startCircuit } from "./speed-dreams.ts";
 
 const timingStride = 20;
 const sessionFields = 10;
@@ -67,7 +67,7 @@ export interface FieldOptions {
 
 export async function startField(options: FieldOptions): Promise<Weekend> {
   const plan = options.plan ?? planWeekend("corvus", 10, null);
-  return startCota<Weekend>((m) => {
+  return startCircuit<Weekend>((m) => {
     m._sdTyresConfigure(1, options.wear ?? 1);
     m._sdEnergyConfigure(options.kind === sessionKind.race ? 1 : 0, 1, 1, 1);
     const add = m.cwrap("sdFieldAdd", "null", [

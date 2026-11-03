@@ -29,4 +29,4 @@ class CarProcessor extends AudioWorkletProcessor {
   }
 }
 
-registerProcessor("f1-car-sound", CarProcessor);
+registerProcessor("revracers-car-sound", CarProcessor);

@@ -20,11 +20,11 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { CSMShadowNode } from "three/examples/jsm/csm/CSMShadowNode.js";
 import { SkyLitMaterial } from "./sky-ambient.ts";
 import type { SkyState } from "./sky.ts";
-import apronAUrl from "../../../../content/tracks/cota/textures/baked/apron_a.png?url";
-import apronBUrl from "../../../../content/tracks/cota/textures/baked/apron_b.png?url";
-import streaksUrl from "../../../../content/tracks/cota/textures/baked/asphalt_streaks.png?url";
-import terrainUrl from "../../../../content/tracks/cota/textures/baked/terrain_albedo.jpg?url";
-import grainUrl from "../../../../content/tracks/cota/textures/source/asphalt_track_base_color.jpg?url";
+import apronAUrl from "../../../../content/tracks/hill-country/textures/baked/apron_a.png?url";
+import apronBUrl from "../../../../content/tracks/hill-country/textures/baked/apron_b.png?url";
+import streaksUrl from "../../../../content/tracks/hill-country/textures/baked/asphalt_streaks.png?url";
+import terrainUrl from "../../../../content/tracks/hill-country/textures/baked/terrain_albedo.jpg?url";
+import grainUrl from "../../../../content/tracks/hill-country/textures/source/asphalt_track_base_color.jpg?url";
 
 const asphaltDark = 0.115;
 const asphaltLight = 0.155;
@@ -85,24 +85,24 @@ const groundMaterials =
   /(asphalt|road paint|road kerb|road grass|pit strip|pit red)$/;
 const skyReflecting =
   /(road asphalt|pit asphalt|apron asphalt|road paint|road kerb|pit strip|pit red|track marks|glass)$/;
-const blendedMaterials = new Set(["cota track marks"]);
+const blendedMaterials = new Set(["track track marks"]);
 const alphaCutoffs: Record<string, number> = {
-  "cota debris fence": 0.5,
-  "cota pit decals": 0.35,
+  "track debris fence": 0.5,
+  "track pit decals": 0.35,
 };
 const shadowCasters =
   /^(wall|fence_steel|stand_seats|stand_concrete|roofs|rooftops|columns|tower_plates|tower_core|veil|gantry|light_panel|paddock|billboard|prop)/;
 const depthOffsets: Record<string, number> = {
-  "cota road paint": -1,
-  "cota road kerb": -1,
-  "cota pit decals": -2,
-  "cota track marks": -1.5,
-  "cota road grass": 1,
-  "cota pit asphalt": 0.5,
-  "cota apron asphalt": 0.25,
-  "cota pit strip": -1,
-  "cota pit red": -1,
-  "cota terrain": 2,
+  "track road paint": -1,
+  "track road kerb": -1,
+  "track pit decals": -2,
+  "track track marks": -1.5,
+  "track road grass": 1,
+  "track pit asphalt": 0.5,
+  "track apron asphalt": 0.25,
+  "track pit strip": -1,
+  "track pit red": -1,
+  "track terrain": 2,
 };
 
 function sharpen(map: THREE.Texture | null, anisotropy: number): void {
@@ -406,7 +406,7 @@ export function surface(
   anisotropy: number,
   baked: BakedGround | null = null,
 ): THREE.MeshStandardNodeMaterial {
-  if (source.name === "cota start lamps") return startLampMaterial();
+  if (source.name === "track start lamps") return startLampMaterial();
   const offset = depthOffsets[source.name] ?? 0;
   const Material = skyReflecting.test(source.name)
     ? THREE.MeshStandardNodeMaterial

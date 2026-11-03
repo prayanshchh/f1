@@ -1,6 +1,10 @@
 import { existsSync } from "node:fs";
 import { describe, expect, test } from "vitest";
-import { type SpeedDreams, startCota, wasm } from "../support/speed-dreams.ts";
+import {
+  type SpeedDreams,
+  startCircuit,
+  wasm,
+} from "../support/speed-dreams.ts";
 
 const speedIndex = 45;
 const lateralIndex = 4;
@@ -9,7 +13,7 @@ const sampleTicks = 100;
 const gravity = 9.81;
 
 async function lateralG(speed: number, input: number): Promise<number> {
-  const m: SpeedDreams = await startCota();
+  const m: SpeedDreams = await startCircuit();
   const memory = m._malloc(320);
   const frame = () => new Float64Array(m.HEAPF64.buffer, m._sdFrame(), 88);
   m._sdStep(1000);

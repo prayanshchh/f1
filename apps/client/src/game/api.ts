@@ -178,7 +178,7 @@ const deliver: Deliver = async (call) => {
 
 const retrySeconds = 30;
 
-const driverKey = "f1.driver";
+const driverKey = "revracers.driver";
 
 function cachedDriver(): Driver | null {
   try {
@@ -206,7 +206,11 @@ export async function currentDriver(): Promise<Driver | null> {
 }
 
 export function driverOutbox(driverId: string): Outbox {
-  const outbox = new Outbox(`f1.outbox.${driverId}`, localStorage, deliver);
+  const outbox = new Outbox(
+    `revracers.outbox.${driverId}`,
+    localStorage,
+    deliver,
+  );
   window.addEventListener("online", () => {
     void outbox.flush();
   });

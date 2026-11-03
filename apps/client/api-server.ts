@@ -13,7 +13,7 @@ const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 async function apiMiddleware(): Promise<Connect.NextHandleFunction> {
   const db = await openDatabase(
     process.env["DATABASE_URL"],
-    process.env["F1_DATA_DIR"] ?? path.join(repoRoot, ".data/postgres"),
+    process.env["REVRACERS_DATA_DIR"] ?? path.join(repoRoot, ".data/postgres"),
   );
   const listener = getRequestListener(
     createApi(db, {
@@ -29,7 +29,7 @@ async function apiMiddleware(): Promise<Connect.NextHandleFunction> {
 
 export function apiServer(): Plugin {
   return {
-    name: "f1-api",
+    name: "revracers-api",
     async configureServer(server) {
       server.middlewares.use(await apiMiddleware());
     },

@@ -25,7 +25,7 @@ AO_DISTANCE = 0.9
 
 def arguments():
     argv = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
-    team = argv[0] if argv else "vanta"
+    team = argv[0] if argv else "velza"
     work = Path(argv[1] if len(argv) > 1 else f"build/car/{team}")
     size = int(argv[2]) if len(argv) > 2 and argv[2].isdigit() else ATLAS
     return team, work, size, "--no-bake" not in argv

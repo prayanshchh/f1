@@ -28,7 +28,7 @@ for (const team of teams) {
     [
       "run",
       "--project",
-      "tools/cota",
+      "tools/track",
       "python",
       "tools/car/livery.py",
       team.id,
@@ -39,6 +39,6 @@ for (const team of teams) {
 }
 execFileSync(
   "uv",
-  ["run", "--project", "tools/cota", "python", "tools/car/art.py"],
+  ["run", "--project", "tools/track", "python", "tools/car/art.py"],
   { stdio: "inherit" },
 );

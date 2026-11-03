@@ -2,13 +2,8 @@ import season from "../../../../content/season/austin-2026.json";
 import liveries from "../../../../content/cars/teams.json";
 
 interface SeasonDriver {
-  number: number;
-  code: string;
-  name: string;
-  team: string;
   teamIndex: number;
   seat: number;
-  colour: string;
   qualifyingGap: number;
   raceGap: number;
   realGrid: number;
@@ -57,10 +52,10 @@ const fallbackRuns = [
   [120, 690],
   [70, 600],
 ];
-const stageKey = "f1.weekend";
+const stageKey = "revracers.weekend";
 const liveryOrder = [
   "meridian",
-  "vanta",
+  "velza",
   "halden",
   "corvus",
   "sylvan",
@@ -89,10 +84,15 @@ function towerColour(hex: string): string {
   return `#${lifted.join("")}`;
 }
 
-function teamOf(index: number): Team {
+function liveryOf(index: number): (typeof liveries)[number] {
   const livery =
     liveries.find((team) => team.id === liveryOrder[index]) ?? liveries[0];
   if (!livery) throw new Error("no teams defined");
+  return livery;
+}
+
+function teamOf(index: number): Team {
+  const livery = liveryOf(index);
   return {
     index,
     car: livery.id,
@@ -129,9 +129,11 @@ function seatPlayer(teamIndex: number): SeasonDriver[] {
 function toEntrant(driver: SeasonDriver): Entrant {
   const gap = (driver.qualifyingGap + driver.raceGap) / 2;
   const team = teamOf(driver.teamIndex);
+  const person = liveryOf(driver.teamIndex).drivers[driver.seat];
+  if (!person) throw new Error(`team ${team.car} is short of drivers`);
   return {
-    code: driver.code,
-    name: driver.name,
+    code: person.code,
+    name: `${person.first.charAt(0)} ${person.last.toUpperCase()}`,
     car: team.car,
     team: team.name,
     teamIndex: driver.teamIndex,

@@ -5,7 +5,11 @@ import {
   startLightCount,
 } from "../../apps/client/src/game/start-lights.ts";
 import { startingGrid, teams } from "../../apps/client/src/game/teams.ts";
-import { type SpeedDreams, startCota, wasm } from "../support/speed-dreams.ts";
+import {
+  type SpeedDreams,
+  startCircuit,
+  wasm,
+} from "../support/speed-dreams.ts";
 
 const speedIndex = 45;
 const timeIndex = 0;
@@ -45,7 +49,7 @@ describe.runIf(existsSync(wasm))("engine race start", () => {
     new Float64Array(m.HEAPF64.buffer, m._sdFrame(), 88);
 
   test("the car cannot leave before lights out and can afterwards", async () => {
-    const m = await startCota<Module>((module) => {
+    const m = await startCircuit<Module>((module) => {
       module._sdRaceCountdown(6);
     });
     m._sdStep(1);

@@ -32,7 +32,7 @@ export class GameSound {
 
   static async start(context = openAudio()): Promise<GameSound> {
     await context.audioWorklet.addModule(workletUrl);
-    const node = new AudioWorkletNode(context, "f1-car-sound", {
+    const node = new AudioWorkletNode(context, "revracers-car-sound", {
       numberOfInputs: 0,
       numberOfOutputs: 1,
       outputChannelCount: [2],

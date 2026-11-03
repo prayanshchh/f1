@@ -297,8 +297,8 @@ const files = [
   [path.join(sd, "speed-dreams-data/data/config"), "/sd/data/config"],
   [path.join(root, "engine/data/local"), "/sd/local"],
   [
-    path.join(root, "content/tracks/cota/cota.xml"),
-    "/sd/data/tracks/circuit/cota/cota.xml",
+    path.join(root, "content/tracks/hill-country/hill-country.xml"),
+    "/sd/data/tracks/circuit/hill-country/hill-country.xml",
   ],
 ];
 rmSync(data, { recursive: true, force: true });
@@ -318,7 +318,10 @@ stage(
   path.join(root, "engine/data/local/drivers/human/cars"),
   path.join(data, "/sd/data/aisetup"),
 );
-writeTrackData(root, path.join(data, "/sd/data/tracks/circuit/cota/ai.dat"));
+writeTrackData(
+  root,
+  path.join(data, "/sd/data/tracks/circuit/hill-country/ai.dat"),
+);
 
 const exported = [
   "_sdInit",
@@ -418,6 +421,6 @@ execFileSync(
   { stdio: "inherit" },
 );
 copyFileSync(
-  path.join(root, "content/tracks/cota/sd-frame.json"),
+  path.join(root, "content/tracks/hill-country/sd-frame.json"),
   path.join(out, "sd-frame.json"),
 );

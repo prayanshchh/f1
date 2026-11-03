@@ -1,5 +1,5 @@
 {
-  "name": "@f1/client",
+  "name": "@revracers/client",
   "private": true,
   "type": "module",
   "scripts": {

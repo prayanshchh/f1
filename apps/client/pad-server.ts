@@ -12,7 +12,7 @@ import { WebSocket, WebSocketServer } from "ws";
 
 const padPort = Number(process.env["PAD_PORT"] ?? 5200);
 const setupPort = padPort + 1;
-const certDir = path.join(os.homedir(), ".f1-pad");
+const certDir = path.join(os.homedir(), ".revracers-pad");
 const socketPath = "/__pad/ws";
 const viteClient = "/@vite/client";
 const pingInterval = 2000;
@@ -77,7 +77,7 @@ function ensureCertificates(names: string[]): {
       "-out",
       "ca.crt",
       "-subj",
-      "/CN=F1 Pad Local CA",
+      "/CN=RevRacers Pad Local CA",
       "-addext",
       "basicConstraints=critical,CA:TRUE",
       "-addext",
@@ -108,7 +108,7 @@ function ensureCertificates(names: string[]): {
       "-out",
       file("server.csr"),
       "-subj",
-      "/CN=F1 Pad",
+      "/CN=RevRacers Pad",
     ]);
     openssl([
       "x509",
@@ -246,10 +246,10 @@ function proxyUpgrade(
 }
 
 function setupPage(padUrl: string): string {
-  return `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>F1 phone setup</title>
+  return `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>RevRacers phone setup</title>
 <body style="font:17px system-ui;padding:20px;line-height:1.5">
 <h2>Phone controller setup</h2>
-<p><b>Once per phone:</b> <a href="/ca.crt">download the certificate</a>, then open Settings → Profile Downloaded → Install. Then Settings → General → About → Certificate Trust Settings → turn on “F1 Pad Local CA”.</p>
+<p><b>Once per phone:</b> <a href="/ca.crt">download the certificate</a>, then open Settings → Profile Downloaded → Install. Then Settings → General → About → Certificate Trust Settings → turn on “RevRacers Pad Local CA”.</p>
 <p><b>Then:</b> <a href="${padUrl}">open the controller</a>.</p></body>`;
 }
 
@@ -312,7 +312,7 @@ function start(
     if (request.url === "/ca.crt") {
       response.writeHead(200, {
         "Content-Type": "application/x-x509-ca-cert",
-        "Content-Disposition": 'attachment; filename="f1-pad-ca.crt"',
+        "Content-Disposition": 'attachment; filename="revracers-pad-ca.crt"',
       });
       response.end(certificates.ca);
       return;
@@ -333,7 +333,7 @@ function start(
 
 export function padRelay(): Plugin {
   return {
-    name: "f1-pad-relay",
+    name: "revracers-pad-relay",
     apply: "serve",
     configureServer(server) {
       const urls = padUrls();

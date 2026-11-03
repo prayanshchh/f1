@@ -194,8 +194,8 @@ def paint(atlas, team):
     EMBER_DEEP = np.array(linear(team["colours"]["deep"]))
     PEARL = np.array(linear(team["colours"]["secondary"]))
     GOLD = np.array(linear(team["colours"]["accent"]))
-    NORTHWIND, VOLTARA, KESTREL, AURELIA = team["sponsors"]
-    VANTA = team["name"].upper()
+    TITLE, PARTNER, SUPPLIER, ASSOCIATE = team["sponsors"]
+    TEAM = team["name"].upper()
     NUMBER = team["number"]
     x, y, z = atlas.x, atlas.y, atlas.z
     absy = np.abs(y)
@@ -330,56 +330,56 @@ def paint(atlas, team):
 
     LIGHT_TEXT = np.array(linear(team.get("text", "#e7e8e9")))
     white = None
-    side_decal(atlas, albedo, height, VANTA, -0.05, 0.445, 0.60, white, r"^sidepod")
-    side_decal(atlas, albedo, height, NORTHWIND, -0.70, 0.385, 0.44, white, r"^sidepod")
-    side_decal(atlas, albedo, height, VOLTARA, 1.28, 0.385, 0.40, white, r"^monocoque")
-    side_decal(atlas, albedo, height, KESTREL, 2.00, 0.300, 0.24, white, r"^monocoque")
+    side_decal(atlas, albedo, height, TEAM, -0.05, 0.445, 0.60, white, r"^sidepod")
+    side_decal(atlas, albedo, height, TITLE, -0.70, 0.385, 0.44, white, r"^sidepod")
+    side_decal(atlas, albedo, height, PARTNER, 1.28, 0.385, 0.40, white, r"^monocoque")
+    side_decal(atlas, albedo, height, SUPPLIER, 2.00, 0.300, 0.24, white, r"^monocoque")
     side_decal(atlas, albedo, height, NUMBER, 0.28, 0.585, 0.17, white, r"^monocoque", weight=900)
     side_decal(atlas, albedo, height, NUMBER, -0.95, 0.53, 0.20, None, r"^monocoque", weight=900)
-    side_decal(atlas, albedo, height, VANTA, -2.14, 0.845, 0.28, white, r"^rw-endplate\.", weight=900)
-    side_decal(atlas, albedo, height, AURELIA, -2.08, 0.63, 0.20, white, r"^rw-endplate\.")
-    side_decal(atlas, albedo, height, NORTHWIND, 2.36, 0.19, 0.30, white, r"^fw-endplate")
-    side_decal(atlas, albedo, height, VANTA, 0.15, 0.10, 0.5, white, r"^inwash-1", weight=900)
+    side_decal(atlas, albedo, height, TEAM, -2.14, 0.845, 0.28, white, r"^rw-endplate\.", weight=900)
+    side_decal(atlas, albedo, height, ASSOCIATE, -2.08, 0.63, 0.20, white, r"^rw-endplate\.")
+    side_decal(atlas, albedo, height, TITLE, 2.36, 0.19, 0.30, white, r"^fw-endplate")
+    side_decal(atlas, albedo, height, TEAM, 0.15, 0.10, 0.5, white, r"^inwash-1", weight=900)
 
     top_decal(atlas, albedo, height, NUMBER, 1.72, 0.20, white, r"^monocoque", read_from_front=True, weight=900)
-    top_decal(atlas, albedo, height, VANTA, 2.62, 0.10, white, r"^monocoque", read_from_front=True, weight=900)
-    top_decal(atlas, albedo, height, AURELIA, 2.42, 0.13, white, r"^monocoque", read_from_front=True)
-    top_decal(atlas, albedo, height, KESTREL, 2.20, 0.17, white, r"^monocoque", read_from_front=True)
-    top_decal(atlas, albedo, height, VOLTARA, 2.02, 0.19, white, r"^monocoque", read_from_front=True)
-    top_decal(atlas, albedo, height, NORTHWIND, 1.42, 0.26, white, r"^monocoque", read_from_front=True)
-    top_decal(atlas, albedo, height, VANTA, 1.28, 0.20, white, r"^monocoque", read_from_front=True, weight=900)
-    top_decal(atlas, albedo, height, VANTA, 1.00, 0.26, None, r"^monocoque", read_from_front=True, weight=900)
-    top_decal(atlas, albedo, height, VOLTARA, -0.75, 0.24, None, r"^(monocoque|sidepod)", weight=900)
+    top_decal(atlas, albedo, height, TEAM, 2.62, 0.10, white, r"^monocoque", read_from_front=True, weight=900)
+    top_decal(atlas, albedo, height, ASSOCIATE, 2.42, 0.13, white, r"^monocoque", read_from_front=True)
+    top_decal(atlas, albedo, height, SUPPLIER, 2.20, 0.17, white, r"^monocoque", read_from_front=True)
+    top_decal(atlas, albedo, height, PARTNER, 2.02, 0.19, white, r"^monocoque", read_from_front=True)
+    top_decal(atlas, albedo, height, TITLE, 1.42, 0.26, white, r"^monocoque", read_from_front=True)
+    top_decal(atlas, albedo, height, TEAM, 1.28, 0.20, white, r"^monocoque", read_from_front=True, weight=900)
+    top_decal(atlas, albedo, height, TEAM, 1.00, 0.26, None, r"^monocoque", read_from_front=True, weight=900)
+    top_decal(atlas, albedo, height, PARTNER, -0.75, 0.24, None, r"^(monocoque|sidepod)", weight=900)
     for side in (1, -1):
-        top_decal(atlas, albedo, height, VOLTARA, 0.05, 0.25, white, r"^sidepod", y=side * 0.47, up=0.55)
-        top_decal(atlas, albedo, height, NORTHWIND, 2.66, 0.26, white, r"^fw-main", y=side * 0.31, up=0.3, read_from_front=True, angle=side * 0.32)
-        top_decal(atlas, albedo, height, VOLTARA, 2.33, 0.17, white, r"^fw-flap1", y=side * 0.31, up=0.1, read_from_front=True, angle=side * 0.32)
+        top_decal(atlas, albedo, height, PARTNER, 0.05, 0.25, white, r"^sidepod", y=side * 0.47, up=0.55)
+        top_decal(atlas, albedo, height, TITLE, 2.66, 0.26, white, r"^fw-main", y=side * 0.31, up=0.3, read_from_front=True, angle=side * 0.32)
+        top_decal(atlas, albedo, height, PARTNER, 2.33, 0.17, white, r"^fw-flap1", y=side * 0.31, up=0.1, read_from_front=True, angle=side * 0.32)
 
-    upper_decal(atlas, albedo, NORTHWIND, 0.0, -2.03, 0.54, white, r"^rw-main")
+    upper_decal(atlas, albedo, TITLE, 0.0, -2.03, 0.54, white, r"^rw-main")
     for sign in (1, -1):
-        upper_decal(atlas, albedo, VANTA, sign * 0.33, -2.30, 0.17, white, r"^rw-flap", weight=900)
+        upper_decal(atlas, albedo, TEAM, sign * 0.33, -2.30, 0.17, white, r"^rw-flap", weight=900)
     for sign in (1, -1):
-        top_decal(atlas, albedo, height, NORTHWIND, 1.70, 0.215, white, r"^susp-upper-a", y=sign * 0.36, angle=sign * 0.26, up=-1)
-        top_decal(atlas, albedo, height, VOLTARA, 1.70, 0.20, white, r"^susp-lower-a", y=sign * 0.37, up=-1)
-        along_decal(atlas, albedo, KESTREL, sign * 0.262, 0.46, 0.20, None, r"^monocoque", sign)
-        along_decal(atlas, albedo, VOLTARA, sign * 0.335, 0.12, 0.30, white, r"^monocoque", sign)
-        upper_decal(atlas, albedo, VANTA, sign * 0.58, 0.665, 0.13, white, r"^mirror-housing", weight=900)
-        upper_decal(atlas, albedo, NORTHWIND, sign * 0.36, 0.695, 0.13, white, r"^mirror-housing")
-    for x_pos, text, length in ((1.27, AURELIA, 0.16), (2.05, NORTHWIND, 0.17)):
+        top_decal(atlas, albedo, height, TITLE, 1.70, 0.215, white, r"^susp-upper-a", y=sign * 0.36, angle=sign * 0.26, up=-1)
+        top_decal(atlas, albedo, height, PARTNER, 1.70, 0.20, white, r"^susp-lower-a", y=sign * 0.37, up=-1)
+        along_decal(atlas, albedo, SUPPLIER, sign * 0.262, 0.46, 0.20, None, r"^monocoque", sign)
+        along_decal(atlas, albedo, PARTNER, sign * 0.335, 0.12, 0.30, white, r"^monocoque", sign)
+        upper_decal(atlas, albedo, TEAM, sign * 0.58, 0.665, 0.13, white, r"^mirror-housing", weight=900)
+        upper_decal(atlas, albedo, TITLE, sign * 0.36, 0.695, 0.13, white, r"^mirror-housing")
+    for x_pos, text, length in ((1.27, ASSOCIATE, 0.16), (2.05, TITLE, 0.17)):
         side_decal(atlas, albedo, height, text, x_pos, 0.47 if x_pos < 2 else 0.34, length, white, r"^monocoque")
     for sign in (1, -1):
         small_x = np.linspace(0.32, -1.10, 6)
-        for k, mark in enumerate((NUMBER, NUMBER, VANTA, KESTREL, AURELIA, VOLTARA)):
+        for k, mark in enumerate((NUMBER, NUMBER, TEAM, SUPPLIER, ASSOCIATE, PARTNER)):
             side_decal(atlas, albedo, height, mark, small_x[k], 0.30 + 0.02 * np.cos(k), 0.09, white, r"^sidepod", side=sign, weight=700)
-    rear_decal(atlas, albedo, VANTA, 0.0, 0.875, 0.34, white, r"^rw-flap", weight=900)
-    rear_decal(atlas, albedo, NORTHWIND, 0.0, 0.770, 0.40, white, r"^rw-main", facing=0.05)
+    rear_decal(atlas, albedo, TEAM, 0.0, 0.875, 0.34, white, r"^rw-flap", weight=900)
+    rear_decal(atlas, albedo, TITLE, 0.0, 0.770, 0.40, white, r"^rw-main", facing=0.05)
 
     for text, along, length in (
-        (VOLTARA, 0.24, 0.11),
-        (NORTHWIND, 0.385, 0.12),
-        (VANTA, 0.5, 0.075),
-        (KESTREL, 0.615, 0.10),
-        (AURELIA, 0.76, 0.10),
+        (PARTNER, 0.24, 0.11),
+        (TITLE, 0.385, 0.12),
+        (TEAM, 0.5, 0.075),
+        (SUPPLIER, 0.615, 0.10),
+        (ASSOCIATE, 0.76, 0.10),
     ):
         strip_decal(atlas, albedo, "halo-hoop", text, along, 0.25, length, weight=850)
 
@@ -430,7 +430,7 @@ def tyre_texture(out):
 
 
 def main():
-    team = use(sys.argv[1] if len(sys.argv) > 1 else "vanta")
+    team = use(sys.argv[1] if len(sys.argv) > 1 else "velza")
     work = Path(sys.argv[2] if len(sys.argv) > 2 else f"build/car/{team['id']}")
     root = Path("content/cars")
     out = root / team["id"]

@@ -31,7 +31,7 @@ export interface SpeedDreams {
 
 export const wasm = path.join(repoRoot, "apps/client/wasm/speed-dreams.js");
 
-export async function startCota<M extends SpeedDreams = SpeedDreams>(
+export async function startCircuit<M extends SpeedDreams = SpeedDreams>(
   prepare?: (module: M) => void,
 ): Promise<M> {
   const url = pathToFileURL(wasm).href;
@@ -51,9 +51,9 @@ export async function startCota<M extends SpeedDreams = SpeedDreams>(
     "number",
   ])(
     "circuit",
-    "cota",
+    "hill-country",
     "config/raceman/quickrace.xml",
-    "22mp1-sector-mcl36",
+    "revracer-26",
     0,
   );
   return m;

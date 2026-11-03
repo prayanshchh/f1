@@ -88,8 +88,8 @@ test.describe("driver onboarding", () => {
     const session = crypto.randomUUID();
     await context.request.put(`/api/sessions/${session}`, {
       data: {
-        track: "cota",
-        car: "22mp1-sector-mcl36",
+        track: "hill-country",
+        car: "revracer-26",
         team: "corvus",
         kind: "race",
         plannedLaps: 2,

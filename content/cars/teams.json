@@ -1,7 +1,7 @@
 [
   {
-    "id": "vanta",
-    "name": "Vanta",
+    "id": "velza",
+    "name": "Velza",
     "number": "07",
     "pattern": "deck",
     "wings": "carbon",
@@ -12,14 +12,14 @@
       "secondary": "#e7e8e9",
       "accent": "#f4c43f"
     },
-    "sponsors": ["NORTHWIND", "VOLTARA", "KESTREL", "AURELIA"],
+    "sponsors": ["NORTHWIND", "VOLTARA", "KESTREL", "AURENNE"],
     "design": {},
-    "fullName": "Northwind Vanta Racing",
+    "fullName": "Northwind Velza Racing",
     "brand": "#e8402a",
     "principal": "Elias Korvath",
     "chassis": "V26",
-    "base": "Bicester, UK",
-    "powerUnit": "Aurion",
+    "base": "Carrow Bridge, UK",
+    "powerUnit": "Kaltor",
     "ratings": {
       "performance": 94,
       "aero": 95,
@@ -30,12 +30,14 @@
       {
         "first": "Mateo",
         "last": "Sandoval",
+        "code": "SAN",
         "nationality": "ES",
         "number": 7
       },
       {
         "first": "Lukas",
         "last": "Brandt",
+        "code": "BRA",
         "nationality": "DE",
         "number": 70
       }
@@ -54,7 +56,7 @@
       "secondary": "#1c1e22",
       "accent": "#3fb6ef"
     },
-    "sponsors": ["TESSERA", "LUMORA", "IRONBARK", "VIREO"],
+    "sponsors": ["QUADREL", "LUMORA", "IRONBARK", "VIREO"],
     "design": {
       "noseWidth": 0.9,
       "noseDrop": 0.018,
@@ -69,12 +71,12 @@
       "finHeight": 0.9,
       "neck": "twin"
     },
-    "fullName": "Tessera Meridian Racing",
+    "fullName": "Quadrel Meridian Racing",
     "brand": "#ff7a1a",
     "principal": "Hana Whitlock",
     "chassis": "MR-26",
-    "base": "Woking Green, UK",
-    "powerUnit": "Helion",
+    "base": "Ashcombe Green, UK",
+    "powerUnit": "Zephron",
     "ratings": {
       "performance": 97,
       "aero": 98,
@@ -85,12 +87,14 @@
       {
         "first": "Oliver",
         "last": "Fairclough",
+        "code": "FAI",
         "nationality": "GB",
         "number": 14
       },
       {
         "first": "Jonas",
         "last": "Ekholm",
+        "code": "EKH",
         "nationality": "SE",
         "number": 41
       }
@@ -109,7 +113,7 @@
       "secondary": "#8e979f",
       "accent": "#12b5a6"
     },
-    "sponsors": ["ORBIS", "PALLAS", "SABLE", "FATHOM"],
+    "sponsors": ["ORVEX", "PALLAS", "SABLE", "DEEPWELL"],
     "design": {
       "noseWidth": 0.82,
       "noseDrop": -0.012,
@@ -125,12 +129,12 @@
       "finHeight": 1.2,
       "neck": "single"
     },
-    "fullName": "Orbis Corvus Motorsport",
+    "fullName": "Orvex Corvus Motorsport",
     "brand": "#14c9b8",
     "principal": "Tomas Reinholt",
     "chassis": "CV26",
-    "base": "Brackley Vale, UK",
-    "powerUnit": "Helion",
+    "base": "Hollowmere Vale, UK",
+    "powerUnit": "Zephron",
     "ratings": {
       "performance": 92,
       "aero": 90,
@@ -141,12 +145,14 @@
       {
         "first": "Noah",
         "last": "Bellamy",
+        "code": "BEL",
         "nationality": "GB",
         "number": 22
       },
       {
         "first": "Andrea",
         "last": "Corsini",
+        "code": "COR",
         "nationality": "IT",
         "number": 23
       }
@@ -165,7 +171,7 @@
       "secondary": "#a81820",
       "accent": "#e8b923"
     },
-    "sponsors": ["ARKWRIGHT", "COBALTO", "MERIT", "TIDEWAY"],
+    "sponsors": ["ARKWRIGHT", "COBALTO", "MARWICK", "TIDEWAY"],
     "design": {
       "noseWidth": 1.14,
       "noseDrop": 0.01,
@@ -174,7 +180,7 @@
       "downwash": 0.09,
       "undercut": 0.1,
       "wingSweep": 0.31,
-      "wingRise": 1.0,
+      "wingRise": 1,
       "endplate": 2,
       "rearEndplate": 0,
       "airbox": 1.12,
@@ -185,8 +191,8 @@
     "brand": "#f0c02a",
     "principal": "Margot Lindqvist",
     "chassis": "HR26",
-    "base": "Milton Heath, UK",
-    "powerUnit": "Volkraft",
+    "base": "Wrenford Heath, UK",
+    "powerUnit": "Strovik",
     "ratings": {
       "performance": 89,
       "aero": 91,
@@ -197,12 +203,14 @@
       {
         "first": "Kaito",
         "last": "Morishita",
+        "code": "MOR",
         "nationality": "JP",
         "number": 33
       },
       {
         "first": "Liam",
         "last": "Castellan",
+        "code": "CAS",
         "nationality": "NZ",
         "number": 3
       }
@@ -224,8 +232,8 @@
     "sponsors": ["GROVELAND", "ALDER", "PINEMARK", "RIVERLY"],
     "design": {
       "noseWidth": 1.05,
-      "noseDrop": 0.0,
-      "podWidth": 1.0,
+      "noseDrop": 0,
+      "podWidth": 1,
       "podTop": 0.02,
       "downwash": 0.02,
       "undercut": 0.02,
@@ -233,7 +241,7 @@
       "wingRise": 1.25,
       "endplate": 1,
       "rearEndplate": 2,
-      "airbox": 1.0,
+      "airbox": 1,
       "finHeight": 1.1,
       "neck": "single"
     },
@@ -241,8 +249,8 @@
     "brand": "#a8d42a",
     "principal": "Andre Vasselin",
     "chassis": "SY-26",
-    "base": "Silverton, UK",
-    "powerUnit": "Helion",
+    "base": "Kestleigh, UK",
+    "powerUnit": "Zephron",
     "ratings": {
       "performance": 78,
       "aero": 80,
@@ -253,12 +261,14 @@
       {
         "first": "Ferran",
         "last": "Oliveras",
+        "code": "OLI",
         "nationality": "ES",
         "number": 2
       },
       {
         "first": "Theo",
         "last": "Lindgren",
+        "code": "LIN",
         "nationality": "CA",
         "number": 18
       }
@@ -290,15 +300,15 @@
       "endplate": 0,
       "rearEndplate": 1,
       "airbox": 0.88,
-      "finHeight": 1.0,
+      "finHeight": 1,
       "neck": "twin"
     },
     "fullName": "Solvane Azura Racing",
     "brand": "#2f8dff",
     "principal": "Celine Marchetti",
     "chassis": "AZ26",
-    "base": "Enstone Ridge, UK",
-    "powerUnit": "Helion",
+    "base": "Oakhallow Ridge, UK",
+    "powerUnit": "Zephron",
     "ratings": {
       "performance": 72,
       "aero": 74,
@@ -309,12 +319,14 @@
       {
         "first": "Pascal",
         "last": "Durand",
+        "code": "DUR",
         "nationality": "FR",
         "number": 10
       },
       {
         "first": "Jack",
         "last": "Merrick",
+        "code": "MER",
         "nationality": "AU",
         "number": 5
       }
@@ -333,14 +345,14 @@
       "secondary": "#dfe3ea",
       "accent": "#22a7e0"
     },
-    "sponsors": ["STELLAN", "HARBORLINE", "QUILLON", "BRAEMOOR"],
+    "sponsors": ["ASTRAVEN", "HARBORLINE", "QUILLON", "BRAEMOOR"],
     "design": {
       "noseWidth": 1.1,
       "noseDrop": -0.008,
       "podWidth": 1.03,
       "podTop": 0.01,
-      "downwash": 0.0,
-      "undercut": 0.0,
+      "downwash": 0,
+      "undercut": 0,
       "wingSweep": 0.32,
       "wingRise": 1.05,
       "endplate": 0,
@@ -349,12 +361,12 @@
       "finHeight": 0.95,
       "neck": "single"
     },
-    "fullName": "Stellan Orion Racing",
+    "fullName": "Astraven Orion Racing",
     "brand": "#3fc4f2",
     "principal": "James Holloway",
     "chassis": "OR26",
-    "base": "Grove Park, UK",
-    "powerUnit": "Helion",
+    "base": "Fernlow Park, UK",
+    "powerUnit": "Zephron",
     "ratings": {
       "performance": 81,
       "aero": 79,
@@ -365,12 +377,14 @@
       {
         "first": "Alex",
         "last": "Thorne",
+        "code": "THO",
         "nationality": "TH",
         "number": 28
       },
       {
         "first": "Diego",
         "last": "Santoro",
+        "code": "SNT",
         "nationality": "ES",
         "number": 55
       }
@@ -389,7 +403,7 @@
       "secondary": "#a8121a",
       "accent": "#1a1b1e"
     },
-    "sponsors": ["CIRRUS PEAK", "VANTOR", "HALYARD", "OAKWELL"],
+    "sponsors": ["ALTOCREST", "VARNOK", "SPINDRA", "OAKWELL"],
     "design": {
       "noseWidth": 0.96,
       "noseDrop": 0.02,
@@ -405,12 +419,12 @@
       "finHeight": 1.15,
       "neck": "twin"
     },
-    "fullName": "Cirrus Peak Strato F-Team",
+    "fullName": "Altocrest Strato Racing",
     "brand": "#ef2b34",
     "principal": "Ayaka Tanabe",
     "chassis": "ST-26",
-    "base": "Kannapolis, USA",
-    "powerUnit": "Marano",
+    "base": "Calder Springs, USA",
+    "powerUnit": "Ventaro",
     "ratings": {
       "performance": 70,
       "aero": 68,
@@ -421,12 +435,14 @@
       {
         "first": "Ethan",
         "last": "Calloway",
+        "code": "CAL",
         "nationality": "US",
         "number": 4
       },
       {
         "first": "Olli",
         "last": "Rantanen",
+        "code": "RAN",
         "nationality": "FI",
         "number": 87
       }
@@ -445,7 +461,7 @@
       "secondary": "#e6e7ee",
       "accent": "#d9354a"
     },
-    "sponsors": ["LUMEN ROW", "ASTERLY", "KOVA", "SPARROWHAWK"],
+    "sponsors": ["LANTERN ROW", "ASTERLY", "KOVA", "SPARROWHAWK"],
     "design": {
       "noseWidth": 0.88,
       "noseDrop": -0.015,
@@ -461,12 +477,12 @@
       "finHeight": 1.05,
       "neck": "single"
     },
-    "fullName": "Lumen Row Novara Racing",
+    "fullName": "Lantern Row Novara Racing",
     "brand": "#7478ff",
     "principal": "Laurens Meijer",
     "chassis": "NV-26",
-    "base": "Faenza Alta, IT",
-    "powerUnit": "Volkraft",
+    "base": "Valdorso, IT",
+    "powerUnit": "Strovik",
     "ratings": {
       "performance": 76,
       "aero": 78,
@@ -477,12 +493,14 @@
       {
         "first": "Isaac",
         "last": "Hadley",
+        "code": "HAD",
         "nationality": "FR",
         "number": 61
       },
       {
         "first": "Arvid",
         "last": "Solberg",
+        "code": "SOL",
         "nationality": "NO",
         "number": 30
       }
@@ -521,8 +539,8 @@
     "brand": "#f45a22",
     "principal": "Mattias Brunner",
     "chassis": "KR26",
-    "base": "Hinwil Tal, CH",
-    "powerUnit": "Ostara",
+    "base": "Brunnwald, CH",
+    "powerUnit": "Ardexa",
     "ratings": {
       "performance": 66,
       "aero": 70,
@@ -533,12 +551,14 @@
       {
         "first": "Nico",
         "last": "Hartmann",
+        "code": "HAR",
         "nationality": "DE",
         "number": 77
       },
       {
         "first": "Bruno",
         "last": "Teixeira",
+        "code": "TEI",
         "nationality": "BR",
         "number": 8
       }
@@ -557,16 +577,16 @@
       "secondary": "#a8852e",
       "accent": "#e9e3cf"
     },
-    "sponsors": ["GILDHALL", "SOVEREN", "BLACKWATER RIDGE", "CAMBRAY"],
+    "sponsors": ["GILDHALL", "SOVEREN", "BLACKFELL RIDGE", "CAMBRAY"],
     "design": {
       "noseWidth": 0.92,
       "noseDrop": 0.008,
       "podWidth": 0.97,
-      "podTop": 0.0,
+      "podTop": 0,
       "downwash": 0.03,
       "undercut": 0.06,
       "wingSweep": 0.28,
-      "wingRise": 1.0,
+      "wingRise": 1,
       "endplate": 1,
       "rearEndplate": 1,
       "airbox": 0.94,
@@ -577,8 +597,8 @@
     "brand": "#d4ab40",
     "principal": "Marcus Ashworth",
     "chassis": "AR26",
-    "base": "Silverton, UK",
-    "powerUnit": "Sendai",
+    "base": "Pemberly Cross, UK",
+    "powerUnit": "Kiyora",
     "ratings": {
       "performance": 86,
       "aero": 88,
@@ -589,12 +609,14 @@
       {
         "first": "Rafael",
         "last": "Aguirre",
+        "code": "AGU",
         "nationality": "ES",
         "number": 88
       },
       {
         "first": "Lance",
         "last": "Whitmore",
+        "code": "WHI",
         "nationality": "CA",
         "number": 19
       }

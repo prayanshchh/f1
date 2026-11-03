@@ -8,6 +8,7 @@ import {
 } from "../apps/client/src/game/weekend.ts";
 import { PitStop, type PitLayout } from "../apps/client/src/game/pitstop.ts";
 import { stageOf, type Settings } from "../apps/client/src/game/settings.ts";
+import liveries from "../content/cars/teams.json";
 
 const session = (value: Settings["session"]) =>
   ({ session: value }) as unknown as Settings;
@@ -48,6 +49,22 @@ describe("weekend plan", () => {
     const { slots } = planWeekend("corvus", 5, ["YOU", "NOT"]);
     expect(slots[0]).toBe(5);
     expect(new Set(slots).size).toBe(22);
+  });
+
+  test("every rival races under their own team's fictional driver", () => {
+    for (const team of teams) {
+      const { entrants } = planWeekend(team.car, 0, null);
+      const rivals = entrants.filter((e) => !e.player);
+      expect(new Set(rivals.map((e) => e.code)).size).toBe(rivals.length);
+      for (const rival of rivals) {
+        const roster = liveries.find((l) => l.id === rival.car)?.drivers;
+        const person = roster?.find((d) => d.code === rival.code);
+        expect(person, `${rival.code} drives for ${rival.car}`).toBeDefined();
+        expect(rival.name).toBe(
+          `${person?.first.charAt(0) ?? ""} ${person?.last.toUpperCase() ?? ""}`,
+        );
+      }
+    }
   });
 });
 

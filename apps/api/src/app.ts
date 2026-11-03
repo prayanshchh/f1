@@ -38,7 +38,7 @@ import {
   Invalid,
 } from "./validate.ts";
 
-const cookieName = "f1_session";
+const cookieName = "revracers_session";
 const cookieSeconds = 60 * 60 * 24 * 60;
 const defaultPageSize = 20;
 const maxPageSize = 50;

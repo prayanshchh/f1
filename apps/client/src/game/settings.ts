@@ -3,12 +3,12 @@ import { ParamDoc, type ParamFs } from "./params.ts";
 import { teams } from "./teams.ts";
 import { raceLapOptions, type Stage } from "./weekend.ts";
 
-const physicsCar = "22mp1-sector-mcl36";
+const physicsCar = "revracer-26";
 
 export const tracks = [
   {
-    id: "cota",
-    label: "Circuit of the Americas",
+    id: "hill-country",
+    label: "Hill Country Circuit",
     detail: "Austin · 5.48 km",
     category: "circuit",
     length: 5528,
@@ -142,8 +142,8 @@ const practiceFuelLaps = 10;
 const raceBurnShare = 1.2;
 
 export const defaults: Settings = {
-  track: "cota",
-  car: "vanta",
+  track: "hill-country",
+  car: "velza",
   session: "weekend",
   buildUp: true,
   laps: 10,
@@ -185,7 +185,7 @@ export const defaults: Settings = {
   },
 };
 
-const storageKey = "f1.settings";
+const storageKey = "revracers.settings";
 
 function storedSettings(): Partial<Settings> {
   try {

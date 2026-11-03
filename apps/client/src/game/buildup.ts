@@ -31,7 +31,7 @@ const fadeSeconds = 0.4;
 const stageEase = 1.1;
 const partners = 10;
 const miles = 0.621371;
-const eventName = "United States Grand Prix 2026";
+const eventName = "Hill Country Grand Prix 2026";
 const eventCountry = "US";
 const eventPlace = "Austin - USA";
 
@@ -110,7 +110,8 @@ export interface BuildUpOptions {
 
 function logoMark(): HTMLElement {
   const box = el("div", "bu-card-logo");
-  box.innerHTML = '<svg class="f1"><use href="#f1-logo" /></svg><b>26</b>';
+  box.innerHTML =
+    '<svg class="brand-mark"><use href="#brand-logo" /></svg><b>26</b>';
   return box;
 }
 
@@ -180,7 +181,7 @@ class BuildUpView {
       this.skip,
     );
     this.wipe.innerHTML =
-      '<i></i><i></i><svg class="f1"><use href="#f1-logo" /></svg>';
+      '<i></i><i></i><svg class="brand-mark"><use href="#brand-logo" /></svg>';
     this.root.append(this.fade, stage, this.wipe);
     host.append(this.root);
   }

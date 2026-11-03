@@ -38,7 +38,7 @@ describe("MFD status colours", () => {
     expect(damageState(0.9)).toBe("hot");
   });
 
-  test("tyre wear colours follow the F1 25 stint footage", () => {
+  test("tyre wear colours follow the reference stint footage", () => {
     expect(wearColour(0.03)).toBe("ok");
     expect(wearColour(0.19)).toBe("warm");
     expect(wearColour(0.29)).toBe("warm");

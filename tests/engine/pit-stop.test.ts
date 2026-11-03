@@ -11,13 +11,13 @@ import {
   type PitLayout,
 } from "../../apps/client/src/game/pitstop.ts";
 import { type RaceSystems, statusReader } from "../support/race-systems.ts";
-import { startCota, wasm } from "../support/speed-dreams.ts";
+import { startCircuit, wasm } from "../support/speed-dreams.ts";
 import { repoRoot } from "../support/repo.ts";
 
 const layout = (
   JSON.parse(
     readFileSync(
-      path.join(repoRoot, "content/tracks/cota/sd-frame.json"),
+      path.join(repoRoot, "content/tracks/hill-country/sd-frame.json"),
       "utf8",
     ),
   ) as { pit: PitLayout }
@@ -114,7 +114,7 @@ function service(m: RaceSystems, lap: Lap, control: PitControl): void {
 }
 
 async function driveStop(replaceWing = false): Promise<Lap> {
-  const m = await startCota<RaceSystems>();
+  const m = await startCircuit<RaceSystems>();
   const status = statusReader(m);
   const out = m._malloc(12);
   const hud = m._malloc(8 * 32);

@@ -15,7 +15,7 @@
   <section name="Tracks">
     <attnum name="maximum number" val="1"/>
     <section name="1">
-      <attstr name="name" val="cota"/>
+      <attstr name="name" val="hill-country"/>
       <attstr name="category" val="circuit"/>
     </section>
 
@@ -115,7 +115,7 @@
     <section name="human">
       <section name="1">
         <section name="1">
-          <attstr name="car name" val="22mp1-sector-mcl36"/>
+          <attstr name="car name" val="revracer-26"/>
         </section>
 
       </section>

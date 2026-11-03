@@ -20,7 +20,10 @@ interface Frame {
 }
 
 const trackFile = (file: string) =>
-  readFileSync(path.join(repoRoot, "content/tracks/cota", file), "utf8");
+  readFileSync(
+    path.join(repoRoot, "content/tracks/hill-country", file),
+    "utf8",
+  );
 
 const line = JSON.parse(trackFile("racing-line.json")) as Line;
 const track = JSON.parse(trackFile("sd-frame.json")) as Frame;

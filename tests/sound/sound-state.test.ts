@@ -26,7 +26,7 @@ const car = (patch: Partial<CarAudio> = {}): CarAudio => ({
 });
 
 describe("sound state", () => {
-  test("the redline maps to the F1 25 rev ceiling, in any engine unit", () => {
+  test("the redline maps to the reference rev ceiling, in any engine unit", () => {
     expect(soundState(car({ rpm: 1623 }), null, 1).rpm).toBeCloseTo(12900);
     expect(
       soundState(car({ rpm: 15500, redline: 15500 }), null, 1).rpm,

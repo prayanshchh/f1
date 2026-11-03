@@ -3,7 +3,10 @@ import path from "node:path";
 
 globalThis.navigator ??= {};
 const root = path.resolve(import.meta.dirname, "../..");
-const target = path.join(root, "content/tracks/cota/ai-calibration.json");
+const target = path.join(
+  root,
+  "content/tracks/hill-country/ai-calibration.json",
+);
 const knotSamples = 20;
 const steps = [0.04, 0.02, 0.01];
 const passes = Number(process.argv[2] ?? 4);
@@ -24,7 +27,7 @@ const status = m.cwrap("sdInit", "number", [
   "string",
   "string",
   "number",
-])("circuit", "cota", "config/raceman/quickrace.xml", "22mp1-sector-mcl36", 0);
+])("circuit", "hill-country", "config/raceman/quickrace.xml", "revracer-26", 0);
 if (status !== 0) throw new Error(`engine failed to start: ${String(status)}`);
 const count = m._sdAiLineCount();
 const left = new Float64Array(count);

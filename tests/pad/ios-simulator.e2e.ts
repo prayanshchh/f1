@@ -61,11 +61,11 @@ test.describe("phone pad in the iOS Simulator's Safari", () => {
   let left = 0;
 
   test.beforeAll(async ({ browser }, testInfo) => {
+    testInfo.setTimeout(420_000);
     if (!(await simulatorReady()))
       throw new Error(
         "Install Xcode with an iPhone simulator and run: brew install ios-webkit-debug-proxy",
       );
-    testInfo.setTimeout(300_000);
     const baseURL = testInfo.project.use.baseURL;
     if (!baseURL) throw new Error("the phone-pad project needs a baseURL");
     game = await Game.open(browser, baseURL);
@@ -74,8 +74,8 @@ test.describe("phone pad in the iOS Simulator's Safari", () => {
   });
 
   test.afterAll(async () => {
-    await simulator.close();
-    await game.close();
+    await (simulator as Simulator | undefined)?.close();
+    await (game as Game | undefined)?.close();
   });
 
   test("real iOS Safari pairs over a direct link, steers the car within one game frame and lets go when it leaves", async () => {

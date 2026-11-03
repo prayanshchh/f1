@@ -27,34 +27,39 @@ jobs:
       - uses: ./.github/actions/setup
       - run: pnpm run test
   browser:
-    name: Browser integration (${{ matrix.project }})
+    name: Browser integration (${{ matrix.suite }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
         include:
-          - project: app
+          - suite: app
             os: ubuntu-latest
-          - project: phone-pad
+            projects: --project app
+            lfs: "false"
+          - suite: phone pad on simulated networks
             os: ubuntu-latest
-          - project: pad-network
-            os: ubuntu-latest
-          - project: ios-simulator
+            projects: --project pad-network
+            lfs: "false"
+          - suite: phone pad with the full game
             os: macos-15
+            projects: --project phone-pad --project ios-simulator --workers 1
+            lfs: "true"
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: ./.github/actions/setup
         with:
           emscripten: "true"
           chrome: "true"
-      - if: matrix.project == 'ios-simulator'
+          lfs: ${{ matrix.lfs }}
+      - if: runner.os == 'macOS'
         run: brew install ios-webkit-debug-proxy
-      - run: pnpm exec playwright test --project ${{ matrix.project }}
+      - run: pnpm exec playwright test ${{ matrix.projects }}
       - uses: actions/upload-artifact@v7.0.2
         if: always()
         with:
-          name: browser-${{ matrix.project }}
+          name: browser-${{ strategy.job-index }}
           path: test-results/
           if-no-files-found: ignore
           retention-days: 7

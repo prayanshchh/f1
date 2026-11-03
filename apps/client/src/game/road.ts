@@ -2,10 +2,17 @@ import * as THREE from "three/webgpu";
 import {
   Fn,
   If,
+  dot,
   exp,
   float,
+  materialEmissive,
+  materialRoughness,
   mix,
+  mx_noise_float,
+  normalView,
+  positionViewDirection,
   positionWorld,
+  reflectVector,
   renderGroup,
   smoothstep,
   step,
@@ -53,6 +60,21 @@ const grassRoughness = 0.95;
 const startLampRows = 2;
 const startLampRed = vec3(6, 0.15, 0.05);
 const rubberWidth = 1.3;
+const lineHalfWidth = 1.0;
+const lineBlend = 1.2;
+const wetFrom = 0.015;
+const wetFull = 0.28;
+const wetDarkening = 0.5;
+const wetRoughness = 0.55;
+const puddleScale = 0.055;
+const puddleFrom = 0.38;
+const puddleDarkening = 0.55;
+const puddleRoughness = 0.06;
+const reflectionWet = 0.09;
+const reflectionPuddle = 0.38;
+const fresnelBase = 0.04;
+const kerbWetDarkening = 0.3;
+const grassWetDarkening = 0.2;
 const rubberDarkening = 0.42;
 const rubberSmoothing = 0.3;
 const shadowMapSize = 2048;
@@ -223,6 +245,114 @@ const tyreSunlight = Fn(() => {
 const withTyreSunlight = ((shadow: ReturnType<typeof tyreSunlight>) =>
   shadow.mul(tyreSunlight())) as unknown as () => THREE.Node;
 
+const wetLine = uniform(0).setGroup(renderGroup);
+const wetOff = uniform(0).setGroup(renderGroup);
+
+export function setWetness(line: number, off: number): void {
+  wetLine.value = line;
+  wetOff.value = off;
+}
+
+export type SkyRadiance = (direction: THREE.Node<"vec3">) => THREE.Node<"vec3">;
+
+function emissiveOf(material: THREE.MeshStandardNodeMaterial) {
+  return (material.emissiveNode ?? materialEmissive) as THREE.Node<"vec3">;
+}
+
+function wetOf(water: THREE.Node<"float">) {
+  return smoothstep(wetFrom, wetFull, water);
+}
+
+function lineWater() {
+  const offset = uv(1).x.abs();
+  const share = float(lineHalfWidth + lineBlend)
+    .sub(offset)
+    .div(lineBlend)
+    .clamp(0, 1);
+  return mix(wetOff, wetLine, share);
+}
+
+function puddles(water: THREE.Node<"float">) {
+  const noise = mx_noise_float(vec3(positionWorld.xy.mul(puddleScale), 0.0));
+  const depth = water.sub(puddleFrom).mul(2.2);
+  return smoothstep(0.15, 0.45, noise.mul(0.5).add(depth));
+}
+
+function skyGlint(sky: SkyRadiance | null, strength: THREE.Node<"float">) {
+  if (!sky) return vec3(0);
+  const facing = dot(normalView, positionViewDirection).abs().oneMinus();
+  const fresnel = float(fresnelBase).add(
+    float(1 - fresnelBase).mul(facing.pow(5)),
+  );
+  return sky(reflectVector).mul(fresnel).mul(strength);
+}
+
+function wetAsphalt(
+  material: THREE.MeshStandardNodeMaterial,
+  water: () => THREE.Node<"float">,
+  sky: SkyRadiance | null,
+  pooled: boolean,
+): void {
+  const wet = () => wetOf(water());
+  const pool = () => (pooled ? puddles(water()) : float(0));
+  const shade = mix(float(1), float(1 - wetDarkening), wet()).mul(
+    mix(float(1), float(1 - puddleDarkening), pool()),
+  );
+  material.colorNode = (material.colorNode ?? materialColor).mul(shade);
+  const rough = material.roughnessNode ?? materialRoughness;
+  material.roughnessNode = mix(
+    mix(rough as ReturnType<typeof float>, float(wetRoughness), wet()),
+    float(puddleRoughness),
+    pool(),
+  );
+  const glint = skyGlint(
+    sky,
+    wet()
+      .mul(reflectionWet)
+      .add(pool().mul(reflectionPuddle - reflectionWet)),
+  );
+  material.emissiveNode = emissiveOf(material).add(glint);
+}
+
+function wetPaint(
+  material: THREE.MeshStandardNodeMaterial,
+  sky: SkyRadiance | null,
+): void {
+  const wet = wetOf(wetOff);
+  material.colorNode = (material.colorNode ?? materialColor).mul(
+    mix(float(1), float(1 - kerbWetDarkening), wet),
+  );
+  const rough = material.roughnessNode ?? materialRoughness;
+  material.roughnessNode = mix(
+    rough as ReturnType<typeof float>,
+    float(wetRoughness),
+    wet,
+  );
+  material.emissiveNode = emissiveOf(material).add(
+    skyGlint(sky, wet.mul(reflectionWet * 0.7)),
+  );
+}
+
+function wetGrass(material: THREE.MeshStandardNodeMaterial): void {
+  material.colorNode = (material.colorNode ?? materialColor).mul(
+    mix(float(1), float(1 - grassWetDarkening), wetOf(wetOff)),
+  );
+}
+
+function applyWetness(
+  material: THREE.MeshStandardNodeMaterial,
+  source: THREE.MeshStandardMaterial,
+  sky: SkyRadiance | null,
+): void {
+  const name = source.name;
+  if (name.endsWith("road asphalt")) wetAsphalt(material, lineWater, sky, true);
+  else if (name.endsWith("asphalt"))
+    wetAsphalt(material, () => wetOff, sky, !name.includes("pit"));
+  else if (/(road paint|road kerb|pit strip|pit red)$/.test(name))
+    wetPaint(material, sky);
+  else if (/(road grass|terrain)$/.test(name)) wetGrass(material);
+}
+
 export interface BakedGround {
   apronA: THREE.Texture;
   apronB: THREE.Texture;
@@ -391,10 +521,12 @@ function applyShading(
   material: THREE.MeshStandardNodeMaterial,
   source: THREE.MeshStandardMaterial,
   baked: BakedGround | null,
+  sky: SkyRadiance | null,
 ): void {
   shadersBySuffix
     .find(({ suffix }) => source.name.endsWith(suffix))
     ?.shade(material, source, baked);
+  if (baked) applyWetness(material, source, sky);
   if (groundMaterials.test(source.name)) {
     material.colorNode = (material.colorNode ?? materialColor).mul(
       contactShade(),
@@ -407,6 +539,7 @@ export function surface(
   source: THREE.MeshStandardMaterial,
   anisotropy: number,
   baked: BakedGround | null = null,
+  sky: SkyRadiance | null = null,
 ): THREE.MeshStandardNodeMaterial {
   if (source.name === "cota start lamps") return startLampMaterial();
   const offset = depthOffsets[source.name] ?? 0;
@@ -435,7 +568,7 @@ export function surface(
   });
   for (const map of [source.map, source.normalMap, source.roughnessMap])
     sharpen(map, anisotropy);
-  applyShading(material, source, baked);
+  applyShading(material, source, baked, sky);
   return material;
 }
 
@@ -465,6 +598,7 @@ async function loadBaked(anisotropy: number): Promise<BakedGround> {
 export async function loadRoad(
   url: string,
   anisotropy: number,
+  sky: SkyRadiance | null = null,
 ): Promise<THREE.Object3D> {
   const [gltf, baked] = await Promise.all([
     new GLTFLoader().loadAsync(url),
@@ -476,6 +610,7 @@ export async function loadRoad(
       object.material as THREE.MeshStandardMaterial,
       anisotropy,
       baked,
+      sky,
     );
     object.receiveShadow = true;
     object.castShadow = shadowCasters.test(object.name);
@@ -543,6 +678,7 @@ export class Sunlight {
   readonly direction = new THREE.Vector3();
   private readonly cascades: CSMShadowNode;
   private tick = 0;
+  private scale = 1;
   private readonly reach = new THREE.Sphere();
 
   constructor(
@@ -584,6 +720,10 @@ export class Sunlight {
     this.cascades.fade = true;
     this.sun.shadow.shadowNode = this.cascades;
     scene.add(this.sun, this.sun.target);
+  }
+
+  dim(scale: number): void {
+    this.scale = scale;
   }
 
   refit(): void {
@@ -652,7 +792,7 @@ export class Sunlight {
       .copy(this.direction)
       .multiplyScalar(shadowDistance)
       .add(this.sun.target.position);
-    this.sun.intensity = this.intensity;
+    this.sun.intensity = this.intensity * this.scale;
     this.schedule();
   }
 }

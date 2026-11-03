@@ -86,6 +86,12 @@ const double lapPerSpeed = 0.33;
 const double lapPerPower = 0.25;
 const double simulatedNoise = 0.0018;
 const double retireStuckSeconds = 45.0;
+const double weatherPatienceLow = 4.0;
+const double weatherPatienceHigh = 40.0;
+const double weatherLookLow = 30.0;
+const double weatherLookHigh = 150.0;
+const int hardFromLaps = 28;
+const int mediumFromLaps = 11;
 
 struct Stint
 {
@@ -139,6 +145,19 @@ struct Timing
     int contacts = 0;
     double penalties = 0;
     bool disqualified = false;
+    double weatherDue = 0;
+    double weatherPatience = 0;
+    double weatherLook = 0;
+    bool weatherStop = false;
+};
+
+struct PassEvent
+{
+    double time;
+    int passer;
+    int passed;
+    int position;
+    int lap;
 };
 
 struct Stats
@@ -159,11 +178,13 @@ double difficultyScale = 1.0;
 double referenceLap = defaultReference;
 unsigned seed = 1;
 std::mt19937 rng(1);
+std::mt19937 weatherRng(1);
 std::vector<Timing> timing;
 std::vector<CarPlan> plans;
 std::vector<int> order;
 std::vector<int> previousOrder;
 Stats stats;
+std::vector<PassEvent> passLog;
 int finishers = 0;
 int playerPitCompound = -1;
 int onTrack = -1;
@@ -180,6 +201,11 @@ double uniform(double low, double high)
     return std::uniform_real_distribution<double>(low, high)(rng);
 }
 
+double weatherUniform(double low, double high)
+{
+    return std::uniform_real_distribution<double>(low, high)(weatherRng);
+}
+
 double carProgress(tCarElt *car, double length)
 {
     return (car->_laps - 1) + car->_distFromStartLine / length;
@@ -188,6 +214,23 @@ double carProgress(tCarElt *car, double length)
 bool playerDriven(tCarElt *car)
 {
     return car->index == 0 && !sdPlayerAutopilot();
+}
+
+int tyreFamily(int compound)
+{
+    return compound < 3 ? 0 : compound - 2;
+}
+
+int dryCompoundFor(int lapsLeft)
+{
+    if (lapsLeft > hardFromLaps)
+        return 2;
+    return lapsLeft > mediumFromLaps ? 1 : 0;
+}
+
+int pushCompound()
+{
+    return sdWeatherIdealCompound(sdWeatherFutureLine(0), (int)softCompound);
 }
 
 void recordTiming(tSituation *s, int i, double length)
@@ -284,7 +327,10 @@ void countOvertakes(tSituation *s)
         int up = order[rank];
         int down = order[rank + 1];
         if (before[up] > before[down] && !sdAiInPitLane(down) && !sdAiInPitLane(up) && (s->cars[down]->_state & RM_CAR_STATE_NO_SIMU) == 0)
+        {
             stats.overtakes++;
+            passLog.push_back({s->currentTime, up, down, rank + 1, std::max(1, s->cars[up]->_laps)});
+        }
     }
     previousOrder = order;
 }
@@ -377,9 +423,42 @@ void raceFinish(tSituation *s)
     }
 }
 
+bool weatherCall(tSituation *s, int i)
+{
+    tCarElt *car = s->cars[i];
+    Timing &t = timing[i];
+    int lapsLeft = totalLaps - car->_laps + 1;
+    if (lapsLeft <= 1)
+        return false;
+    double soon = sdWeatherFutureLine(t.weatherLook);
+    double now = sdWeatherFutureLine(0);
+    int fitted = sdTyresCompound(i);
+    int wanted = sdWeatherIdealCompound(std::max(now, soon), dryCompoundFor(lapsLeft));
+    if (soon < now)
+        wanted = sdWeatherIdealCompound(soon, dryCompoundFor(lapsLeft));
+    if (tyreFamily(wanted) == tyreFamily(fitted))
+    {
+        t.weatherDue = 0;
+        return false;
+    }
+    t.weatherDue += s->deltaTime;
+    if (t.weatherDue < t.weatherPatience)
+        return false;
+    t.weatherDue = 0;
+    t.weatherStop = true;
+    t.stintIndex = plans[i].stints.empty() ? 0 : plans[i].stints.size() - 1;
+    sdAiRequestPit(i, wanted, stopTimeBase + weatherUniform(-0.3, 0.6) + sdStewardsOwedTime(i));
+    t.pits++;
+    t.stintStartLap = car->_laps + 1;
+    t.stintStartWear = 0;
+    stats.pits++;
+    return true;
+}
+
 void raceStrategy(tSituation *s)
 {
-    if (sdTyresCompound(0) != playerStartCompound)
+    int playerTyre = sdTyresCompound(0);
+    if (playerTyre != playerStartCompound || sdWeatherWetCompound(playerTyre))
         playerChangedCompound = true;
     for (int i = 0; i < s->_ncars; i++)
     {
@@ -390,7 +469,9 @@ void raceStrategy(tSituation *s)
         const CarPlan &plan = plans[i];
         if (t.finished || t.retired || sdAiInPitLane(i) || sdAiPitPending(i))
             continue;
-        bool hasNext = totalLaps >= shortRaceLaps && t.stintIndex + 1 < plan.stints.size();
+        if (weatherCall(s, i))
+            continue;
+        bool hasNext = !t.weatherStop && totalLaps >= shortRaceLaps && t.stintIndex + 1 < plan.stints.size();
         bool dueNext = hasNext && (double)car->_laps >= std::max(2.0, plan.stints[t.stintIndex + 1].from * totalLaps + t.pitJitter);
         double wearNow = sdTyresWorstWear(i);
         double perLap = car->_laps > t.stintStartLap ? (wearNow - t.stintStartWear) / (car->_laps - t.stintStartLap) : 0.0;
@@ -408,6 +489,8 @@ void raceStrategy(tSituation *s)
         }
         else if (compound == 0)
             compound = 2;
+        if (tyreFamily(compound) == 0)
+            compound = sdWeatherIdealCompound(sdWeatherFutureLine(0), compound);
         sdAiRequestPit(i, compound, stopTimeBase + uniform(-0.3, 0.6) + sdStewardsOwedTime(i));
         t.pits++;
         t.stintStartLap = car->_laps + 1;
@@ -496,7 +579,7 @@ void launchRun(tSituation *s, int i)
 {
     tCarElt *car = s->cars[i];
     Timing &t = timing[i];
-    int compound = humanPlayer(s, i) && playerPitCompound >= 0 ? playerPitCompound : (int)softCompound;
+    int compound = humanPlayer(s, i) && playerPitCompound >= 0 ? playerPitCompound : pushCompound();
     sdServiceCar(i, compound);
     sdCarSetFuel(i, qualifyingFuel);
     if (humanPlayer(s, i))
@@ -677,10 +760,12 @@ void beginRace(tSituation *s)
         sdAiSetTask(i, AI_RACE);
         sdAiSetReaction(i, uniform(reactionLow, reactionHigh));
         timing[i].pitJitter = uniform(-1.2, 1.2) * std::min(1.0, totalLaps / 20.0 + 0.3);
-        if (totalLaps < shortRaceLaps)
-            sdTyresService(i, shortRaceCompound);
-        else if (!plan.stints.empty())
-            sdTyresService(i, plan.stints[0].compound);
+        timing[i].weatherPatience = weatherUniform(weatherPatienceLow, weatherPatienceHigh);
+        timing[i].weatherLook = weatherUniform(weatherLookLow, weatherLookHigh);
+        int dry = totalLaps < shortRaceLaps ? shortRaceCompound : plan.stints.empty() ? sdTyresCompound(i) : plan.stints[0].compound;
+        int start = sdWeatherIdealCompound(sdWeatherFutureLine(0), dry);
+        timing[i].weatherStop = start != dry;
+        sdTyresService(i, start);
     }
 }
 
@@ -732,6 +817,7 @@ void sdSessionBegin(tSituation *s)
     if (kind == KIND_SOLO)
         return;
     rng.seed(seed);
+    weatherRng.seed(seed ^ 0x5bd1e995u);
     int n = s->_ncars;
     timing.assign(n, Timing());
     plans.resize(n);
@@ -740,6 +826,7 @@ void sdSessionBegin(tSituation *s)
     finishers = 0;
     chequered = false;
     stats = Stats();
+    passLog.clear();
     phase = PHASE_RUNNING;
     int capacity = timingPoints * timingLaps;
     for (int i = 0; i < n; i++)
@@ -967,6 +1054,22 @@ EMSCRIPTEN_KEEPALIVE void sdQualifyingTimes(int index, double *out)
 {
     for (int i = 0; i < segments; i++)
         out[i] = timing[index].segmentTimes[i];
+}
+
+EMSCRIPTEN_KEEPALIVE int sdSessionPasses(double *out, int max, int from)
+{
+    int total = (int)passLog.size();
+    for (int k = std::max(0, from); k < total && k - from < max; k++)
+    {
+        const PassEvent &p = passLog[k];
+        double *row = &out[(k - from) * 5];
+        row[0] = p.time;
+        row[1] = p.passer;
+        row[2] = p.passed;
+        row[3] = p.position;
+        row[4] = p.lap;
+    }
+    return total;
 }
 
 EMSCRIPTEN_KEEPALIVE void sdSessionStats(double *out)

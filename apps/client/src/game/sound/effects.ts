@@ -1,4 +1,4 @@
-import { BandPass, OnePole, type Random, sine, sineMask } from "./dsp.ts";
+import { BandPass, OnePole, Random, sine, sineMask } from "./dsp.ts";
 
 const kerbWavelength = 0.565;
 const kerbHarmonics = [
@@ -14,6 +14,48 @@ const brakeGain = 0.008;
 const clickGain = 0.32;
 const impactGain = 1.6;
 const blockRate = (sampleRate: number) => sampleRate / 128;
+const rainGain = 0.07;
+const sprayGain = 0.16;
+const wetSeed = 9173;
+
+export class WetVoice {
+  private readonly random = new Random(wetSeed);
+  private readonly rainLevel: OnePole;
+  private readonly sprayLevel: OnePole;
+  private readonly patter: BandPass;
+  private readonly hiss: BandPass;
+  private readonly wash: BandPass;
+  private rainGain = 0;
+  private sprayGain = 0;
+
+  constructor(sampleRate: number) {
+    this.rainLevel = new OnePole(0, 0.4, blockRate(sampleRate));
+    this.sprayLevel = new OnePole(0, 0.12, blockRate(sampleRate));
+    this.patter = new BandPass(3200, 0.7, sampleRate);
+    this.hiss = new BandPass(5200, 0.9, sampleRate);
+    this.wash = new BandPass(900, 0.6, sampleRate);
+  }
+
+  render(out: Float32Array, rain: number, spray: number): void {
+    const rainStart = this.rainGain;
+    const sprayStart = this.sprayGain;
+    this.rainGain = this.rainLevel.step(rain);
+    this.sprayGain = this.sprayLevel.step(spray);
+    if (Math.max(rainStart, this.rainGain, sprayStart, this.sprayGain) < 1e-4)
+      return;
+    const rainStep = (this.rainGain - rainStart) / out.length;
+    const sprayStep = (this.sprayGain - sprayStart) / out.length;
+    for (let i = 0; i < out.length; i++) {
+      const noise = this.random.next();
+      const r = (rainStart + rainStep * i) * rainGain;
+      const s = (sprayStart + sprayStep * i) * sprayGain;
+      out[i] =
+        (out[i] ?? 0) +
+        r * this.patter.tick(noise) +
+        s * (this.hiss.tick(noise) + 0.7 * this.wash.tick(noise));
+    }
+  }
+}
 
 export class KerbVoice {
   private readonly level: OnePole;

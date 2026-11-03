@@ -53,5 +53,6 @@ bool sdAiGridPose(int slot, double *x, double *y, double *yaw);
 bool sdAiBoxOf(int bay, double *distance, double *lateral);
 double sdAiWrap(double distance);
 double sdAiLength();
+bool sdAiLineLateral(double distance, double *lateral);
 
 #endif

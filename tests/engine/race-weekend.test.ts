@@ -9,6 +9,7 @@ import {
   carPoses,
   carStatus,
   gridOf,
+  passesOf,
   qualifyingTimes,
   runUntilComplete,
   sessionKind,
@@ -150,6 +151,11 @@ describe.runIf(existsSync(wasm))("race weekend on the real engine", () => {
     const [slower, quicker] = timingOf(m, 2);
     expect(quicker?.position).toBeLessThan(slower?.position ?? 0);
     expect(statsOf(m).overtakes).toBeGreaterThanOrEqual(1);
+    const passes = passesOf(m);
+    expect(passes).toHaveLength(statsOf(m).overtakes);
+    expect(passes).toContainEqual(
+      expect.objectContaining({ passer: 1, passed: 0, position: 1 }),
+    );
     expect(statsOf(m).contacts).toBe(0);
     expect(statsOf(m).walls).toBe(0);
   });

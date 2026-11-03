@@ -20,6 +20,9 @@ import {
   toggleBoost,
 } from "./game/energy.ts";
 import {
+  carField,
+  carStride,
+  carWheel,
   Engine,
   frameIndex,
   loadSpeedDreams,
@@ -35,6 +38,7 @@ import {
   rememberDriver,
 } from "./game/api.ts";
 import { playBuildUp, type Weather } from "./game/buildup.ts";
+import type { GridSpot } from "./game/buildup-shots.ts";
 import { FrontEnd } from "./game/front-end.ts";
 import {
   Hud,
@@ -55,6 +59,8 @@ import {
   nextCompound,
   wearScale,
 } from "./game/tyres.ts";
+import { idealCompound } from "./game/weather.ts";
+import { InstantReplay } from "./game/instant-replay.ts";
 import { LapTrace } from "./game/laptrace.ts";
 import { Menu } from "./game/menu.ts";
 import type { CarStatus } from "./game/mfd.ts";
@@ -64,6 +70,7 @@ import { RaceLog } from "./game/race-log.ts";
 import { loadReference, rememberReference } from "./game/reference.ts";
 import { fetchJson, Scene } from "./game/scene.ts";
 import { GameSound, openAudio } from "./game/sound/game-sound.ts";
+import { Music } from "./game/sound/music.ts";
 import { StartLights } from "./game/start-lights.ts";
 import {
   pitPenaltyFor,
@@ -73,7 +80,15 @@ import {
 } from "./game/stewards.ts";
 import { surname } from "./game/tower.ts";
 import { Studio } from "./game/studio.ts";
-import { type PlayerSeat, startingGrid } from "./game/teams.ts";
+import {
+  fieldGrid,
+  type GridEntry,
+  gridOrder,
+  type PlayerSeat,
+  seatDriver,
+  startingGrid,
+  teamOf,
+} from "./game/teams.ts";
 import {
   applySettings,
   carOf,
@@ -253,7 +268,14 @@ function raceControls(
   let tyreChoice: number | null = null;
   const tyreWanted = () => {
     const fitted = engine.tyreInfo().compound;
-    return tyreChoice ?? (race ? nextCompound(fitted) : fitted);
+    if (tyreChoice !== null) return tyreChoice;
+    if (!race) return fitted;
+    const weather = engine.weather();
+    return idealCompound(
+      Math.max(weather.lineWater, weather.forecast[0] ?? 0),
+      weather,
+      fitted > 2 ? 1 : nextCompound(fitted),
+    );
   };
   const pickTyre = (compound: number) => {
     tyreChoice = compound;
@@ -348,8 +370,9 @@ function raceControls(
 }
 
 const wearShortestRace = 28;
-const pitCompounds = 3;
+const pitCompounds = 5;
 const stewardPeriod = 0.1;
+const damagePeriod = 0.1;
 const fieldReferenceLap = 97.5;
 
 function raceSystems(
@@ -368,6 +391,8 @@ function raceSystems(
       formationLap: settings.formationLap && stage === "race",
       rollingStart: settings.startType === "rolling" && stage === "race",
     },
+    dynamicWeather: settings.rain === "dynamic",
+    weatherSeed: Math.floor(Math.random() * 1_000_000) + 1,
     compound: stage === "qualifying" ? 0 : compoundIndex(settings.compound),
     wearScale: wearScale(
       stage === "qualifying" ? "real" : settings.tyreWear,
@@ -558,16 +583,56 @@ interface BuildUpContext {
   seek: string | null;
   kind: "practice" | "race";
   slot: number;
+  field: WeekendPlan | null;
+  music: Music;
+}
+
+function parkedCars(live: Float64Array): Float64Array {
+  const cars = Float64Array.from(live);
+  for (let at = 0; at < cars.length; at += carStride) {
+    cars[at + carField.steer] = 0;
+    for (let wheel = 0; wheel < 4; wheel++)
+      cars[at + carWheel.from + wheel * carWheel.stride + carWheel.yaw] = 0;
+  }
+  return cars;
+}
+
+function gridLineup(
+  seat: PlayerSeat,
+  slot: number,
+  field: WeekendPlan | null,
+  frame: Float64Array,
+  cars: Float64Array | null,
+): { grid: GridEntry[]; spots: GridSpot[] } {
+  if (!field || !cars) return { grid: startingGrid(seat, slot), spots: [] };
+  const spotOf = (index: number): GridSpot =>
+    index === 0
+      ? {
+          distance: frame[frameIndex.distFromStart] ?? 0,
+          lateral: frame[frameIndex.toMiddle] ?? 0,
+        }
+      : {
+          distance: cars[index * carStride + carField.distance] ?? 0,
+          lateral: cars[index * carStride + carField.toMiddle] ?? 0,
+        };
+  return {
+    grid: fieldGrid(seat, field.entrants, field.slots),
+    spots: gridOrder(field.slots).map(spotOf),
+  };
 }
 
 async function runBuildUp(context: BuildUpContext): Promise<void> {
   const { renderer, scene, draw, engine, settings, seat, seek, kind, slot } =
     context;
+  const { field, music } = context;
   setStatus("Preparing the grid…");
   const opening = engine.update(performance.now() / 1000);
   scene.updateTyres(opening, engine.tyreInfo());
   scene.update(opening);
   const length = engine.trackLength();
+  const cars = field ? parkedCars(engine.cars()) : null;
+  const lineup = gridLineup(seat, slot, field, opening, cars);
+  scene.atmosphere.detail = true;
   await playBuildUp(
     {
       renderer,
@@ -577,7 +642,12 @@ async function runBuildUp(context: BuildUpContext): Promise<void> {
       track: (d, l) => engine.trackPoint(((d % length) + length) % length, l),
       trackLength: length,
       kind,
-      grid: startingGrid(seat, slot),
+      grid: lineup.grid,
+      spots: lineup.spots,
+      field: cars,
+      onStage: (id) => {
+        if (id === "wipe") music.stop();
+      },
       playerDistance: opening[frameIndex.distFromStart] ?? 0,
       playerLateral: opening[frameIndex.toMiddle] ?? 0,
       playerSlot: slot,
@@ -587,10 +657,13 @@ async function runBuildUp(context: BuildUpContext): Promise<void> {
     document.body,
     () => {
       setStatus("");
+      music.play("buildup");
     },
   ).catch(() => {
     setStatus("");
   });
+  scene.atmosphere.detail = false;
+  music.stop();
 }
 
 function raceLog(
@@ -647,16 +720,21 @@ async function enterGame(
   renderer: THREE.WebGPURenderer,
   settings: Settings,
   menu: Menu,
+  music: Music,
 ): Promise<Driver> {
   const studio = new Studio(renderer);
   const front = new FrontEnd(element("[data-front=root]"), studio);
   front.open();
+  music.opening();
   setStatus("");
   void studio.preloadTeams();
   let driver = await currentDriver();
   for (;;) {
     driver ??= await front.welcome();
-    if (!driver.onboarded) driver = await front.onboard(driver);
+    if (!driver.onboarded) {
+      music.play("menu");
+      driver = await front.onboard(driver);
+    }
     rememberDriver(driver);
     const choice = await front.hub(driver);
     if (choice.action === "signout") {
@@ -668,6 +746,7 @@ async function enterGame(
     rememberDriver(driver);
     settings.car = driver.team ?? settings.car;
     front.close();
+    music.play("menu");
     const action = await menu.run(false);
     if (action === "start") break;
     front.open();
@@ -681,9 +760,10 @@ async function signIn(
   renderer: THREE.WebGPURenderer,
   settings: Settings,
   menu: Menu,
+  music: Music,
 ): Promise<Driver | null> {
   if (autostart) return currentDriver();
-  const driver = await enterGame(renderer, settings, menu);
+  const driver = await enterGame(renderer, settings, menu, music);
   saveWeekend(null);
   return driver;
 }
@@ -733,17 +813,21 @@ async function main(): Promise<void> {
   const settings = loadSettings(params);
   const source = setupSource(module);
   const menu = new Menu(source, settings);
+  const music = new Music(() => settings.musicVolume / 100);
 
   const autostart = consumeAutostart(params);
-  const driver = await signIn(autostart, renderer, settings, menu);
+  const driver = await signIn(autostart, renderer, settings, menu, music);
   const audio = openAudio();
 
   const track = trackOf(settings);
   const setup = prepareSession(settings);
+  const seek = params.get("buildup");
+  if (wantsBuildUp(settings, setup, autostart, seek)) music.preload("buildup");
   const { stage, field, plan } = setup;
   const log = raceLog(driver, settings, stage);
   const lights = chooseLights(stage, params);
   const car = carOf(settings);
+  const seat = playerSeat(driver, car.id);
   applySettings(source, settings, stage);
   setStatus(`Loading ${track.label}…`);
   const engine = Engine.start(
@@ -807,6 +891,12 @@ async function main(): Promise<void> {
   resize();
 
   let pitPressed = false;
+  let damageClock = 0;
+  let replay: InstantReplay | null = null;
+  let pitPhase = "track";
+  const openReplay = () => {
+    if (!finished()) replay?.open(performance.now() / 1000);
+  };
   let buildingUp = false;
   let paused = false;
   let ended = false;
@@ -817,10 +907,11 @@ async function main(): Promise<void> {
     paused = true;
     sound.mute(true);
     void menu.run(true).then((action) => {
-      if (action === "resume") {
+      if (action === "resume" || action === "replay") {
         hud.setParts(settings.hud);
         paused = false;
         sound.mute(false);
+        if (action === "replay") openReplay();
         return;
       }
       restart(true);
@@ -840,8 +931,18 @@ async function main(): Promise<void> {
     if (down) engine.viewKey(code, event.ctrlKey);
     engine.key(code, down);
   };
+  const replayKey = (down: boolean, event: KeyboardEvent): boolean => {
+    if (replay?.active) {
+      replay.key(event, down);
+      return true;
+    }
+    const wanted =
+      down && event.key.toLowerCase() === "r" && !event.repeat && !paused;
+    if (wanted) openReplay();
+    return wanted;
+  };
   const onKey = (down: boolean) => (event: KeyboardEvent) => {
-    if (buildingUp) return;
+    if (buildingUp || replayKey(down, event)) return;
     if (event.key === "Escape") {
       event.preventDefault();
       if (down && !event.repeat) pause();
@@ -855,10 +956,31 @@ async function main(): Promise<void> {
   const layout = await pitLayout(engine, field);
   const pit = new PitStop(layout, settings.pitExperience === "broadcast");
   scene.placePit(layout, (d, l) => engine.trackPoint(d, l));
+  scene.setWeather(engine.weather());
   scene.update(engine.update(performance.now() / 1000));
   setStatus("Preparing circuit…");
   await scene.warmUp(renderer, draw);
   setStatus("");
+  replay = new InstantReplay({
+    engine,
+    scene,
+    hud,
+    trace,
+    root: element("[data-replay-root]"),
+    reelRoot: element("[data-reel-root]"),
+    hidden: [hudRoot, element("[data-hud=labels]")],
+    names: field
+      ? field.entrants.map((entrant) =>
+          entrant.player ? "You" : seatDriver(seat, entrant).last,
+        )
+      : ["You"],
+    totalLaps: stage === "race" ? settings.laps : null,
+    onTrack: () =>
+      pitPhase === "track" && !finished() && (flow?.flashbackAllowed ?? true),
+    mute: (muted) => {
+      sound.mute(muted);
+    },
+  });
   document.body.dataset["driveStatus"] = "running";
 
   const startFuel = engine.hudInfo().fuel;
@@ -880,6 +1002,7 @@ async function main(): Promise<void> {
     ended = true;
     log?.finish();
     sound.mute(true);
+    music.play("menu");
     window.setTimeout(() => {
       showResults(hud, sessionTitle(track.label, sessionLabel(stage), status));
     }, 1500);
@@ -933,6 +1056,7 @@ async function main(): Promise<void> {
       hud,
       pit,
       sound,
+      music,
       canvas,
       hudRoot,
       labelsRoot: element("[data-hud=labels]"),
@@ -942,6 +1066,11 @@ async function main(): Promise<void> {
       stage,
       field,
       restart,
+      celebrate: (done) =>
+        replay.celebrate(
+          { first: seat.first, last: seat.last, team: teamOf(seat.team).name },
+          done,
+        ),
     });
     flow.start();
   };
@@ -980,12 +1109,17 @@ async function main(): Promise<void> {
     watchStewards(steward, now);
     const rc = watchRaceControl();
     scene.updateSafetyCar(engine.safetyCarPose(), rc.safetyCarLights, now);
+    pitPhase = control.phase;
     if (flow) flow.update(now);
     else armOvertake(frame);
+    replay.record(frame, scene.fieldCars);
     const tyres = engine.tyreInfo();
     const energy = engine.energyInfo();
     const speedKph = Math.abs(frame[frameIndex.speed] ?? 0) * 3.6;
+    const weather = engine.weather();
     const audio = engine.carAudio(frame);
+    audio.rain = weather.rain;
+    audio.water = weather.carWater;
     const rumble = scene.feel(
       audio.wheels,
       audio.speed,
@@ -1000,6 +1134,11 @@ async function main(): Promise<void> {
       energy.battery / energy.capacity,
       ersModes[energy.mode]?.label ?? "",
     );
+    scene.setWeather(weather);
+    if (now - damageClock > damagePeriod) {
+      damageClock = now;
+      scene.setDamage(engine.carsDamage(), frame);
+    }
     scene.update(frame);
     const info = engine.hudInfo();
     scene.setDash(info);
@@ -1012,7 +1151,7 @@ async function main(): Promise<void> {
     );
     sound.update(audio);
     const status = engine.carStatus();
-    hud.update(frame, info, tyres, energy, status, now, steward);
+    hud.update(frame, info, tyres, energy, status, now, steward, weather);
     hud.updatePit(control);
     watchBest();
     if (!flow && status.stopped) finishRace(status);
@@ -1025,7 +1164,6 @@ async function main(): Promise<void> {
     flow?.update(now);
     scene.update(frame);
   };
-  const seek = params.get("buildup");
   if (wantsBuildUp(settings, setup, autostart, seek)) {
     buildingUp = true;
     sound.mute(true);
@@ -1035,20 +1173,28 @@ async function main(): Promise<void> {
       draw,
       engine,
       settings,
-      seat: playerSeat(driver, car.id),
+      seat,
       seek,
       kind: stage === "race" ? "race" : "practice",
       slot: gridSlot(setup, scene),
+      field,
+      music,
     });
     markBuildUpPlayed(setup);
     buildingUp = false;
     sound.mute(false);
     engine.update(performance.now() / 1000);
   }
+  music.stop();
   hudRoot.hidden = false;
   openWeekend();
   void renderer.setAnimationLoop(() => {
     const now = performance.now() / 1000;
+    if (replay.active) {
+      replay.frame(now);
+      draw();
+      return;
+    }
     const afterRace = flow?.finished === true;
     if (afterRace) afterFlag(now);
     else if (!paused && !ended) step(now);

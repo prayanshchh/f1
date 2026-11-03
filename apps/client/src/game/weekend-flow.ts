@@ -9,6 +9,7 @@ import type { PitStop } from "./pitstop.ts";
 import type { Scene } from "./scene.ts";
 import type { Settings } from "./settings.ts";
 import type { GameSound } from "./sound/game-sound.ts";
+import type { Music } from "./sound/music.ts";
 import { penaltyBadge } from "./stewards.ts";
 import { CarLabels } from "./tower.ts";
 import {
@@ -36,6 +37,7 @@ export interface WeekendContext {
   hud: Hud;
   pit: PitStop;
   sound: GameSound;
+  music: Music;
   canvas: HTMLCanvasElement;
   hudRoot: HTMLElement;
   labelsRoot: HTMLElement;
@@ -45,6 +47,7 @@ export interface WeekendContext {
   stage: Stage;
   field: WeekendPlan;
   restart: (autostart: boolean) => void;
+  celebrate: (done: () => void) => boolean;
 }
 
 export class WeekendFlow {
@@ -78,6 +81,14 @@ export class WeekendFlow {
             }
           : null,
     });
+  }
+
+  get flashbackAllowed(): boolean {
+    return (
+      !this.finished &&
+      !this.garage.open &&
+      this.ctx.engine.session().phase === sessionPhase.running
+    );
   }
 
   start(): void {
@@ -178,7 +189,8 @@ export class WeekendFlow {
   }
 
   private segmentResults(): void {
-    const { engine, field, trackLabel, restart } = this.ctx;
+    const { engine, field, trackLabel, restart, music } = this.ctx;
+    music.play("menu");
     const info = engine.session();
     const name = segmentNames[info.segment] ?? "Q";
     const next = segmentNames[info.segment + 1];
@@ -225,6 +237,7 @@ export class WeekendFlow {
       return;
     }
     hideClassification();
+    this.ctx.music.stop();
     this.startSegment();
   }
 
@@ -250,10 +263,30 @@ export class WeekendFlow {
   }
 
   private raceFinished(): void {
-    const { engine, sound, field, trackLabel, restart } = this.ctx;
+    const { engine, sound, music } = this.ctx;
     this.finished = true;
     engine.autopilot(true);
     sound.mute(true);
+    this.timing = engine.timing();
+    const mine = this.timing.find((row) => row.index === 0);
+    const won =
+      mine !== undefined &&
+      mine.finished &&
+      !mine.disqualified &&
+      mine.position === 1;
+    const results = () => {
+      this.raceResults();
+    };
+    if (won && this.ctx.celebrate(results)) {
+      music.play("victory");
+      return;
+    }
+    music.play("menu");
+    results();
+  }
+
+  private raceResults(): void {
+    const { engine, field, trackLabel, restart } = this.ctx;
     this.timing = engine.timing();
     showClassification(
       `${trackLabel} - Race`,

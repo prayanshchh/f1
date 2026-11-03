@@ -24,6 +24,18 @@ export interface StoredReference {
 
 const lineSlack = 30;
 
+export interface LapTraceState {
+  current: Float64Array;
+  best: Float64Array | null;
+  bestSectors: number[];
+  fastestSectors: number[];
+  lastDistance: number;
+  lap: number;
+  sectorTimes: (number | null)[];
+  sectorStatus: SectorState["status"];
+  sectorDeltas: SectorState["deltas"];
+}
+
 export class LapTrace {
   private current: Float64Array;
   private fromLine = false;
@@ -51,6 +63,36 @@ export class LapTrace {
     );
     this.sectorStatus = this.sectorTimes.map(() => null);
     this.sectorDeltas = this.sectorTimes.map(() => null);
+  }
+
+  save(): LapTraceState {
+    return {
+      current: this.current.slice(),
+      best: this.best ? this.best.slice() : null,
+      bestSectors: [...this.bestSectors],
+      fastestSectors: [...this.fastestSectors],
+      lastDistance: this.lastDistance,
+      lap: this.lap,
+      sectorTimes: [...this.sectorTimes],
+      sectorStatus: [...this.sectorStatus],
+      sectorDeltas: [...this.sectorDeltas],
+    };
+  }
+
+  load(state: LapTraceState): void {
+    this.current = state.current.slice();
+    this.best = state.best ? state.best.slice() : null;
+    this.bestSectors = [...state.bestSectors];
+    this.fastestSectors.splice(
+      0,
+      this.fastestSectors.length,
+      ...state.fastestSectors,
+    );
+    this.lastDistance = state.lastDistance;
+    this.lap = state.lap;
+    this.sectorTimes = [...state.sectorTimes];
+    this.sectorStatus = [...state.sectorStatus];
+    this.sectorDeltas = [...state.sectorDeltas];
   }
 
   get bestTime(): number | null {

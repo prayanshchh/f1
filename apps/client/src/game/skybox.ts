@@ -5,11 +5,16 @@ import {
   asin,
   atan,
   float,
+  Fn,
   fract,
+  If,
+  max,
   min,
   mix,
+  mx_fractal_noise_float,
   normalize,
   positionLocal,
+  smoothstep,
   texture,
   uniform,
   vec2,
@@ -41,6 +46,13 @@ const skyNames = [
 ] as const;
 const nightElevation = (-8 * Math.PI) / 180;
 const nightDim = 0.3;
+const overcastLevel = 0.9;
+const overcastZenith = 0.68;
+const overcastGround = 0.8;
+const overcastTint = new THREE.Vector3(0.93, 0.96, 1.0);
+const cloudScale = 1.4;
+const cloudContrast = 0.22;
+const cloudDrift = 0.004;
 
 export interface SkyMeta {
   elevation: number;
@@ -88,16 +100,33 @@ async function chooseSky(
 export class SkyBox {
   readonly mesh: THREE.Mesh;
   readonly environmentRotation = new THREE.Euler();
+  readonly overcast = uniform(0);
+  readonly overcastLight = uniform(1);
+  readonly cloudTime = uniform(0);
   private readonly kappa = uniform(0);
   private readonly rotation = new THREE.Matrix4();
 
   private constructor(
-    sky: THREE.Texture,
+    private readonly sky: THREE.Texture,
     readonly environment: THREE.Texture,
     readonly meta: SkyMeta,
     private readonly darkness: number,
   ) {
-    const direction = normalize(positionLocal);
+    const material = new THREE.MeshBasicNodeMaterial({
+      side: THREE.BackSide,
+      depthTest: false,
+      depthWrite: false,
+    });
+    material.colorNode = this.radiance(normalize(positionLocal));
+    this.mesh = new THREE.Mesh(
+      new THREE.SphereGeometry(domeRadius, 64, 32),
+      material,
+    );
+    this.mesh.renderOrder = -10;
+    this.mesh.frustumCulled = false;
+  }
+
+  radiance(direction: THREE.Node<"vec3">, detailed = true): THREE.Node<"vec3"> {
     const u = fract(
       this.kappa
         .sub(atan(direction.y, direction.x))
@@ -105,21 +134,45 @@ export class SkyBox {
         .add(0.5),
     );
     const fromTop = float(0.5).sub(asin(direction.z).div(Math.PI));
-    const v = float(1).sub(fromTop.div(meta.keepTop));
-    const material = new THREE.MeshBasicNodeMaterial({
-      side: THREE.BackSide,
-      depthTest: false,
-      depthWrite: false,
-    });
-    const radiance = min(texture(sky, vec2(u, v)).rgb, vec3(sunPeak));
+    const v = float(1).sub(fromTop.div(this.meta.keepTop));
+    const radiance = min(texture(this.sky, vec2(u, v)).rgb, vec3(sunPeak));
     const grey = radiance.dot(vec3(0.2126, 0.7152, 0.0722));
-    material.colorNode = mix(vec3(grey), radiance, skySaturation).mul(skyGain);
-    this.mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(domeRadius, 64, 32),
-      material,
+    const clear = mix(vec3(grey), radiance, skySaturation).mul(skyGain);
+    const [hr = 1, hg = 1, hb = 1] = this.meta.horizon;
+    const horizon = (0.2126 * hr + 0.7152 * hg + 0.0722 * hb) * skyGain;
+    const up = smoothstep(0, 0.85, direction.z);
+    const gradient = mix(float(1), float(overcastZenith), up).mul(
+      mix(
+        float(overcastGround),
+        float(1),
+        smoothstep(-0.05, 0.02, direction.z),
+      ),
     );
-    this.mesh.renderOrder = -10;
-    this.mesh.frustumCulled = false;
+    const plane = direction.xy
+      .div(max(direction.z, 0.06))
+      .mul(cloudScale)
+      .add(vec2(this.cloudTime.mul(cloudDrift), 0));
+    const clouds = detailed
+      ? float(1).add(
+          mx_fractal_noise_float(vec3(plane, this.cloudTime.mul(0.002)), 3)
+            .mul(cloudContrast)
+            .mul(up.max(0.15)),
+        )
+      : float(1);
+    const cloudy = vec3(overcastTint.x, overcastTint.y, overcastTint.z).mul(
+      gradient
+        .mul(clouds)
+        .mul(horizon * overcastLevel)
+        .mul(this.overcastLight),
+    );
+    if (!detailed) return mix(clear, cloudy, this.overcast);
+    return Fn(() => {
+      const result = clear.toVar();
+      If(this.overcast.greaterThan(0), () => {
+        result.assign(mix(clear, cloudy, this.overcast));
+      });
+      return result;
+    })();
   }
 
   static async load(elevation: number, afternoon: boolean): Promise<SkyBox> {

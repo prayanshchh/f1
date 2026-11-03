@@ -113,6 +113,7 @@ const double slideCatchGain = 1.2;
 const double slideCatchSpeed = 5.0;
 const double slowCornerFloor = 8.0;
 const double launchRevs = 2.0;
+const double parkedSpeed = 0.5;
 
 struct PitLayout
 {
@@ -208,6 +209,9 @@ struct Driver
     double slide = 0;
     double outLapGap = 0;
     double grip = 1.0;
+    double wet = 1.0;
+    double wetLine = 1.0;
+    double wetOff = 1.0;
     double gripClock = 0;
     double weight = 1.0;
 };
@@ -574,7 +578,16 @@ double clampLateral(double s, double l)
 
 double gripScale(const Driver &driver)
 {
-    return sqrt(std::max(0.4, driver.grip) * driver.weight);
+    return sqrt(std::max(0.4, driver.grip / driver.wet) * driver.weight);
+}
+
+double wetScale(const Driver &driver, double v, double d)
+{
+    double g = driver.wetOff + (driver.wetLine - driver.wetOff) * sdWeatherLineShare(d);
+    if (g >= 1.0)
+        return 1.0;
+    double aero = gripAero * v * v;
+    return sqrt(g * gripFloor / (gripFloor + (1.0 - g) * aero));
 }
 
 double driverScale(const Driver &driver)
@@ -598,7 +611,8 @@ double taskSpeedFactor(const Driver &driver, double s)
 
 double targetSpeedAt(const Driver &driver, double s, double d)
 {
-    return laneSpeedAt(s, d) * driverScale(driver) * taskSpeedFactor(driver, s);
+    double lane = laneSpeedAt(s, d);
+    return lane * wetScale(driver, lane, d) * driverScale(driver) * taskSpeedFactor(driver, s);
 }
 
 bool sdFieldPlayerOnAi()
@@ -676,7 +690,7 @@ void updateForecasts(tSituation *s)
         bodyExtent(angle, lengthCar, widthCar, &f.halfLat[0], &f.halfLong[0]);
         for (int k = 1; k <= planSteps; k++)
         {
-            double limit = ai ? targetSpeedAt(driver, f.s[k - 1], d) : lost ? offTrackSpeed : laneSpeedAt(f.s[k - 1], d) * gripScale(driver);
+            double limit = ai ? targetSpeedAt(driver, f.s[k - 1], d) : lost ? offTrackSpeed : laneSpeedAt(f.s[k - 1], d) * gripScale(driver) * wetScale(driver, laneSpeedAt(f.s[k - 1], d), d);
             limit = std::min(limit, pitSpeedCap(driver, f.s[k - 1]));
             if (ai && (driver.task == AI_PARKED || driver.task == AI_GARAGE))
                 limit = 0;
@@ -1408,6 +1422,14 @@ double sdAiLength()
     return model.length;
 }
 
+bool sdAiLineLateral(double distance, double *lateral)
+{
+    if (!model.ready || model.count == 0)
+        return false;
+    *lateral = sampled(model.line, distance);
+    return true;
+}
+
 bool sdAiLoadTrack(tTrack *track)
 {
     std::string path = std::string(GfDataDir()) + "tracks/circuit/cota/ai.dat";
@@ -1852,6 +1874,9 @@ void sdAiDrive(int index, tCarElt *car, tSituation *s)
     {
         driver.gripClock = 1.0;
         driver.grip = sdTyresWeakestAxle(index);
+        driver.wet = std::max(0.3, std::min(1.0, sdTyresWetShare(index)));
+        driver.wetLine = std::max(0.3, std::min(1.0, sdTyresWetShareAt(index, sdWeatherWaterAt(car->_distFromStartLine, sampled(model.line, car->_distFromStartLine)))));
+        driver.wetOff = std::max(0.3, std::min(1.0, sdTyresWetShareAt(index, sdWeatherWaterAt(car->_distFromStartLine, sampled(model.line, car->_distFromStartLine) + 9.0))));
         double fuelShare = (double)car->_fuel / std::max(1.0f, car->_tank);
         driver.weight = 1.0 - 0.09 * fuelShare;
     }
@@ -1942,7 +1967,11 @@ void sdAiDrive(int index, tCarElt *car, tSituation *s)
     upcoming = std::min(upcoming, safe);
     double offset = lateral - laneLateralAt(pos, driver.lane);
     const auto path = [&](double at) { return clampLateral(at, laneLateralAt(at, driver.lane) + offset); };
-    car->_steerCmd = (tdble)steerFor(driver, car, lateral, path, dt);
+    if (sdRaceControlFormation() && target < parkedSpeed && fabs(v) < parkedSpeed)
+        driver.steer = 0.0;
+    else
+        driver.steer = steerFor(driver, car, lateral, path, dt);
+    car->_steerCmd = (tdble)driver.steer;
     applyPedals(driver, car, target, upcoming, dt);
     car->_gearCmd = chooseGear(car);
 }

@@ -47,6 +47,24 @@ export const shots = {
 
 const gridRowGap = 8;
 
+export interface GridSpot {
+  distance: number;
+  lateral: number;
+}
+
+export function gridPairShot(front: GridSpot, back: GridSpot): Shot {
+  const side = Math.sign(front.lateral - back.lateral) || 1;
+  const outside = front.lateral + side * 3.2;
+  const across = front.lateral - side * 3.2;
+  return {
+    eyeFrom: at(front.distance + 12.5, outside, 2.3),
+    eyeTo: at(front.distance + 11, outside - side * 0.3, 1.9),
+    lookFrom: at(front.distance - 6.5, across, 0.6),
+    lookTo: at(front.distance - 7.2, across, 0.6),
+    fov: 26,
+  };
+}
+
 export function walkShot(
   index: number,
   playerDistance: number,

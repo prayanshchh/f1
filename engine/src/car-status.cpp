@@ -560,6 +560,15 @@ EMSCRIPTEN_KEEPALIVE void sdCarStatus(double *out)
     out[7 + PART_COUNT] = sdDamagePower(0);
 }
 
+EMSCRIPTEN_KEEPALIVE int sdCarsDamage(double *out)
+{
+    int cars = ReInfo->s->_ncars;
+    for (int c = 0; c < cars && c < (int)field.size(); c++)
+        for (int i = 0; i < PART_COUNT; i++)
+            out[c * PART_COUNT + i] = share(field[c], i);
+    return PART_COUNT;
+}
+
 EMSCRIPTEN_KEEPALIVE void sdCarDamageSet(int part, double value)
 {
     if (part >= 0 && part < PART_COUNT)

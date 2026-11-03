@@ -12,6 +12,7 @@ const leaveAfterLap = 2;
 const headingProbe = 2;
 const envStrength = 1;
 const atlasMaterials = new Set(["body", "cockpit", "helmet"]);
+const anisotropy = 16;
 const textured = ["position", "normal", "uv"] as const;
 const plain = ["position", "normal"] as const;
 
@@ -28,6 +29,7 @@ type TrackPoint = (
 function textureOf(url: string, sRgb: boolean): THREE.Texture {
   const map = releaseOnceUploaded(new THREE.TextureLoader().load(url));
   map.flipY = false;
+  map.anisotropy = anisotropy;
   map.colorSpace = sRgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
   return map;
 }

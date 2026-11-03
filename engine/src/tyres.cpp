@@ -143,10 +143,6 @@ double clamp01(double value)
     return std::max(0.0, std::min(1.0, value));
 }
 
-double wetness()
-{
-    return clamp01(ReInfo->track->local.water / 3.0);
-}
 
 double compoundGrip(const Compound &c, double water)
 {
@@ -363,7 +359,10 @@ void sdTyresReset(tCarElt *car)
     }
     state.baseRearDiff = SimCarTable[car->index].transmission.differential[TRANS_REAR_DIFF].type;
     state.lastLap = car->_laps;
-    fit(state, startCompound, 0, 0);
+    int start = startCompound;
+    if (!sdWeatherWetCompound(start))
+        start = sdWeatherIdealCompound(sdWeatherCarWater(car), start);
+    fit(state, start, 0, 0);
 }
 
 void sdTyresService(int index, int compound)
@@ -383,6 +382,23 @@ double sdTyresGrip(int index)
     double total = 0;
     for (const Tyre &tyre : state.tyres)
         total += tyre.grip;
+    return total / 4.0;
+}
+
+double sdTyresWetShareAt(int index, double water)
+{
+    const Compound &c = compounds[field[index].fitted];
+    return compoundGrip(c, water) / compoundGrip(c, 0);
+}
+
+double sdTyresWetShare(int index)
+{
+    const CarTyres &state = field[index];
+    const Compound &c = compounds[state.fitted];
+    tCarElt *car = ReInfo->s->cars[index];
+    double total = 0;
+    for (int i = 0; i < 4; i++)
+        total += compoundGrip(c, sdWeatherWheelWater(car, i)) / compoundGrip(c, 0);
     return total / 4.0;
 }
 
@@ -458,7 +474,6 @@ void sdTyresStep(tCarElt *elt, double dt)
     }
     tCar *car = &SimCarTable[elt->index];
     const Compound &c = compounds[state.fitted];
-    double water = wetness();
     state.flailClock += dt;
     bool rearFlat = isFlat(state.tyres[REAR_RGT]) || isFlat(state.tyres[REAR_LFT]);
     bool player = elt->index == 0;
@@ -468,6 +483,7 @@ void sdTyresStep(tCarElt *elt, double dt)
     {
         tWheel &wheel = car->wheel[i];
         Tyre &tyre = state.tyres[i];
+        double water = sdWeatherWheelWater(elt, i);
         double speed = hypot(wheel.bodyVel.x, wheel.bodyVel.y);
         double power = slipPower(wheel, speed);
         double target = optimalPressure(i);

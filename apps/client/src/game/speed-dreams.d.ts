@@ -94,6 +94,7 @@ declare module "*/wasm/speed-dreams.js" {
     _sdSessionGrid(out: number): number;
     _sdStewardsLights(interval: number): void;
     _sdStewardsMessages(out: number, max: number, after: number): number;
+    _sdSessionPasses(out: number, max: number, from: number): number;
     _sdStewardsCar(index: number, out: number): void;
     _sdStewardsFlags(out: number, max: number): number;
     _sdRaceControlConfigure(
@@ -136,6 +137,11 @@ declare module "*/wasm/speed-dreams.js" {
       brake: number,
     ): void;
     _sdTyresConfigure(compound: number, scale: number): void;
+    _sdWeatherConfigure(dynamic: number, seed: number): void;
+    _sdWeatherInfo(out: number): void;
+    _sdResync(now: number): void;
+    _sdInputRelease(): void;
+    _sdCarsDamage(out: number): number;
     _sdTyresInfo(out: number): void;
     _sdEnergyConfigure(
       race: number,

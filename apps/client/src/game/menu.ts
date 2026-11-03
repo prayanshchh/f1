@@ -22,7 +22,7 @@ import {
   tracks,
 } from "./settings.ts";
 
-export type MenuAction = "start" | "resume" | "restart" | "back";
+export type MenuAction = "start" | "resume" | "restart" | "back" | "replay";
 
 interface Option {
   id: string;
@@ -119,6 +119,8 @@ const tabIntro: Record<string, string> = {
   rules:
     "Choose how the International Motor Racing Federation runs the race: safety cars, red flags, the formation lap and the type of start.",
   osd: "Contains settings that allow you to customise the way the on-screen display is shown.",
+  audio:
+    "Music plays in the menus, the pre-race build-up and after a win. There is no music while you drive.",
   Aerodynamics:
     "Adjust the front and rear wings in order to achieve the desired level of aerodynamic performance and balance.",
   Transmission:
@@ -222,6 +224,9 @@ export class Menu {
     this.find("resume").addEventListener("click", () => {
       this.finish(this.inSession ? "resume" : "back");
     });
+    this.find("replay").addEventListener("click", () => {
+      if (this.inSession) this.finish("replay");
+    });
     window.addEventListener(
       "keydown",
       (event) => {
@@ -240,6 +245,7 @@ export class Menu {
   async run(inSession: boolean): Promise<MenuAction> {
     this.inSession = inSession;
     this.find("resume-label").textContent = inSession ? "Resume" : "Back";
+    this.find("replay").hidden = !inSession;
     this.root.hidden = false;
     this.root.classList.toggle("paused", inSession);
     requestAnimationFrame(() => {
@@ -288,6 +294,9 @@ export class Menu {
       },
       r: () => {
         this.resetTab();
+      },
+      v: () => {
+        if (this.inSession) this.finish("replay");
       },
     };
     const aliases: Record<string, string> = {
@@ -421,6 +430,17 @@ export class Menu {
         rows: () => this.osdRows(),
         reset: () => {
           this.settings.hud = { ...defaults.hud };
+        },
+      },
+      {
+        id: "audio",
+        label: "Audio",
+        title: "Audio",
+        info: tabIntro["audio"] ?? "",
+        setup: false,
+        rows: () => this.audioRows(),
+        reset: () => {
+          this.settings.musicVolume = defaults.musicVolume;
         },
       },
     ];
@@ -912,7 +932,7 @@ export class Menu {
       ),
       this.choice(
         "Rain",
-        "Sets the amount of rain. Wet weather reduces grip.",
+        "Sets the amount of rain. Wet weather reduces grip, and the racing line dries first once the rain stops. Dynamic weather changes through the session and follows the forecast in the multi-function display.",
         choices.rain,
         () => s.rain,
         (id) => {
@@ -1152,6 +1172,27 @@ export class Menu {
       ),
     );
     return rows;
+  }
+
+  private audioRows(): Row[] {
+    const s = this.settings;
+    return [
+      {
+        kind: "number",
+        label: "Music Volume",
+        info: "The volume of the menu, build-up and victory music.",
+        min: 0,
+        max: 100,
+        step: 5,
+        base: defaults.musicVolume,
+        get: () => s.musicVolume,
+        set: (v) => {
+          s.musicVolume = v;
+        },
+        format: (v) => (v === 0 ? "Off" : `${String(v)}%`),
+        range: "Off - 100%",
+      },
+    ];
   }
 
   private osdRows(): Row[] {

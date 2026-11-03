@@ -21,16 +21,17 @@ import type { CameraPose } from "./buildup-shots.ts";
 import type { RacingLineData, RacingLineMode } from "./racing-line.ts";
 import { RacingLineView } from "./racing-line-view.ts";
 import { PitCrew } from "./pit-crew.ts";
-import { uploadEverything } from "./preload.ts";
+import { releaseUploadedImages, uploadEverything } from "./preload.ts";
 import { PitGate } from "./pit-gate.ts";
 import type { PitControl, PitLayout } from "./pitstop.ts";
 import { SkidMarks } from "./skidmarks.ts";
+import { SafetyCar } from "./safety-car.ts";
 import type { StartLights } from "./start-lights.ts";
 import { SdSky } from "./sky.ts";
 import { SkyBox } from "./skybox.ts";
 import { Crowd } from "./crowd.ts";
 import { TyreSmoke } from "./tyre-smoke.ts";
-import { WorldCuller } from "./world-culler.ts";
+import { frustumContains, WorldCuller } from "./world-culler.ts";
 import type { TyreInfo } from "./tyres.ts";
 
 const gateLead = 30;
@@ -71,12 +72,17 @@ export class Scene {
   private readonly sunlight: Sunlight;
   private readonly smoke = new TyreSmoke();
   private readonly moving: THREE.Object3D[];
+  private readonly safetyCar = new SafetyCar();
+  private signalAt = 0;
+  private formation = false;
   private readonly viewFrustum = new THREE.Frustum();
   private mirrorViews: THREE.Frustum[] = [];
   private readonly seen = {
     intersectsSphere: (sphere: THREE.Sphere): boolean =>
       this.viewFrustum.intersectsSphere(sphere) ||
       this.mirrorViews.some((view) => view.intersectsSphere(sphere)),
+    containsSphere: (sphere: THREE.Sphere): boolean =>
+      frustumContains(this.viewFrustum, sphere),
   };
   private readonly viewMatrix = new THREE.Matrix4();
   private warming = false;
@@ -106,7 +112,7 @@ export class Scene {
     readonly crew: PitCrew,
     private readonly lapScale: number,
     private readonly field: FieldCars | null,
-    private readonly lights: StartLights,
+    private lights: StartLights,
   ) {
     this.camera.matrixAutoUpdate = false;
     this.camera.matrixWorldAutoUpdate = false;
@@ -132,12 +138,17 @@ export class Scene {
       horizon[2] ?? 1,
     );
     this.atmosphere.exposure = skyBox.exposure;
-    this.scene.add(this.marks.mesh, this.crew.root, this.gate.mesh);
+    this.scene.add(
+      this.marks.mesh,
+      this.crew.root,
+      this.gate.mesh,
+      this.safetyCar.root,
+    );
     this.moving = [
       skyBox.mesh,
       car.root,
-      this.crew.root,
       this.gate.mesh,
+      this.safetyCar.root,
       ...extras,
     ];
     this.scene.updateMatrixWorld(true);
@@ -218,6 +229,23 @@ export class Scene {
     this.field?.update(cars, this.camera);
   }
 
+  updateSafetyCar(
+    pose: ArrayLike<number> | null,
+    lightsOn: boolean,
+    now: number,
+  ): void {
+    this.safetyCar.update(pose, lightsOn, now);
+  }
+
+  restartLights(lights: StartLights, signalAt: number): void {
+    this.lights = lights;
+    this.signalAt = signalAt;
+  }
+
+  setFormation(on: boolean): void {
+    this.formation = on;
+  }
+
   feel(
     wheels: RumbleWheel[],
     speed: number,
@@ -270,7 +298,7 @@ export class Scene {
 
   renderAuxiliary(renderer: THREE.WebGPURenderer): void {
     this.sunlight.freeze();
-    this.crew.root.visible = true;
+    if (this.warming) this.crew.root.visible = true;
     this.car.renderAuxiliary(renderer, this.scene);
   }
 
@@ -379,7 +407,8 @@ export class Scene {
         onboardReach * onboardReach,
     );
     const time = frame[frameIndex.time] ?? 0;
-    setStartLights(this.cinematic ? 0 : this.lights.lit(time));
+    const lit = this.formation ? 0 : this.lights.lit(time - this.signalAt);
+    setStartLights(this.cinematic ? 0 : lit);
     const sky = this.sky.update(time, time, eyeX, eyeY);
     const [focusX, focusY, focusZ] = this.cinematic?.target ?? [
       eyeX,
@@ -411,11 +440,16 @@ export class Scene {
   }
 
   hideUnseenCrew(): void {
-    if (this.warming) return;
-    this.crewBounds.center.setFromMatrixPosition(this.crew.root.matrixWorld);
-    this.crew.root.visible =
-      this.seen.intersectsSphere(this.crewBounds) ||
-      this.sunlight.intersectsSphere(this.crewBounds);
+    const { root } = this.crew;
+    if (!this.warming) {
+      this.crewBounds.center.setFromMatrixPosition(root.matrix);
+      root.visible =
+        this.seen.intersectsSphere(this.crewBounds) ||
+        this.sunlight.intersectsSphere(this.crewBounds);
+    }
+    if (!root.visible) return;
+    this.crew.prepare();
+    root.updateMatrixWorld();
   }
 
   async warmUp(
@@ -431,6 +465,7 @@ export class Scene {
     });
     this.warming = false;
     releaseCpuCopies(this.road, this.culler.retained());
+    releaseUploadedImages(renderer, this.scene);
   }
 
   updateTyres(frame: Float64Array, tyres: TyreInfo): void {

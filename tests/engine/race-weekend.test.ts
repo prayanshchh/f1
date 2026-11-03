@@ -16,11 +16,15 @@ import {
   sessionPhase,
   startField,
   statsOf,
+  subset,
   timingOf,
   trackPoint,
+  type Weekend,
 } from "../support/race-weekend.ts";
 import { repoRoot } from "../support/repo.ts";
 import { wasm } from "../support/speed-dreams.ts";
+import { offence, stage } from "../../apps/client/src/game/stewards.ts";
+import { type Stewarded, stewardMessages } from "../support/stewards.ts";
 
 const fieldSize = 22;
 const firstSegmentCars = 16;
@@ -89,17 +93,6 @@ function paintedBox(
   };
 }
 
-function subset(plan: WeekendPlan, cars: number): WeekendPlan {
-  const kept = plan.entrants
-    .map((_, index) => index)
-    .sort((a, b) => (plan.slots[a] ?? 0) - (plan.slots[b] ?? 0))
-    .slice(0, cars);
-  return {
-    entrants: kept.flatMap((i) => plan.entrants[i] ?? []),
-    slots: kept.map((_, slot) => slot),
-  };
-}
-
 function headToHead(leaderSpeed: number): WeekendPlan {
   const { entrants } = planWeekend("corvus", 0, null);
   const [player, rival] = entrants;
@@ -138,6 +131,12 @@ describe.runIf(existsSync(wasm))("race weekend on the real engine", () => {
     expect(stats.contacts).toBeLessThanOrEqual(12);
     expect(stats.walls).toBeLessThanOrEqual(4);
     expect(Math.min(...cars.map((c) => c.best))).toBeLessThan(105);
+    const penalties = stewardMessages(m as Weekend & Stewarded).filter(
+      (message) =>
+        message.stage === stage.decision &&
+        message.offence !== offence.penaltyNotServed,
+    );
+    expect(penalties.length).toBeLessThanOrEqual(fieldSize / 5);
   });
 
   test("a quicker car passes a slower one ahead without touching it", async () => {
@@ -161,7 +160,7 @@ describe.runIf(existsSync(wasm))("race weekend on the real engine", () => {
     const m = await startField({
       kind: sessionKind.race,
       laps,
-      seed: 3,
+      seed: 6,
       wear: 2,
       plan,
     });

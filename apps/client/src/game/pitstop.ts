@@ -14,6 +14,12 @@ export interface PitLayout {
 }
 
 export type PitPhase = "track" | "lane" | "boxing" | "service" | "release";
+type PitPenaltyKind = "none" | "time" | "drive-through" | "stop-go";
+
+export interface PitPenalty {
+  kind: PitPenaltyKind;
+  seconds: number;
+}
 export type TurnInGrade = "optimal" | "good" | "early" | "late";
 
 export interface PitCarState {
@@ -45,9 +51,13 @@ export interface PitControl {
   choosingTyres: boolean;
   distanceToBox: number | null;
   speedKph: number;
+  penalty: PitPenalty;
+  penaltyLeft: number | null;
 }
 
 const baseStop = 2.5;
+const stopGoSeconds = 10;
+const noPenalty: PitPenalty = { kind: "none", seconds: 0 };
 const wingChangeTime = 8;
 const turnInLead = 34;
 const countdownShown = 3.5;
@@ -89,6 +99,22 @@ export function stopDuration(grade: TurnInGrade, frontWing = false): number {
   return baseStop + penalties[grade] + (frontWing ? wingChangeTime : 0);
 }
 
+function penaltyHold(penalty: PitPenalty): number {
+  if (penalty.kind === "stop-go") return stopGoSeconds;
+  return penalty.kind === "time" ? penalty.seconds : 0;
+}
+
+function stopWithPenalty(
+  grade: TurnInGrade,
+  frontWing: boolean,
+  penalty: PitPenalty,
+): number {
+  const hold = penaltyHold(penalty);
+  return penalty.kind === "stop-go"
+    ? hold
+    : hold + stopDuration(grade, frontWing);
+}
+
 function ease(t: number): number {
   const c = Math.min(1, Math.max(0, t));
   return c * c * (3 - 2 * c);
@@ -109,6 +135,8 @@ export class PitStop {
   private garageReleased = false;
   private wingRequest = false;
   private wingChange = false;
+  private owed: PitPenalty = noPenalty;
+  private serving: PitPenalty = noPenalty;
 
   constructor(
     private readonly layout: PitLayout,
@@ -149,6 +177,10 @@ export class PitStop {
     this.wingRequest = on;
   }
 
+  setPenalty(penalty: PitPenalty): void {
+    this.owed = penalty;
+  }
+
   shiftAt(distance: number): number {
     const { wallStart, wallEnd, shift, ramp } = this.layout;
     if (this.onArc(distance, wallStart, wallEnd)) return shift;
@@ -168,7 +200,8 @@ export class PitStop {
     const toTurn = this.ahead(car.distance, boxDistance - turnInLead);
     const distance = toTurn > length / 2 ? toTurn - length : toTurn;
     const seconds = distance / Math.max(car.speed, 1);
-    if (seconds >= countdownShown) return null;
+    if (seconds >= countdownShown || this.serving.kind === "drive-through")
+      return null;
     if (pressed || (this.autoTurnIn && seconds <= 0) || seconds < latestPress) {
       this.grade = this.autoTurnIn ? "optimal" : gradeTurnIn(seconds);
       this.phase = "boxing";
@@ -187,7 +220,7 @@ export class PitStop {
     if (toBox > length / 2 || toBox < arrivalDistance || crawling) {
       this.phase = "service";
       this.serviceAt = now;
-      this.wingChange = this.wingRequest;
+      this.wingChange = this.wingRequest && this.serving.kind !== "stop-go";
     }
     return {
       lateral: this.turnLateral + (boxLateral - this.turnLateral) * blend,
@@ -209,7 +242,11 @@ export class PitStop {
 
   private updateService(car: PitCarState, now: number): number {
     if (this.garageMode) return this.updateGarage(car);
-    const duration = stopDuration(this.grade ?? "optimal", this.wingChange);
+    const duration = stopWithPenalty(
+      this.grade ?? "optimal",
+      this.wingChange,
+      this.serving,
+    );
     const elapsed = now - this.serviceAt;
     if (elapsed >= duration && car.laneClear !== false) {
       this.stopTime = duration;
@@ -263,7 +300,10 @@ export class PitStop {
     let countdown: number | null = null;
     let drive: PitDrive | null = null;
     let serviceProgress = 0;
-    if (this.phase === "track" && this.inLane(car)) this.phase = "lane";
+    if (this.phase === "track" && this.inLane(car)) {
+      this.phase = "lane";
+      this.serving = this.owed;
+    }
     if (this.phase === "lane" && !this.serviced)
       countdown = this.updateLane(car, pressed);
     if (this.phase === "boxing") drive = this.updateBoxing(car, look, now);
@@ -273,9 +313,15 @@ export class PitStop {
       serviceProgress = this.updateService(car, now);
     }
     const hold = this.phase === "service";
-    const serviceNow = inService && !hold;
+    const serviceNow = inService && !hold && this.serving.kind !== "stop-go";
     if (this.phase === "release") drive = this.updateRelease(car, look);
     return { countdown, drive, serviceProgress, hold, serviceNow };
+  }
+
+  private penaltyLeft(now: number): number | null {
+    const hold = penaltyHold(this.serving);
+    if (this.phase !== "service" || this.garageMode || hold <= 0) return null;
+    return Math.max(0, hold - (now - this.serviceAt));
   }
 
   update(car: PitCarState, now: number, pressed: boolean): PitControl {
@@ -290,9 +336,10 @@ export class PitStop {
       pitTime: this.laneAt === null ? null : now - this.laneAt,
       stopTime: this.stopTime,
       estimate: this.grade
-        ? stopDuration(
+        ? stopWithPenalty(
             this.grade,
             this.phase === "boxing" ? this.wingRequest : this.wingChange,
+            this.serving,
           )
         : null,
       wingChange: this.wingChange,
@@ -300,9 +347,17 @@ export class PitStop {
         (this.phase === "lane" || this.phase === "boxing") && !this.serviced,
       distanceToBox: this.boxRemaining(car),
       speedKph: Math.abs(car.speed) * 3.6,
+      penalty: this.phase === "track" ? this.owed : this.serving,
+      penaltyLeft: this.penaltyLeft(now),
     };
     if (this.phase === "lane" && !inLimit) this.reset();
     return control;
+  }
+
+  abort(): void {
+    this.reset();
+    this.waiting = false;
+    this.garageReleased = false;
   }
 
   private reset(): void {
@@ -312,6 +367,7 @@ export class PitStop {
     this.stopTime = null;
     this.laneAt = null;
     this.wingChange = false;
+    this.serving = noPenalty;
   }
 }
 

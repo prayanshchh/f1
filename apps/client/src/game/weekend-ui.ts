@@ -250,6 +250,7 @@ export interface ClassificationAction {
 }
 
 function raceGap(row: CarTiming, winner: CarTiming | undefined): string {
+  if (row.disqualified) return "DSQ";
   if (row.retired) return "DNF";
   if (!row.finished)
     return row.lapsDown > 0 ? `+${String(row.lapsDown)} Lap` : "Running";
@@ -270,6 +271,7 @@ function classificationRow(
   entrant: Entrant | undefined,
   leader: CarTiming | undefined,
   mode: "race" | "qualifying",
+  penalty: string,
 ): HTMLTableRowElement {
   const race = mode === "race";
   const tr = document.createElement("tr");
@@ -285,6 +287,7 @@ function classificationRow(
         : qualifyingGap(row, leader?.segmentBest ?? 0),
       "gap",
     ),
+    cell(penalty, "pen"),
   );
   return tr;
 }
@@ -294,6 +297,7 @@ function classificationRows(
   timing: CarTiming[],
   mode: "race" | "qualifying",
   segment: number,
+  penalties: string[],
 ): HTMLTableRowElement[] {
   const order = ranked(timing);
   const danger =
@@ -301,7 +305,13 @@ function classificationRows(
       ? dangerFrom(timing, segment)
       : Infinity;
   return order.map((row, index) => {
-    const tr = classificationRow(row, entrants[row.index], order[0], mode);
+    const tr = classificationRow(
+      row,
+      entrants[row.index],
+      order[0],
+      mode,
+      penalties[row.index] ?? "",
+    );
     tr.style.setProperty("--i", String(index));
     tr.classList.toggle("danger", !row.eliminated && row.position > danger);
     return tr;
@@ -311,10 +321,13 @@ function classificationRows(
 export function updateClassificationRows(
   entrants: Entrant[],
   timing: CarTiming[],
+  penalties: string[],
 ): void {
   const body = find("[data-results=laps]");
   body.classList.add("settled");
-  body.replaceChildren(...classificationRows(entrants, timing, "race", 0));
+  body.replaceChildren(
+    ...classificationRows(entrants, timing, "race", 0, penalties),
+  );
 }
 
 export function showClassification(
@@ -324,11 +337,12 @@ export function showClassification(
   timing: CarTiming[],
   mode: "race" | "qualifying",
   segment: number,
+  penalties: string[],
   actions: ClassificationAction[],
 ): void {
   find("[data-results=tag]").textContent = subtitle;
   find("[data-results=title]").textContent = title;
-  const headers = ["Pos", "Driver", "Team", "Tyre", "Best", "Gap"];
+  const headers = ["Pos", "Driver", "Team", "Tyre", "Best", "Gap", "Pen"];
   find("[data-results=head]").replaceChildren(
     ...headers.map((label) => {
       const th = document.createElement("th");
@@ -338,7 +352,9 @@ export function showClassification(
   );
   const body = find("[data-results=laps]");
   body.classList.remove("settled");
-  body.replaceChildren(...classificationRows(entrants, timing, mode, segment));
+  body.replaceChildren(
+    ...classificationRows(entrants, timing, mode, segment, penalties),
+  );
   body.parentElement?.classList.toggle("compact", timing.length > compactRows);
   find("[data-results=summary]").textContent = "";
   showActions(actions);

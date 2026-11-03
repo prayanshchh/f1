@@ -51,6 +51,9 @@
         <div class="tower-lap">
           Lap <b data-hud="lap">1</b><span data-hud="lap-total"></span>
         </div>
+        <div class="tower-status" data-hud="rc-status" data-state="" hidden>
+          <b data-hud="rc-label"></b><span data-hud="rc-detail"></span>
+        </div>
         <ol class="tower-rows" data-hud="rows"></ol>
       </section>
 
@@ -58,10 +61,12 @@
         <div class="timer-sectors part-sectors" data-hud="sectors"></div>
         <div class="timer-main" data-hud="main" data-state="">
           <span class="timer-pos" data-hud="position"></span>
+          <em class="timer-penalty" data-hud="penalty" hidden></em>
           <b data-hud="current">--:--.---</b>
         </div>
         <div class="timer-delta part-delta" data-hud="delta" data-state="idle">
-          <svg><use href="#stopwatch" /></svg><span>Delta</span
+          <svg><use href="#stopwatch" /></svg
+          ><span data-hud="delta-label">Delta</span
           ><b data-hud="delta-value">--.---</b>
         </div>
         <div class="timer-extra" data-hud="extra">
@@ -85,10 +90,34 @@
         </div>
       </section>
 
+      <section class="steward" data-hud="steward" data-kind="">
+        <div class="steward-logo" data-hud="steward-logo"></div>
+        <div class="steward-label">Race Control</div>
+        <div class="steward-body">
+          <b data-hud="steward-title"></b
+          ><span data-hud="steward-detail"></span>
+        </div>
+      </section>
+
+      <section class="flag-panel" data-hud="flag" data-flag="" hidden>
+        <i class="flag-swatch"></i>
+        <div>
+          <b data-hud="flag-title"></b><span data-hud="flag-detail"></span>
+        </div>
+      </section>
+
       <div class="lights part-lights" data-hud="lights"></div>
+
+      <div class="lineup-fade" data-hud="lineup-fade"></div>
+      <section class="rc-screen" data-hud="rc-screen" hidden>
+        <i class="rc-screen-flag"></i>
+        <b>Red flag</b>
+        <span data-hud="rc-screen-detail"></span>
+      </section>
 
       <svg class="map part-map" data-hud="map" aria-hidden="true">
         <g data-hud="map-sectors"></g>
+        <g data-hud="map-flags"></g>
         <g data-hud="map-marks"></g>
         <g data-hud="map-field"></g>
         <circle class="map-car" r="7" data-hud="map-car" />

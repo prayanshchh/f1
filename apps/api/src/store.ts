@@ -207,11 +207,19 @@ export async function addLap(
   if (!(await ownsSession(db, sessionId, driverId))) return false;
   await db.query(
     `INSERT INTO laps (session_id, lap, driver_id, track, car, time_ms,
-       sector_ms, compound)
-     SELECT id, $3, driver_id, track, car, $4, $5::integer[], $6
+       sector_ms, compound, valid)
+     SELECT id, $3, driver_id, track, car, $4, $5::integer[], $6, $7
      FROM sessions WHERE id = $1 AND driver_id = $2
      ON CONFLICT (session_id, lap) DO NOTHING`,
-    [sessionId, driverId, lap, body.timeMs, body.sectorsMs, body.compound],
+    [
+      sessionId,
+      driverId,
+      lap,
+      body.timeMs,
+      body.sectorsMs,
+      body.compound,
+      body.valid,
+    ],
   );
   return true;
 }
@@ -267,7 +275,7 @@ async function bestSectors(
   return db.query<BestSectorRow>(
     `SELECT l.track, l.car, u.position::int AS position, min(u.value)::int AS best
      FROM laps l, unnest(l.sector_ms) WITH ORDINALITY AS u(value, position)
-     WHERE l.driver_id = $1
+     WHERE l.driver_id = $1 AND l.valid
        AND ($2::text IS NULL OR l.track = $2)
        AND ($3::text IS NULL OR l.car = $3)
      GROUP BY l.track, l.car, u.position
@@ -352,7 +360,7 @@ export async function profileSummary(
     `SELECT DISTINCT ON (l.track, l.car) l.track, l.car, s.team, l.time_ms,
        l.sector_ms, l.set_at
      FROM laps l JOIN sessions s ON s.id = l.session_id
-     WHERE l.driver_id = $1
+     WHERE l.driver_id = $1 AND l.valid
      ORDER BY l.track, l.car, l.time_ms, l.set_at`,
     [driverId],
   );
@@ -470,8 +478,9 @@ export async function sessionDetail(
     time_ms: number;
     sector_ms: (number | null)[];
     compound: string | null;
+    valid: boolean;
   }>(
-    `SELECT lap, time_ms, sector_ms, compound FROM laps
+    `SELECT lap, time_ms, sector_ms, compound, valid FROM laps
      WHERE session_id = $1 ORDER BY lap`,
     [id],
   );
@@ -482,6 +491,7 @@ export async function sessionDetail(
       timeMs: lap.time_ms,
       sectorsMs: lap.sector_ms,
       compound: lap.compound,
+      valid: lap.valid,
     })),
   };
 }

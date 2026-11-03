@@ -9,12 +9,16 @@ const quickInterval = 0.4;
 export class StartLights {
   private constructor(
     readonly countdown: number,
-    private readonly interval: number,
+    readonly interval: number,
   ) {}
 
   static race(random: number): StartLights {
     const hold = raceHoldMin + random * (raceHoldMax - raceHoldMin);
     return new StartLights(startLightCount * raceInterval + hold, raceInterval);
+  }
+
+  static restart(countdown: number): StartLights {
+    return new StartLights(countdown, raceInterval);
   }
 
   static quick(): StartLights {

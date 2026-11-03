@@ -12,6 +12,7 @@
 #include "ai.h"
 #include "game.h"
 #include "session.h"
+#include "stewards.h"
 
 namespace
 {
@@ -43,7 +44,8 @@ enum CarStatus
     STATUS_FINISHED,
     STATUS_RETIRED,
     STATUS_KNOCKED_OUT,
-    STATUS_QUEUED
+    STATUS_QUEUED,
+    STATUS_DISQUALIFIED
 };
 
 enum RunState
@@ -135,10 +137,8 @@ struct Timing
     double runStart = 0;
     double progress = 0;
     int contacts = 0;
-    bool invalidLap = false;
-    int offTrackEvents = 0;
-    bool offTrackNow = false;
     double penalties = 0;
+    bool disqualified = false;
 };
 
 struct Stats
@@ -147,7 +147,6 @@ struct Stats
     int playerContacts = 0;
     int wallHits = 0;
     int overtakes = 0;
-    int offTracks = 0;
     int pits = 0;
 };
 
@@ -224,6 +223,8 @@ void updateOrder(tSituation *s)
                 return tx < ty;
             return x.segmentBestAt < y.segmentBestAt;
         }
+        if (x.disqualified != y.disqualified)
+            return y.disqualified;
         if (x.retired != y.retired)
             return y.retired;
         if (x.finished != y.finished)
@@ -232,7 +233,7 @@ void updateOrder(tSituation *s)
         {
             if (x.finishLaps != y.finishLaps)
                 return x.finishLaps > y.finishLaps;
-            return x.finishTime + x.penalties < y.finishTime + y.penalties;
+            return x.finishTime + x.penalties + sdStewardsTimeAdded(a) < y.finishTime + y.penalties + sdStewardsTimeAdded(b);
         }
         return x.progress > y.progress;
     });
@@ -315,7 +316,7 @@ void closeLapsRace(tSituation *s)
         t.laps = car->_laps;
         t.lastLap = car->_lastLapTime;
         sdAiSetLapNoise(i, 1.0 + uniform(-raceFormSwing, raceFormSwing));
-        if (car->_laps > 1 && car->_lastLapTime > 0 && (t.bestLap == 0 || car->_lastLapTime < t.bestLap))
+        if (car->_laps > 1 && car->_lastLapTime > 0 && !sdStewardsLastLapInvalid(i) && (t.bestLap == 0 || car->_lastLapTime < t.bestLap))
             t.bestLap = car->_lastLapTime;
     }
 }
@@ -407,7 +408,7 @@ void raceStrategy(tSituation *s)
         }
         else if (compound == 0)
             compound = 2;
-        sdAiRequestPit(i, compound, stopTimeBase + uniform(-0.3, 0.6));
+        sdAiRequestPit(i, compound, stopTimeBase + uniform(-0.3, 0.6) + sdStewardsOwedTime(i));
         t.pits++;
         t.stintStartLap = car->_laps + 1;
         t.stintStartWear = 0;
@@ -433,30 +434,8 @@ void blueFlags(tSituation *s)
                 continue;
             wave = timing[k].progress - timing[i].progress > 0.5;
         }
-        sdAiSetBlueFlag(i, wave);
+        sdAiSetBlueFlag(i, wave || sdStewardsYield(i));
     }
-}
-
-void updateOffTrack(tSituation *s)
-{
-    tCarElt *car = s->cars[0];
-    Timing &t = timing[0];
-    bool off = true;
-    for (int i = 0; i < 4 && off; i++)
-    {
-        const tTrackSeg *seg = car->_wheelSeg(i);
-        off = seg && (seg->type2 == TR_LSIDE || seg->type2 == TR_RSIDE);
-    }
-    bool pitZone = sdAiInPitLaneAt(car->_distFromStartLine, car->_trkPos.toMiddle);
-    if (pitZone)
-        off = false;
-    if (off && !t.offTrackNow)
-    {
-        t.offTrackEvents++;
-        t.invalidLap = kind == KIND_QUALIFYING && t.run == RUN_FLYING;
-        stats.offTracks++;
-    }
-    t.offTrackNow = off;
 }
 
 bool humanPlayer(tSituation *s, int i)
@@ -492,11 +471,11 @@ void parkInGarage(tSituation *s, int i)
     sdAiSetTask(i, AI_GARAGE);
 }
 
-void recordRunLap(tSituation *s, int i, double lap)
+void recordRunLap(tSituation *s, int i, double lap, bool valid)
 {
     Timing &t = timing[i];
     t.lastLap = lap;
-    if (t.invalidLap || lap <= 0)
+    if (!valid || lap <= 0)
         return;
     t.segmentBest = lap;
     t.segmentBestAt = s->currentTime;
@@ -508,7 +487,6 @@ void recordRunLap(tSituation *s, int i, double lap)
 void endRun(tSituation *s, int i)
 {
     timing[i].run = RUN_DONE;
-    timing[i].invalidLap = false;
     if (onTrack == i)
         onTrack = -1;
     parkInGarage(s, i);
@@ -534,8 +512,6 @@ void launchRun(tSituation *s, int i)
     t.lastLaps = car->_laps;
     t.run = RUN_OUT;
     t.runStart = s->currentTime;
-    t.invalidLap = false;
-    t.offTrackNow = false;
     t.status = STATUS_OUT_LAP;
     onTrack = i;
 }
@@ -551,7 +527,6 @@ void followRun(tSituation *s, int i)
     {
         t.run = RUN_FLYING;
         t.status = STATUS_PUSH_LAP;
-        t.invalidLap = false;
         if (!humanPlayer(s, i))
         {
             sdAiSetTask(i, AI_PUSH_LAP);
@@ -561,7 +536,7 @@ void followRun(tSituation *s, int i)
     }
     if (crossed && t.run == RUN_FLYING)
     {
-        recordRunLap(s, i, car->_lastLapTime);
+        recordRunLap(s, i, car->_lastLapTime, !sdStewardsLastLapInvalid(i));
         endRun(s, i);
         return;
     }
@@ -613,8 +588,6 @@ void startSegment(tSituation *s, int number)
         t.segmentBest = 0;
         t.segmentBestAt = 0;
         t.run = RUN_WAITING;
-        t.invalidLap = false;
-        t.offTrackNow = false;
         parkInGarage(s, i);
     }
     buildRunOrder(s);
@@ -639,8 +612,7 @@ void qualifyingTick(tSituation *s)
 void simulateRun(tSituation *s, int i)
 {
     double evolution = 1.0 - 0.01 * ((double)segment + 1.0) / 3.0 + 0.01;
-    timing[i].invalidLap = false;
-    recordRunLap(s, i, expectedLap(i) * evolution * (1.0 + uniform(-simulatedNoise, simulatedNoise)));
+    recordRunLap(s, i, expectedLap(i) * evolution * (1.0 + uniform(-simulatedNoise, simulatedNoise)), true);
     endRun(s, i);
 }
 
@@ -801,12 +773,8 @@ void sdSessionTick(tSituation *s)
         recordTiming(s, i, length);
     if (kind == KIND_RACE)
         closeLapsRace(s);
-    if (s->currentTime > 0)
-    {
-        updateOffTrack(s);
-        if (kind == KIND_QUALIFYING)
-            qualifyingTick(s);
-    }
+    if (s->currentTime > 0 && kind == KIND_QUALIFYING)
+        qualifyingTick(s);
     if (kind != KIND_RACE || s->currentTime > 0)
         updateOrder(s);
     updateGaps(s);
@@ -826,6 +794,83 @@ void sdSessionAfterStep(tSituation *s)
     if (kind == KIND_SOLO || kind == KIND_LAPPING)
         return;
     trackContacts(s);
+}
+
+int sdSessionKindOf()
+{
+    return kind;
+}
+
+int sdSessionTotalLaps()
+{
+    return totalLaps;
+}
+
+bool sdSessionRacing(int index)
+{
+    if (timing.empty() || index >= (int)timing.size())
+        return true;
+    const Timing &t = timing[index];
+    if (t.finished || t.retired || t.eliminated || t.disqualified)
+        return false;
+    return t.status != STATUS_GARAGE && t.status != STATUS_KNOCKED_OUT && t.status != STATUS_QUEUED;
+}
+
+bool sdSessionFinished(int index)
+{
+    return !timing.empty() && index < (int)timing.size() && timing[index].finished;
+}
+
+double sdSessionReferenceLap()
+{
+    return referenceLap;
+}
+
+int sdSessionStartSlot(int index)
+{
+    return index < (int)startSlots.size() ? startSlots[index] : index;
+}
+
+bool sdSessionChequered()
+{
+    return chequered;
+}
+
+void sdSessionRestartTiming(tSituation *s)
+{
+    int capacity = timingPoints * timingLaps;
+    double length = sdAiLength();
+    for (int i = 0; i < (int)timing.size(); i++)
+    {
+        Timing &t = timing[i];
+        tCarElt *car = s->cars[i];
+        t.points.assign(capacity, s->currentTime);
+        t.progress = carProgress(car, length);
+        t.lastPoint = std::max(-1, (int)floor((t.progress + 1.0) * timingPoints));
+        t.lastLaps = car->_laps;
+        t.laps = car->_laps;
+        t.gapLeader = 0;
+        t.gapAhead = 0;
+        t.lastDetect = car->_distFromStartLine;
+    }
+    previousOrder.clear();
+}
+
+int sdSessionPositionOf(int index)
+{
+    return timing.empty() || index >= (int)timing.size() ? 1 : timing[index].position;
+}
+
+void sdSessionDisqualify(int index)
+{
+    if (timing.empty() || index >= (int)timing.size())
+        return;
+    Timing &t = timing[index];
+    t.disqualified = true;
+    t.retired = true;
+    t.status = STATUS_DISQUALIFIED;
+    if (!playerDriven(ReInfo->s->cars[index]))
+        ReInfo->s->cars[index]->_state |= RM_CAR_STATE_ELIMINATED;
 }
 
 bool sdSessionCarVisible(int index)
@@ -882,8 +927,8 @@ EMSCRIPTEN_KEEPALIVE void sdSessionInfo(double *out)
     out[5] = startDelay;
     out[6] = chequered ? 1 : 0;
     out[7] = timing.empty() || order.empty() ? 0 : timing[order[0]].laps;
-    out[8] = timing.empty() ? 0 : timing[0].invalidLap ? 1 : 0;
-    out[9] = timing.empty() ? 0 : timing[0].offTrackEvents;
+    out[8] = sdStewardsLapInvalid(0) ? 1 : 0;
+    out[9] = sdStewardsOffTracks(0);
     out[10] = timing.empty() ? 0 : playerQueued ? -1 : timing[0].run;
     out[11] = onTrack;
 }
@@ -907,8 +952,8 @@ EMSCRIPTEN_KEEPALIVE void sdTiming(double *out)
         c[9] = sdTyresAge(i);
         c[10] = t.pits;
         c[11] = t.segmentBest;
-        c[12] = t.finished ? 1 : t.retired ? 2 : 0;
-        c[13] = t.finishTime + t.penalties;
+        c[12] = t.disqualified ? 3 : t.finished ? 1 : t.retired ? 2 : 0;
+        c[13] = t.finishTime + t.penalties + sdStewardsTimeAdded(i);
         c[14] = t.eliminated ? 1 : 0;
         c[15] = t.contacts;
         c[16] = t.progress;
@@ -930,7 +975,10 @@ EMSCRIPTEN_KEEPALIVE void sdSessionStats(double *out)
     out[1] = stats.playerContacts;
     out[2] = stats.wallHits;
     out[3] = stats.overtakes;
-    out[4] = stats.offTracks;
+    int offTracks = 0;
+    for (int i = 0; i < (int)timing.size(); i++)
+        offTracks += sdStewardsOffTracks(i);
+    out[4] = offTracks;
     out[5] = stats.pits;
 }
 
@@ -994,9 +1042,17 @@ EMSCRIPTEN_KEEPALIVE void sdSessionPitCompound(int compound)
 
 EMSCRIPTEN_KEEPALIVE int sdSessionGrid(int *out)
 {
-    for (int i = 0; i < (int)order.size(); i++)
-        out[i] = order[i];
-    return (int)order.size();
+    std::vector<double> key(order.size());
+    for (int rank = 0; rank < (int)order.size(); rank++)
+    {
+        int drop = sdStewardsGridDrop(order[rank]);
+        key[order[rank]] = rank + (drop > 0 ? drop + 0.5 : 0.0);
+    }
+    std::vector<int> grid = order;
+    std::stable_sort(grid.begin(), grid.end(), [&](int a, int b) { return key[a] < key[b]; });
+    for (int i = 0; i < (int)grid.size(); i++)
+        out[i] = grid[i];
+    return (int)grid.size();
 }
 
 }

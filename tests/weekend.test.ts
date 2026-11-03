@@ -11,6 +11,7 @@ import {
 } from "../apps/client/src/game/weekend.ts";
 import { PitStop, type PitLayout } from "../apps/client/src/game/pitstop.ts";
 import { stageOf, type Settings } from "../apps/client/src/game/settings.ts";
+import { fieldGrid, teamOf } from "../apps/client/src/game/teams.ts";
 
 const session = (
   value: Settings["session"],
@@ -46,6 +47,34 @@ describe("weekend plan", () => {
     const { entrants, slots } = planWeekend("corvus", 5, order);
     entrants.forEach((entrant, i) => {
       expect(order[slots[i] ?? -1]).toBe(entrant.code);
+    });
+  });
+
+  test("the build-up grid shows each qualifier in their slot with their own team", () => {
+    const first = planWeekend("corvus", 5, null);
+    const order = first.entrants.map((e) => e.code).reverse();
+    const { entrants, slots } = planWeekend("corvus", 5, order);
+    const seat = {
+      team: "corvus",
+      first: "Ada",
+      last: "Racer",
+      number: 9,
+      nationality: "GB",
+    };
+    const grid = fieldGrid(seat, entrants, slots);
+    expect(grid.map((entry) => entry.position)).toEqual(
+      entrants.map((_, i) => i + 1),
+    );
+    grid.forEach((entry, place) => {
+      const entrant = entrants[slots.indexOf(place)];
+      if (!entrant) throw new Error(`no entrant in slot ${String(place)}`);
+      expect(entry.team.id).toBe(entrant.car);
+      expect(entry.player).toBe(entrant.player);
+      expect(entry.last).toBe(
+        entrant.player
+          ? "Racer"
+          : teamOf(entrant.car).drivers[entrant.seat]?.last,
+      );
     });
   });
 

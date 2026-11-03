@@ -418,6 +418,7 @@ static void runOneStep(double deltaTimeIncrement)
         pCurrReInfo->_reLastRobTime = s->currentTime;
     }
 
+    sdWeatherStep(s, deltaTimeIncrement);
     for (int i = 0; i < s->_ncars; i++)
     {
         sdTyresStep(s->cars[i], deltaTimeIncrement);
@@ -732,6 +733,7 @@ EMSCRIPTEN_KEEPALIVE int sdInit(const char *trackCategory, const char *trackName
             sdInitStartingGrid();
     }
     startRace();
+    sdWeatherReset();
     for (int i = 0; i < carCount; i++)
     {
         sdTyresReset(s->cars[i]);
@@ -770,6 +772,12 @@ EMSCRIPTEN_KEEPALIVE int sdUpdate(double now)
     }
     fillFrame();
     return steps;
+}
+
+EMSCRIPTEN_KEEPALIVE void sdResync(double now)
+{
+    clockNow = now;
+    ReInfo->_reCurTime = now;
 }
 
 EMSCRIPTEN_KEEPALIVE int sdStep(int count)

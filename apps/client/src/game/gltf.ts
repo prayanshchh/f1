@@ -2,6 +2,13 @@ import * as THREE from "three/webgpu";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { float, smoothstep, uv, vec3 } from "three/tsl";
 import { carMaterials, carTextures, mirrorLayout } from "./carpaint.ts";
+import {
+  damageable,
+  type DamageLook,
+  newLook,
+  tagDamageZones,
+  zeroZones,
+} from "./car-damage.ts";
 import type {
   CarEnvironment,
   CarMaterials,
@@ -160,8 +167,36 @@ function shadowCaster(model: THREE.Object3D): THREE.Object3D {
   return caster;
 }
 
+function withinChassis(object: THREE.Object3D): boolean {
+  for (let node: THREE.Object3D | null = object; node; node = node.parent)
+    if (node.name === "chassis") return true;
+  return false;
+}
+
+export function makeDamageable(
+  model: THREE.Object3D,
+  look: DamageLook,
+  breakable: (mesh: THREE.Mesh) => boolean,
+): void {
+  const meshes: THREE.Mesh[] = [];
+  model.traverse((object) => {
+    if (object instanceof THREE.Mesh) meshes.push(object as THREE.Mesh);
+  });
+  const zoned = new Set<THREE.Material>();
+  for (const mesh of meshes)
+    if (breakable(mesh) && tagDamageZones(mesh.geometry))
+      zoned.add(mesh.material as THREE.Material);
+  for (const mesh of meshes) {
+    if (!zoned.has(mesh.material as THREE.Material)) continue;
+    zeroZones(mesh.geometry);
+    mesh.userData = { ...mesh.userData, damage: look };
+  }
+  for (const material of zoned) damageable(material as THREE.NodeMaterial);
+}
+
 export class GltfCar {
   readonly root = new THREE.Group();
+  readonly damage = newLook();
   private readonly model = new THREE.Group();
   private readonly wheels: Wheel[] = [];
   private steeringWheel: THREE.Object3D | null = null;
@@ -253,6 +288,7 @@ export class GltfCar {
       object.material = materials.build(source);
       object.receiveShadow = true;
     });
+    makeDamageable(gltf.scene, car.damage, withinChassis);
     const axes = new THREE.Group();
     axes.matrixAutoUpdate = false;
     axes.matrix.copy(gltfToSdCar);

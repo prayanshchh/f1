@@ -7,6 +7,7 @@ import {
   ShiftVoice,
   TurboVoice,
   TyreVoice,
+  WetVoice,
 } from "./effects.ts";
 import { EngineVoice, type EngineTables } from "./engine-voice.ts";
 
@@ -21,6 +22,8 @@ export interface SynthState {
   lock: number;
   brake: number;
   impact: number;
+  rain: number;
+  spray: number;
   master: number;
 }
 
@@ -35,6 +38,8 @@ export const idleState: SynthState = {
   lock: 0,
   brake: 0,
   impact: 0,
+  rain: 0,
+  spray: 0,
   master: 0,
 };
 
@@ -60,6 +65,7 @@ export class CarSynth {
   private readonly shift: ShiftVoice;
   private readonly impact: ImpactVoice;
   private readonly turbo: TurboVoice;
+  private readonly wet: WetVoice;
   private readonly rpm: OnePole;
   private readonly load: OnePole;
   private readonly speed: OnePole;
@@ -82,6 +88,7 @@ export class CarSynth {
     this.shift = new ShiftVoice(sampleRate, random);
     this.impact = new ImpactVoice(sampleRate, random);
     this.turbo = new TurboVoice(sampleRate);
+    this.wet = new WetVoice(sampleRate);
     this.rpm = new OnePole(idleState.rpm, 0.018, rate);
     this.load = new OnePole(0, 0.05, rate);
     this.speed = new OnePole(0, 0.05, rate);
@@ -123,6 +130,7 @@ export class CarSynth {
     this.tyre.render(this.sideBus, state.scrub, state.lock, speed);
     this.brake.render(this.sideBus, state.brake);
     this.impact.render(this.sideBus);
+    this.wet.render(this.sideBus, state.rain, state.spray);
     this.shift.render(this.engineBus);
   }
 

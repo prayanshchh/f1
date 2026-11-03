@@ -1,14 +1,19 @@
 import * as THREE from "three/webgpu";
+import { uniform } from "three/tsl";
 import type { CarEnvironment } from "./carpaint.ts";
 import { carField, carStride } from "./engine.ts";
-import { contactShadow, gltfToSdCar, wheelRest } from "./gltf.ts";
+import { carWheel } from "./frame-layout.ts";
+import {
+  contactShadow,
+  gltfToSdCar,
+  makeDamageable,
+  wheelRest,
+} from "./gltf.ts";
+import { type DamageLook, newLook } from "./car-damage.ts";
 import { teamModel } from "./grid.ts";
-import { unlitMaterial } from "./materials.ts";
 import { compounds } from "./tyres.ts";
 
 const wheelCount = 4;
-const wheelsFrom = 16;
-const wheelFields = 6;
 const drawDistance = 900;
 const wheelDistance = 220;
 const shadowDistance = 90;
@@ -52,9 +57,22 @@ interface FieldCar {
   placed: boolean;
   axleMid: number;
   wheelHeight: number;
+  damage: DamageLook;
 }
 
 const scratch = new THREE.Matrix4();
+
+function ringMaterial(): THREE.MeshBasicNodeMaterial {
+  const material = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide });
+  const colour = uniform(new THREE.Color());
+  colour.onObjectUpdate(({ object }) => {
+    const own = (object?.userData as { ringColour?: THREE.Color } | undefined)
+      ?.ringColour;
+    if (own) colour.value.copy(own);
+  });
+  material.colorNode = colour;
+  return material;
+}
 
 function wheelOf(x: number, y: number): number {
   return (x > 0 ? 0 : 2) + (y > 0 ? 1 : 0);
@@ -139,6 +157,10 @@ async function loadTemplate(
 ): Promise<Template> {
   const model = await teamModel(team, env);
   const wheels = wheelShapes(model);
+  makeDamageable(model, newLook(), (mesh) => {
+    const name = (mesh.material as THREE.Material).name;
+    return name.endsWith("atlas") || name === "carbon-part";
+  });
   const body = matrix();
   body.matrix.copy(gltfToSdCar);
   body.add(model);
@@ -155,9 +177,10 @@ async function loadTemplate(
 export class FieldCars {
   readonly root = new THREE.Group();
   private readonly cars: FieldCar[] = [];
-  private readonly ringMaterials = compounds.map((compound) =>
-    unlitMaterial(new THREE.Color(compound.colour)),
+  private readonly ringColours = compounds.map(
+    (compound) => new THREE.Color(compound.colour),
   );
+  private readonly ringMaterial = ringMaterial();
   private readonly eye = new THREE.Vector3();
 
   static async load(teams: string[], env: CarEnvironment): Promise<FieldCars> {
@@ -184,7 +207,13 @@ export class FieldCars {
     root.visible = false;
     const model = new THREE.Group();
     const contact = contactShadow(wheelRest);
-    model.add(template.body.clone(), contact);
+    const body = template.body.clone();
+    const damage = newLook();
+    body.traverse((object) => {
+      if ((object.userData as { damage?: DamageLook }).damage)
+        object.userData = { ...object.userData, damage };
+    });
+    model.add(body, contact);
     root.add(model);
     const rings: THREE.Mesh[] = [];
     const wheels = template.wheels.map((shape) =>
@@ -209,6 +238,7 @@ export class FieldCars {
       placed: false,
       axleMid: template.axleMid,
       wheelHeight: template.wheelHeight,
+      damage,
     };
   }
 
@@ -230,7 +260,8 @@ export class FieldCars {
     );
     ring.rotateX(Math.PI / 2);
     for (const side of [-1, 1]) {
-      const mesh = new THREE.Mesh(ring, this.ringMaterials[1]);
+      const mesh = new THREE.Mesh(ring, this.ringMaterial);
+      mesh.userData = { ringColour: new THREE.Color(compounds[1].colour) };
       mesh.position.set(0, (side * shape.width) / 2, 0);
       pivot.add(mesh);
       rings.push(mesh);
@@ -241,7 +272,7 @@ export class FieldCars {
 
   private place(car: FieldCar, data: Float64Array, at: number): void {
     const w = (i: number, k: number) =>
-      data[at + wheelsFrom + i * wheelFields + k] ?? 0;
+      data[at + carWheel.from + i * carWheel.stride + k] ?? 0;
     const mean = (k: number) =>
       [0, 1, 2, 3].reduce((sum, i) => sum + w(i, k), 0) / wheelCount;
     car.model.position.set(mean(0) - car.axleMid, 0, mean(2) - car.wheelHeight);
@@ -250,7 +281,8 @@ export class FieldCars {
 
   private updateWheels(car: FieldCar, data: Float64Array, at: number): void {
     car.wheels.forEach((wheel, i) => {
-      const w = (k: number) => data[at + wheelsFrom + i * wheelFields + k] ?? 0;
+      const w = (k: number) =>
+        data[at + carWheel.from + i * carWheel.stride + k] ?? 0;
       wheel.spin.matrix.makeRotationY(w(4));
       wheel.pivot.matrix
         .makeTranslation(w(0), w(1), w(2))
@@ -262,15 +294,20 @@ export class FieldCars {
   private setCompound(car: FieldCar, compound: number): void {
     if (compound === car.compound) return;
     car.compound = compound;
-    const material = this.ringMaterials[compound] ?? this.ringMaterials[1];
-    if (!material) return;
-    for (const ring of car.rings) ring.material = material;
+    const colour = this.ringColours[compound] ?? this.ringColours[1];
+    if (!colour) return;
+    for (const ring of car.rings)
+      (ring.userData as { ringColour: THREE.Color }).ringColour.copy(colour);
   }
 
   private setShadow(car: FieldCar, on: boolean): void {
     if (car.shadowOn === on) return;
     car.shadowOn = on;
     for (const mesh of car.casters) mesh.castShadow = on;
+  }
+
+  damageOf(index: number): DamageLook | null {
+    return this.cars[index - 1]?.damage ?? null;
   }
 
   hide(hidden: boolean): void {

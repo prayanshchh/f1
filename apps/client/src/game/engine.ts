@@ -5,6 +5,7 @@ import type { WeekendPlan } from "./weekend.ts";
 import type { EnergyInfo } from "./energy.ts";
 import type { CarStatus } from "./mfd.ts";
 import type { TyreInfo } from "./tyres.ts";
+import type { WeatherInfo } from "./weather.ts";
 import type { SetupSource } from "./settings.ts";
 import type { CarAudio } from "./sound/sound-state.ts";
 import type { TrackLocal } from "./sky.ts";
@@ -17,31 +18,12 @@ import {
   type StewardMessage,
 } from "./stewards.ts";
 
-export const frameIndex = {
-  time: 0,
-  posMat: 1,
-  wheels: 17,
-  speed: 45,
-  rpm: 46,
-  rpmRedLine: 47,
-  gear: 48,
-  laps: 49,
-  curLapTime: 50,
-  lastLapTime: 51,
-  bestLapTime: 52,
-  distFromStart: 53,
-  toMiddle: 54,
-  steer: 55,
-  accel: 56,
-  brake: 57,
-  raceState: 58,
-  dammage: 59,
-  camera: 60,
-  brakeTemp: 84,
-  size: 88,
-} as const;
+export { carField, carStride, carWheel, frameIndex } from "./frame-layout.ts";
+import { carStride, frameIndex } from "./frame-layout.ts";
+import type { Pass } from "./highlights.ts";
 
 const telemetrySize = 40;
+const weatherFields = 13;
 const telemetryWheels = 8;
 
 export interface WheelGrip {
@@ -63,6 +45,8 @@ export interface HudInfo {
 }
 
 export interface RaceSystems {
+  dynamicWeather: boolean;
+  weatherSeed: number;
   compound: number;
   wearScale: number;
   isRace: boolean;
@@ -162,22 +146,12 @@ export interface CarTiming {
   segments: number[];
 }
 
-export const carStride = 49;
-export const carField = {
-  speed: 40,
-  steer: 41,
-  brake: 42,
-  rpm: 43,
-  gear: 44,
-  compound: 45,
-  visible: 46,
-  toMiddle: 47,
-  distance: 48,
-} as const;
 const timingStride = 20;
 const sessionFields = 12;
 const practiceGridSlot = 1;
 const messageBatch = 32;
+const passBatch = 32;
+const passFields = 5;
 const raceControlFields = 16;
 const marshalSectors = 24;
 
@@ -262,6 +236,8 @@ export class Engine {
   private timingMemory = 0;
   private sessionMemory = 0;
   private qualifyingMemory = 0;
+  private damageMemory = 0;
+  private passMemory = 0;
 
   private constructor(
     private readonly module: SpeedDreamsModule,
@@ -286,6 +262,7 @@ export class Engine {
     module._sdInputAssist(assist ? 1 : 0);
     module._sdInputAntiLock(antiLock ? 1 : 0);
     module._sdTyresConfigure(race.compound, race.wearScale);
+    module._sdWeatherConfigure(race.dynamicWeather ? 1 : 0, race.weatherSeed);
     module._sdEnergyConfigure(
       race.isRace ? 1 : 0,
       race.ersMode,
@@ -549,6 +526,52 @@ export class Engine {
     this.module._sdKey(code, down ? 1 : 0);
   }
 
+  carsDamage(): Float64Array {
+    const parts = 11;
+    this.damageMemory ||= this.module._malloc(this.carCount * parts * 8);
+    const count = this.module._sdCarsDamage(this.damageMemory);
+    return new Float64Array(
+      this.module.HEAPF64.buffer,
+      this.damageMemory,
+      this.carCount * count,
+    ).slice();
+  }
+
+  passes(from: number): { total: number; list: Pass[] } {
+    this.passMemory ||= this.module._malloc(passBatch * passFields * 8);
+    const total = this.module._sdSessionPasses(
+      this.passMemory,
+      passBatch,
+      from,
+    );
+    const count = Math.max(0, Math.min(passBatch, total - from));
+    const v = new Float64Array(
+      this.module.HEAPF64.buffer,
+      this.passMemory,
+      count * passFields,
+    );
+    const list = Array.from({ length: count }, (_, k): Pass => {
+      const at = (i: number) => v[k * passFields + i] ?? 0;
+      return {
+        time: at(0),
+        passer: at(1),
+        passed: at(2),
+        position: at(3),
+        lap: at(4),
+      };
+    });
+    return { total, list };
+  }
+
+  heap(): Uint8Array {
+    return new Uint8Array(this.module.HEAPF64.buffer);
+  }
+
+  resync(now: number): void {
+    this.module._sdResync(now);
+    this.module._sdInputRelease();
+  }
+
   update(now: number): Float64Array {
     this.module._sdUpdate(now);
     return this.frame();
@@ -588,6 +611,23 @@ export class Engine {
     };
   }
 
+  weather(): WeatherInfo {
+    const v = this.doubles(weatherFields, (p) => {
+      this.module._sdWeatherInfo(p);
+    });
+    const at = (i: number) => v[i] ?? 0;
+    return {
+      rain: at(0),
+      lineWater: at(1),
+      offWater: at(2),
+      carWater: at(3),
+      clock: at(4),
+      slickLimit: at(5),
+      interLimit: at(6),
+      forecast: v.slice(7, weatherFields),
+    };
+  }
+
   wheelGrip(): WheelGrip[] {
     const v = this.doubles(telemetrySize, (p) => {
       this.module._sdTelemetry(p);
@@ -610,6 +650,8 @@ export class Engine {
       brake: frame[frameIndex.brake] ?? 0,
       gear: frame[frameIndex.gear] ?? 0,
       damage: frame[frameIndex.dammage] ?? 0,
+      rain: 0,
+      water: 0,
       speed: at(20),
       wheels: [0, 1, 2, 3].map((i) => ({
         skid: at(i * 5),

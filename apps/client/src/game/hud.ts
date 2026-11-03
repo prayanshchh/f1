@@ -21,6 +21,7 @@ import { Tower } from "./tower.ts";
 import { type Entrant, segmentNames } from "./weekend.ts";
 import type { LapResult, LapTrace, SectorState } from "./laptrace.ts";
 import { type CarStatus, Mfd } from "./mfd.ts";
+import { weatherCall, type WeatherInfo } from "./weather.ts";
 import { closedPolyline, type Polyline, pointAlong } from "./polyline.ts";
 import { putAttr, putData, putHidden, putStyle, putText } from "./hud-dom.ts";
 import type { HudPart } from "./settings.ts";
@@ -113,7 +114,7 @@ function ersLabel(energy: EnergyInfo, boosting: boolean): string {
 }
 
 const revLeds = 15;
-const pitTyres = [0, 1, 2];
+const pitTyres = [0, 1, 2, 3, 4];
 const marshalSectors = 24;
 const noticeQueue = 4;
 const blackWhiteShown = 8;
@@ -309,6 +310,7 @@ export class Hud {
   private sectorPaths: SVGPathElement[] = [];
   private sessionBest: number | null = null;
   private toast: Toast | null = null;
+  private weatherKey = "";
   private readonly damage = new DamageMonitor();
   private toastShown = "";
   private freezeUntil = 0;
@@ -456,6 +458,7 @@ export class Hud {
     status: CarStatus,
     now: number,
     steward: StewardCar,
+    weather: WeatherInfo,
   ): void {
     this.lastNow = now;
     const value = (index: number) => frame[index] ?? 0;
@@ -481,11 +484,12 @@ export class Hud {
     this.updateTiming(value, laps, distance, current, now);
     this.updateEnergy(energy, info, value);
     this.updateTyres(tyres);
-    this.mfd.update(tyres, status);
+    this.mfd.update(tyres, status, weather);
     this.updateInputs(value);
     this.updateLights(time);
     this.updateMap(distance);
     this.updateWarnings(status, tyres, laps, now);
+    this.updateWeatherCall(weather, tyres, now);
     this.updateToast(now);
   }
 
@@ -566,6 +570,14 @@ export class Hud {
     putData(panel, "flag", shown.flag);
     putText(this.find("flag-title"), shown.title);
     putText(this.find("flag-detail"), shown.detail);
+  }
+
+  notify(title: string, detail: string, now: number): void {
+    this.toast = { kind: "info", title, detail, until: now + 3 };
+  }
+
+  rewindLaps(count: number): void {
+    this.laps.length = Math.min(this.laps.length, count);
   }
 
   setWingChoice(replace: boolean): void {
@@ -1098,6 +1110,18 @@ export class Hud {
         until: now + 4,
       };
     }
+  }
+
+  private updateWeatherCall(
+    weather: WeatherInfo,
+    tyres: TyreInfo,
+    now: number,
+  ): void {
+    const call = weatherCall(weather, tyres.compound);
+    if (call.key === this.weatherKey) return;
+    this.weatherKey = call.key;
+    if (call.message)
+      this.toast = { kind: "warn", ...call.message, until: now + 6 };
   }
 
   private updateTyreWarning(tyres: TyreInfo, now: number): void {

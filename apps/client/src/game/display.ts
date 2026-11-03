@@ -19,7 +19,7 @@ export function finishAll(root: THREE.Object3D): void {
   });
 }
 
-export function withDisplayOutput(
+function withDisplayOutput(
   renderer: THREE.WebGPURenderer,
   draw: () => void,
 ): void {

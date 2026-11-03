@@ -91,6 +91,43 @@ export function startingGrid(player: PlayerSeat, slot = 0): GridEntry[] {
   return others.map((entry, index) => ({ ...entry, position: index + 1 }));
 }
 
+export interface FieldSeat {
+  car: string;
+  seat: number;
+  player: boolean;
+}
+
+export function seatDriver(
+  player: PlayerSeat,
+  entrant: FieldSeat,
+): Omit<GridEntry, "position"> {
+  const team = teamOf(entrant.car);
+  if (entrant.player) return { ...player, team, player: true };
+  const driver = team.drivers[entrant.seat];
+  if (!driver) throw new Error(`team ${team.id} is short of drivers`);
+  return { ...driver, team, player: false };
+}
+
+export function gridOrder(slots: number[]): number[] {
+  return slots
+    .map((slot, index) => ({ slot, index }))
+    .sort((a, b) => a.slot - b.slot)
+    .map(({ index }) => index);
+}
+
+export function fieldGrid(
+  player: PlayerSeat,
+  entrants: FieldSeat[],
+  slots: number[],
+): GridEntry[] {
+  return gridOrder(slots).flatMap((index, place) => {
+    const entrant = entrants[index];
+    return entrant
+      ? [{ ...seatDriver(player, entrant), position: place + 1 }]
+      : [];
+  });
+}
+
 export function carFile(team: string, name: string): string {
   const url = files[`../../../../content/cars/${team}/${name}`];
   if (!url) throw new Error(`missing car file ${team}/${name}`);

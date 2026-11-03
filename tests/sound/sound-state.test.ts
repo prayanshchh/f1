@@ -21,6 +21,8 @@ const car = (patch: Partial<CarAudio> = {}): CarAudio => ({
   gear: 4,
   speed: 60,
   damage: 0,
+  rain: 0,
+  water: 0,
   wheels: [wheel(60), wheel(60), wheel(60), wheel(60)],
   ...patch,
 });

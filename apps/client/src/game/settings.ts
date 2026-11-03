@@ -66,6 +66,7 @@ export const choices = {
     { id: "little", label: "Light" },
     { id: "medium", label: "Medium" },
     { id: "heavy", label: "Heavy" },
+    { id: "dynamic", label: "Dynamic" },
     { id: "random", label: "Random" },
   ],
   season: [
@@ -109,6 +110,7 @@ export interface Settings {
   car: string;
   session: ChoiceId<"session">;
   buildUp: boolean;
+  musicVolume: number;
   laps: number;
   difficulty: number;
   startSlot: number;
@@ -165,6 +167,7 @@ export const defaults: Settings = {
   car: "vanta",
   session: "weekend",
   buildUp: true,
+  musicVolume: 70,
   laps: 10,
   difficulty: 90,
   startSlot: 10,
@@ -608,7 +611,11 @@ export function applySettings(
   );
   race.setStr("Quick Race", "time of day", settings.timeOfDay);
   race.setStr("Quick Race", "clouds", settings.clouds);
-  race.setStr("Quick Race", "rain", settings.rain);
+  race.setStr(
+    "Quick Race",
+    "rain",
+    settings.rain === "dynamic" ? "none" : settings.rain,
+  );
   race.setStr("Quick Race", "season", settings.season);
   race.setStr("Quick Race", "weather", "config");
   race.write(fs, racePath);

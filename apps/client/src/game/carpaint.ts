@@ -424,6 +424,8 @@ export interface CarMaterials {
 
 const rev = uniform(0);
 const brakeHeat = uniform(0);
+export const rainLight = uniform(0);
+const rainLightColour = new THREE.Color(9, 0.25, 0.12);
 
 function brakeGlow(physical: THREE.MeshPhysicalNodeMaterial): void {
   physical.emissiveNode = color(brakeColour).mul(brakeHeat);
@@ -490,6 +492,8 @@ function partMaterial(
   }
   if (satinParts.test(name)) physical.roughness = satinRoughness;
   if (name.startsWith("led-") && name !== "led-red") ledGlow(physical);
+  if (name === "led-red")
+    physical.emissiveNode = color(rainLightColour).mul(rainLight);
   return physical;
 }
 

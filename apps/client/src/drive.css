@@ -1524,8 +1524,68 @@ button {
 }
 
 .mfd:not([data-page="quick"]) .mfd-page.quick,
-.mfd[data-page="quick"] .mfd-page.gauges {
+.mfd:not([data-page="weather"]) .mfd-page.weather,
+.mfd[data-page="quick"] .mfd-page.gauges,
+.mfd[data-page="weather"] .mfd-page.gauges {
   display: none;
+}
+
+.mfd-page.weather {
+  display: grid;
+  gap: 2px;
+  padding: 4px;
+}
+
+.mfd-page.weather .quick-row b::before {
+  content: none;
+}
+
+.weather-title {
+  padding: 6px 10px 2px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.forecast {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 2px;
+}
+
+.forecast-slot {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  padding: 6px 0 5px;
+  background: rgb(30 32 44 / 62%);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.forecast-slot svg {
+  width: 30px;
+  height: 26px;
+  fill: none;
+  stroke: #e9eaee;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+}
+
+.forecast-slot .sun {
+  fill: #ffd21f;
+  stroke: #ffd21f;
+}
+
+.forecast-slot .drop {
+  stroke: #4fc3f7;
+}
+
+.forecast-slot em {
+  font-style: normal;
+  color: var(--dim);
 }
 
 .mfd-page.gauges {
@@ -2775,7 +2835,7 @@ kbd,
   top: calc(206px * var(--s));
   translate: -50% 0;
   transform-origin: 50% 0;
-  width: 400px;
+  width: 620px;
   padding-bottom: 10px;
   background: rgb(10 13 20 / 92%);
   color: #fff;
@@ -2792,7 +2852,7 @@ kbd,
 
 .pit-tyres div {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 8px;
   padding: 4px 12px 8px;
 }
@@ -3284,4 +3344,268 @@ kbd,
 
 .results-table tbody.settled tr {
   animation: none;
+}
+
+.replay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.replay-badge {
+  position: absolute;
+  top: calc(36px * var(--s));
+  right: calc(40px * var(--s));
+  display: flex;
+  align-items: center;
+  gap: calc(10px * var(--s));
+  padding: calc(8px * var(--s)) calc(18px * var(--s));
+  background: rgb(18 19 28 / 82%);
+  border-radius: calc(4px * var(--s));
+  font-size: calc(22px * var(--s));
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.replay-badge i {
+  width: calc(6px * var(--s));
+  height: calc(24px * var(--s));
+  background: var(--red);
+  transform: skewX(-18deg);
+}
+
+.replay-tag {
+  position: absolute;
+  top: calc(36px * var(--s));
+  left: calc(40px * var(--s));
+  display: grid;
+  gap: calc(2px * var(--s));
+  padding: calc(10px * var(--s)) calc(18px * var(--s));
+  background: rgb(18 19 28 / 82%);
+  border-radius: calc(4px * var(--s));
+  font-size: calc(16px * var(--s));
+}
+
+.replay-tag b {
+  font-size: calc(20px * var(--s));
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.replay-tag span {
+  color: var(--dim);
+}
+
+.replay-bar {
+  position: absolute;
+  left: 50%;
+  bottom: calc(40px * var(--s));
+  width: calc(1180px * var(--s));
+  translate: -50% 0;
+  display: grid;
+  gap: calc(10px * var(--s));
+  padding: calc(14px * var(--s)) calc(18px * var(--s));
+  background: rgb(18 19 28 / 78%);
+  backdrop-filter: blur(6px);
+  border-radius: calc(6px * var(--s));
+  pointer-events: auto;
+}
+
+.replay-track {
+  position: relative;
+  height: calc(10px * var(--s));
+  background: rgb(255 255 255 / 14%);
+  border-radius: calc(5px * var(--s));
+  cursor: pointer;
+}
+
+.replay-zone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgb(79 195 247 / 38%);
+  border-radius: inherit;
+}
+
+.replay-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: rgb(255 255 255 / 55%);
+  border-radius: inherit;
+}
+
+.replay-head {
+  position: absolute;
+  top: 50%;
+  width: calc(18px * var(--s));
+  height: calc(18px * var(--s));
+  translate: -50% -50%;
+  background: #fff;
+  border: calc(3px * var(--s)) solid var(--red);
+  border-radius: 50%;
+}
+
+.replay-controls {
+  display: flex;
+  justify-content: space-between;
+  gap: calc(8px * var(--s));
+}
+
+.replay-controls button {
+  display: flex;
+  align-items: center;
+  gap: calc(8px * var(--s));
+  padding: calc(6px * var(--s)) calc(10px * var(--s));
+  background: rgb(255 255 255 / 6%);
+  border: none;
+  border-radius: calc(4px * var(--s));
+  color: #f4f5f8;
+  font: inherit;
+  font-size: calc(15px * var(--s));
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.replay-controls button:hover {
+  background: rgb(255 255 255 / 16%);
+}
+
+.replay-controls kbd {
+  min-width: calc(22px * var(--s));
+  padding: calc(2px * var(--s)) calc(6px * var(--s));
+  background: rgb(255 255 255 / 14%);
+  border-radius: calc(3px * var(--s));
+  color: var(--dim);
+  font: inherit;
+  font-size: calc(12px * var(--s));
+  text-align: center;
+}
+
+.replay-controls .flash[data-ready="no"] {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.replay-controls .flash[data-ready="yes"] {
+  background: rgb(79 195 247 / 26%);
+}
+
+.reel {
+  position: fixed;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  color: #fff;
+}
+
+.reel-head {
+  position: absolute;
+  top: calc(40px * var(--s));
+  left: calc(48px * var(--s));
+  display: grid;
+  padding: calc(12px * var(--s)) calc(24px * var(--s)) calc(14px * var(--s));
+  border-left: calc(8px * var(--s)) solid var(--red);
+  background: linear-gradient(90deg, rgb(12 12 18 / 90%), rgb(12 12 18 / 62%));
+  animation: slide-left 0.7s var(--ease) both;
+}
+
+.reel-head small {
+  color: #ffd21f;
+  font-size: calc(18px * var(--s));
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.reel-head b {
+  font-size: calc(44px * var(--s));
+  font-weight: 800;
+  font-stretch: 112%;
+  line-height: 1.1;
+}
+
+.reel-head span {
+  color: var(--dim);
+  font-size: calc(20px * var(--s));
+}
+
+.reel-caption {
+  position: absolute;
+  left: calc(48px * var(--s));
+  bottom: calc(56px * var(--s));
+  display: grid;
+  gap: calc(2px * var(--s));
+  min-width: calc(520px * var(--s));
+  padding: calc(14px * var(--s)) calc(26px * var(--s));
+  border-bottom: calc(3px * var(--s)) solid var(--red);
+  background: linear-gradient(90deg, rgb(12 12 18 / 88%), rgb(12 12 18 / 56%));
+  opacity: 0;
+  translate: calc(-24px * var(--s)) 0;
+  transition:
+    opacity 0.35s,
+    translate 0.5s var(--ease);
+}
+
+.reel-caption.on {
+  opacity: 1;
+  translate: 0 0;
+}
+
+.reel-caption b {
+  color: var(--dim);
+  font-size: calc(18px * var(--s));
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.reel-caption span {
+  font-size: calc(32px * var(--s));
+  font-weight: 800;
+}
+
+.reel-dots {
+  position: absolute;
+  left: 50%;
+  bottom: calc(28px * var(--s));
+  display: flex;
+  gap: calc(8px * var(--s));
+  translate: -50% 0;
+}
+
+.reel-dots i {
+  width: calc(26px * var(--s));
+  height: calc(5px * var(--s));
+  border-radius: calc(3px * var(--s));
+  background: rgb(255 255 255 / 30%);
+}
+
+.reel-dots i.on {
+  background: #fff;
+}
+
+.reel-skip {
+  position: absolute;
+  right: calc(48px * var(--s));
+  bottom: calc(44px * var(--s));
+  display: flex;
+  align-items: center;
+  gap: calc(8px * var(--s));
+  padding: calc(8px * var(--s)) calc(16px * var(--s));
+  border: 0;
+  border-radius: calc(4px * var(--s));
+  background: rgb(18 19 28 / 78%);
+  color: #fff;
+  font: inherit;
+  font-size: calc(18px * var(--s));
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.reel-skip kbd {
+  padding: 0 calc(6px * var(--s));
+  border: 1px solid rgb(255 255 255 / 40%);
+  border-radius: calc(3px * var(--s));
+  font: inherit;
 }

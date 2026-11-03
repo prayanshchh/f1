@@ -6,6 +6,11 @@ import trackUrl from "../../../../content/tracks/cota/track.json?url";
 import roadUrl from "../../../../content/tracks/cota/road.glb?url";
 import { FieldCars } from "./field-cars.ts";
 import { frameIndex, type Engine, type HudInfo } from "./engine.ts";
+import type { WeatherInfo } from "./weather.ts";
+import { RainStreaks, Spray } from "./rain.ts";
+import { rainLight } from "./carpaint.ts";
+import { Debris, partCount, updateLook } from "./car-damage.ts";
+import { carField, carStride } from "./frame-layout.ts";
 import { GltfCar, placeOnTrack, type TrackFrame } from "./gltf.ts";
 import { GridCars, type GridSlot } from "./grid.ts";
 import {
@@ -13,6 +18,7 @@ import {
   releaseCpuCopies,
   setCarContact,
   setStartLights,
+  setWetness,
   Sunlight,
 } from "./road.ts";
 import { Rumble, type RumbleWheel, type Shake } from "./rumble.ts";
@@ -43,6 +49,32 @@ const kelvinOffset = 273.15;
 const cinematicNear = 0.5;
 const cinematicFar = 41000;
 const upAxis = new THREE.Vector3(0, 0, 1);
+const clearVisibility = 16000;
+const rainVisibility = 650;
+const overcastSun = 0.86;
+const overcastExposure = 0.3;
+const overcastAmbient = 0.4;
+const rainDarkening = 0.4;
+const overcastHaze = 0.72;
+const chaseLens = 0.4;
+const lensSpeed = 65;
+const sprayLight = 0.75;
+const streakLight = 0.6;
+const forecastShare = 0.7;
+const cloudsFromWater = 1.6;
+const cloudSeconds = 25;
+const rainLightHertz = 4;
+const rainLightWater = 0.12;
+const dryWeather: WeatherInfo = {
+  rain: 0,
+  lineWater: 0,
+  offWater: 0,
+  carWater: 0,
+  clock: 0,
+  slickLimit: 0,
+  interLimit: 0,
+  forecast: [],
+};
 
 function presentRoots(
   ...items: ({ root: THREE.Object3D } | null)[]
@@ -71,6 +103,20 @@ export class Scene {
   private cinematic: CameraPose | null = null;
   private readonly sunlight: Sunlight;
   private readonly smoke = new TyreSmoke();
+  private readonly rain = new RainStreaks();
+  private readonly spray = new Spray();
+  private readonly debris = new Debris();
+  private readonly damageMatrix = new THREE.Matrix4();
+  private readonly damageVelocity = new THREE.Vector3();
+  private weather = dryWeather;
+  private overcast = -1;
+  private weatherTime = 0;
+  private cars: Float64Array | null = null;
+  private readonly baseHaze = new THREE.Color();
+  private readonly greyHaze = new THREE.Color();
+  private readonly streakColour = new THREE.Color();
+  private readonly sprayColour = new THREE.Color();
+  private baseExposure = 1;
   private readonly moving: THREE.Object3D[];
   private readonly safetyCar = new SafetyCar();
   private signalAt = 0;
@@ -97,6 +143,11 @@ export class Scene {
     haze: new THREE.Color(),
     sun: new THREE.Color(),
     exposure: 1,
+    visibility: clearVisibility,
+    lensWater: 0,
+    airflow: 0,
+    time: 0,
+    detail: false,
   };
 
   private constructor(
@@ -118,7 +169,16 @@ export class Scene {
     this.camera.matrixWorldAutoUpdate = false;
     this.scene.environment = skyBox.environment;
     const extras = presentRoots(grid, field);
-    this.scene.add(skyBox.mesh, track, car.root, this.smoke.root, ...extras);
+    this.scene.add(
+      skyBox.mesh,
+      track,
+      car.root,
+      this.smoke.root,
+      this.rain.mesh,
+      this.spray.root,
+      this.debris.root,
+      ...extras,
+    );
     const { sunColor, horizon } = skyBox.meta;
     const colour = new THREE.Color(
       sunColor[0] ?? 1,
@@ -138,6 +198,14 @@ export class Scene {
       horizon[2] ?? 1,
     );
     this.atmosphere.exposure = skyBox.exposure;
+    this.baseExposure = skyBox.exposure;
+    this.baseHaze.copy(this.atmosphere.haze);
+    const grey =
+      (0.2126 * (horizon[0] ?? 1) +
+        0.7152 * (horizon[1] ?? 1) +
+        0.0722 * (horizon[2] ?? 1)) *
+      overcastHaze;
+    this.greyHaze.setRGB(grey * 0.95, grey * 0.98, grey);
     this.scene.add(
       this.marks.mesh,
       this.crew.root,
@@ -177,7 +245,9 @@ export class Scene {
     const [frame, people, road, data, crew, car, gridData] = await Promise.all([
       fetchJson<TrackFrame>(frameUrl),
       Crowd.load(),
-      loadRoad(roadUrl, anisotropy),
+      loadRoad(roadUrl, anisotropy, (direction) =>
+        skyBox.radiance(direction, false),
+      ),
       fetchJson<RacingLineData>(racingLineUrl),
       PitCrew.load(crewUrl, anisotropy),
       GltfCar.load(team, renderer, env),
@@ -226,6 +296,7 @@ export class Scene {
   }
 
   updateField(cars: Float64Array): void {
+    this.cars = cars;
     this.field?.update(cars, this.camera);
   }
 
@@ -244,6 +315,98 @@ export class Scene {
 
   setFormation(on: boolean): void {
     this.formation = on;
+  }
+
+  get fieldCars(): Float64Array | null {
+    return this.cars;
+  }
+
+  setDamage(damage: Float64Array, frame: Float64Array): void {
+    const count = Math.floor(damage.length / partCount);
+    for (let i = 0; i < count; i++) {
+      const look = i === 0 ? this.car.damage : this.field?.damageOf(i);
+      if (!look) continue;
+      const changes = updateLook(look, damage, i * partCount);
+      if (changes.length > 0 && this.placeDamaged(i, frame))
+        for (const change of changes)
+          this.debris.spawn(this.damageMatrix, this.damageVelocity, change);
+    }
+  }
+
+  private placeDamaged(index: number, frame: Float64Array): boolean {
+    const source = index === 0 ? frame : this.cars;
+    if (!source) return false;
+    const at = index === 0 ? frameIndex.posMat : index * carStride;
+    const speed =
+      index === 0
+        ? (frame[frameIndex.speed] ?? 0)
+        : (source[at + carField.speed] ?? 0);
+    this.damageMatrix.fromArray(source, at);
+    this.damageVelocity
+      .setFromMatrixColumn(this.damageMatrix, 0)
+      .multiplyScalar(speed);
+    return true;
+  }
+
+  clearDebris(): void {
+    this.debris.clear();
+  }
+
+  setWeather(weather: WeatherInfo): void {
+    this.weather = weather;
+  }
+
+  private applyWeather(frame: Float64Array, onboard: boolean): void {
+    const w = this.weather;
+    const time = frame[frameIndex.time] ?? 0;
+    const rain = w.rain;
+    const coming = Math.max(rain, (w.forecast[0] ?? 0) * forecastShare);
+    const target = Math.min(
+      1,
+      Math.max(coming * 4, w.offWater * cloudsFromWater),
+    );
+    const dt = Math.max(0, Math.min(1, time - this.weatherTime));
+    this.weatherTime = time;
+    this.overcast =
+      this.overcast < 0
+        ? target
+        : this.overcast +
+          (target - this.overcast) * Math.min(1, dt / cloudSeconds);
+    const overcast = this.overcast;
+    this.skyBox.overcast.value = overcast;
+    this.skyBox.overcastLight.value = 1 - rainDarkening * rain;
+    this.skyBox.cloudTime.value = time;
+    this.sunlight.dim(1 - overcastSun * overcast);
+    this.scene.environmentIntensity = 1 - overcastAmbient * overcast;
+    this.atmosphere.exposure =
+      this.baseExposure * (1 + overcastExposure * overcast);
+    this.atmosphere.haze.copy(this.baseHaze).lerp(this.greyHaze, overcast);
+    this.atmosphere.visibility =
+      clearVisibility +
+      (rainVisibility - clearVisibility) * Math.pow(rain, 0.6);
+    const speed = Math.abs(frame[frameIndex.speed] ?? 0);
+    this.atmosphere.lensWater = rain * (onboard ? 1 : chaseLens);
+    this.atmosphere.airflow = Math.min(1, speed / lensSpeed);
+    this.atmosphere.time = time;
+    setWetness(w.lineWater, w.offWater);
+    const wet = w.rain > 0.05 || w.lineWater > rainLightWater;
+    rainLight.value = wet
+      ? Math.sin(time * Math.PI * 2 * rainLightHertz) > 0
+        ? 1
+        : 0.12
+      : 0;
+    const haze = this.atmosphere.haze;
+    this.streakColour.copy(haze).multiplyScalar(streakLight);
+    this.sprayColour.copy(haze).multiplyScalar(sprayLight);
+    this.rain.update(rain, this.eye, time, this.streakColour);
+    this.spray.update(
+      time,
+      { rain, water: (w.lineWater + w.offWater) / 2 },
+      frame,
+      this.cars,
+      this.eye,
+      this.sprayColour,
+    );
   }
 
   feel(
@@ -396,16 +559,14 @@ export class Scene {
     this.grid?.update(frame);
     const shown = (k: number) =>
       this.cinematic !== null || (frame[frameIndex.camera + k] ?? 0) !== 0;
-    this.car.setDraw(
-      shown(19),
-      shown(20),
+    const onboard =
       this.eye
         .set(eyeX, eyeY, eyeZ)
         .distanceToSquared(
           this.carPosition.setFromMatrixPosition(this.car.root.matrix),
         ) <
-        onboardReach * onboardReach,
-    );
+      onboardReach * onboardReach;
+    this.car.setDraw(shown(19), shown(20), onboard);
     const time = frame[frameIndex.time] ?? 0;
     const lit = this.formation ? 0 : this.lights.lit(time - this.signalAt);
     setStartLights(this.cinematic ? 0 : lit);
@@ -419,6 +580,8 @@ export class Scene {
     this.atmosphere.sunDirection.copy(this.sunlight.direction);
     this.skyBox.update(this.sunlight.direction, eyeX, eyeY, this.scene);
     this.people.update(this.eye.set(eyeX, eyeY, eyeZ));
+    this.applyWeather(frame, onboard);
+    this.debris.update(time);
   }
 
   commitMoves(): void {

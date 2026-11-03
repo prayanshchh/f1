@@ -1,0 +1,50 @@
+{
+  "target_lufs": -16,
+  "tracks": [
+    {
+      "cue": "intro",
+      "file": "intro.ogg",
+      "title": "Sport Epic Cinematic Trailer",
+      "artist": "331music",
+      "source_url": "https://pixabay.com/music/adventure-sport-epic-cinematic-trailer-adventure-591906/",
+      "download_url": "https://cdn.pixabay.com/download/audio/2026/08/26/audio_678d74aabf.mp3?filename=331music-sport-epic-cinematic-trailer-adventure-591906.mp3",
+      "download_sha256": "aa7b2e58a56a0fa243c7d815eb0e09b171686f8f464e8014e81253c082f98fb9",
+      "license": "Pixabay Content License",
+      "license_url": "https://pixabay.com/service/license-summary/"
+    },
+    {
+      "cue": "menu",
+      "file": "menu.ogg",
+      "title": "Hyperflight Racing",
+      "artist": "cynicmusic",
+      "source_url": "https://opengameart.org/content/hyperflight-racing",
+      "download_url": "https://opengameart.org/sites/default/files/2012_november_fakeAwake04%20back%20to%20A%20minor.wav",
+      "download_sha256": "c73caa39119348e8c1c89e56e0448b0dd81b880a2139f5a82eb6aee582fb4a89",
+      "license": "CC0 1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/legalcode",
+      "loop": { "start": 1.775, "end": 59.6854 }
+    },
+    {
+      "cue": "buildup",
+      "file": "buildup.ogg",
+      "title": "Action Trailer",
+      "artist": "Kulakovka",
+      "source_url": "https://pixabay.com/music/action-action-trailer-624648/",
+      "download_url": "https://cdn.pixabay.com/download/audio/2026/10/22/audio_c6e65f8d91.mp3?filename=kulakovka-action-trailer-624648.mp3",
+      "download_sha256": "7131e146f3ec672dd20da2acea0e2a0967e146b7459bf456d0f9ebd127f5ee0d",
+      "license": "Pixabay Content License",
+      "license_url": "https://pixabay.com/service/license-summary/"
+    },
+    {
+      "cue": "victory",
+      "file": "victory.ogg",
+      "title": "Champion",
+      "artist": "BreakzStudios",
+      "source_url": "https://pixabay.com/music/rock-champion-short-version-162086/",
+      "download_url": "https://cdn.pixabay.com/download/audio/2023/08/14/audio_321f480d7a.mp3?filename=breakzstudios-champion-short-version-162086.mp3",
+      "download_sha256": "ce64e3aa6239cb214ec47fdd00cdefde3ab9e04629230fe5892cccdbcee2df97",
+      "license": "Pixabay Content License",
+      "license_url": "https://pixabay.com/service/license-summary/"
+    }
+  ]
+}

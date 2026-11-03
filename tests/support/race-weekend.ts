@@ -55,6 +55,7 @@ export interface Weekend extends SpeedDreams {
   _sdQualifyingTimes: (index: number, out: number) => void;
   _sdTiming: (out: number) => void;
   _sdCars: (out: number) => void;
+  _sdSessionPasses: (out: number, max: number, from: number) => number;
   _sdRaceControlConfigure: (
     safetyCar: number,
     redFlags: number,
@@ -63,6 +64,13 @@ export interface Weekend extends SpeedDreams {
   ) => void;
   _sdRaceControlDeploy: (which: number) => number;
   _sdRaceControlInfo: (out: number) => void;
+  _sdWeatherConfigure: (dynamic: number, seed: number) => void;
+  _sdWeatherSet: (rain: number, line: number, off: number) => void;
+  _sdWeatherInfo: (out: number) => void;
+  FS: {
+    readFile: (path: string, options: { encoding: "utf8" }) => string;
+    writeFile: (path: string, data: string) => void;
+  };
 }
 
 export function subset(plan: WeekendPlan, cars: number): WeekendPlan {
@@ -84,6 +92,7 @@ export interface FieldOptions {
   plan?: WeekendPlan;
   autopilot?: boolean;
   rules?: Rules;
+  rain?: string;
 }
 
 export interface Rules {
@@ -92,6 +101,8 @@ export interface Rules {
   formationLap?: boolean;
   rollingStart?: boolean;
 }
+
+const raceFile = "/sd/local/config/raceman/quickrace.xml";
 
 export async function startField(options: FieldOptions): Promise<Weekend> {
   const plan = options.plan ?? planWeekend("corvus", 10, null);
@@ -139,6 +150,14 @@ export async function startField(options: FieldOptions): Promise<Weekend> {
     });
     m._sdSessionConfigure(options.kind, options.laps, 1, options.seed);
     if (options.autopilot ?? true) m._sdFieldAutopilot(1);
+    if (options.rain)
+      m.FS.writeFile(
+        raceFile,
+        m.FS.readFile(raceFile, { encoding: "utf8" }).replace(
+          'name="rain" val="none"',
+          `name="rain" val="${options.rain}"`,
+        ),
+      );
   });
 }
 
@@ -183,6 +202,20 @@ export function statsOf(m: Weekend) {
   };
 }
 
+export function passesOf(m: Weekend) {
+  const fields = 5;
+  const total = m._sdSessionPasses(0, 0, 0);
+  const v = read(m, Math.max(1, total) * fields, (p) => {
+    m._sdSessionPasses(p, total, 0);
+  });
+  return Array.from({ length: total }, (_, k) => ({
+    time: v[k * fields] ?? 0,
+    passer: v[k * fields + 1] ?? 0,
+    passed: v[k * fields + 2] ?? 0,
+    position: v[k * fields + 3] ?? 0,
+  }));
+}
+
 export function timingOf(m: Weekend, cars: number) {
   const v = read(m, cars * timingStride, (p) => {
     m._sdTiming(p);
@@ -223,6 +256,16 @@ export function carPoses(m: Weekend, cars: number) {
   });
 }
 
+export function carMotion(m: Weekend, cars: number) {
+  const v = read(m, cars * carStride, (p) => {
+    m._sdCars(p);
+  });
+  return Array.from({ length: cars }, (_, index) => ({
+    speed: Math.abs(v[index * carStride + 40] ?? 0),
+    steer: v[index * carStride + 41] ?? 0,
+  }));
+}
+
 export function trackPoint(m: Weekend, distance: number, lateral: number) {
   const pointer = m._malloc(12);
   m._sdTrackLocal2Global(distance, lateral, pointer);
@@ -247,6 +290,20 @@ export function gridOf(m: Weekend, cars: number): number[] {
   );
   m._free(pointer);
   return grid;
+}
+
+export function weatherOf(m: Weekend) {
+  const v = read(m, 13, (p) => {
+    m._sdWeatherInfo(p);
+  });
+  return {
+    rain: v[0] ?? 0,
+    line: v[1] ?? 0,
+    off: v[2] ?? 0,
+    player: v[3] ?? 0,
+    clock: v[4] ?? 0,
+    forecast: Array.from(v.slice(7, 13)),
+  };
 }
 
 export function runUntilComplete(

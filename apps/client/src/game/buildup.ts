@@ -10,16 +10,18 @@ import {
 } from "./buildup-timeline.ts";
 import {
   type CameraPose,
+  type GridSpot,
+  gridPairShot,
   poseAt,
   shots,
   type TrackPoint,
   walkShot,
 } from "./buildup-shots.ts";
-import { carPortraits, type CarPortrait } from "./car-portraits.ts";
 import { CircuitMap, type MapPose, mixPose } from "./circuit-map.ts";
 import { renderDisplay } from "./display.ts";
 import { el, prompt } from "./dom.ts";
 import { flagUrl } from "./flags.ts";
+import { putStyle } from "./hud-dom.ts";
 import type { Scene } from "./scene.ts";
 import { teamLogo } from "./team-logos.ts";
 import type { GridEntry } from "./teams.ts";
@@ -34,6 +36,8 @@ const miles = 0.621371;
 const eventName = "United States Grand Prix 2026";
 const eventCountry = "US";
 const eventPlace = "Austin - USA";
+const tagHeight = 1.2;
+const tagMargin = 1.15;
 
 const mapPoses: Record<string, [MapPose, MapPose]> = {
   "map-sectors": [
@@ -101,6 +105,9 @@ export interface BuildUpOptions {
   trackLength: number;
   kind: "practice" | "race";
   grid: GridEntry[];
+  spots: GridSpot[];
+  field: Float64Array | null;
+  onStage?: (id: StageId) => void;
   playerDistance: number;
   playerLateral: number;
   playerSlot: number;
@@ -137,6 +144,7 @@ class BuildUpView {
   readonly stats = el("div", "bu-stats");
   readonly flagSign = el("div", "bu-flag-sign");
   readonly gridBox = el("section", "bu-grid");
+  readonly gridTags = [el("div", "bu-car-tag"), el("div", "bu-car-tag")];
   readonly caption = el("section", "bu-caption");
   readonly fade = el("div", "bu-fade");
   readonly wipe = el("div", "bu-wipe");
@@ -166,6 +174,12 @@ class BuildUpView {
     this.buildPartners();
     this.mapUi.append(place, this.tags, this.stats, this.partners);
     this.flagSign.append(el("small", "", "Starting"), el("b", "", "Grid"));
+    const heading = el("header", "bu-grid-event");
+    heading.append(
+      el("b", "", eventName.toUpperCase()),
+      el("small", "", "Starting Grid"),
+    );
+    this.gridBox.append(heading, ...this.gridTags);
     const skipper = prompt("↵", "Skip");
     skipper.classList.add("bu-skip");
     skipper.addEventListener("click", skip);
@@ -221,36 +235,31 @@ function isOn(node: HTMLElement): boolean {
   return node.classList.contains("on");
 }
 
-function gridSlot(
-  entry: GridEntry | undefined,
-  portrait: CarPortrait | undefined,
-  side: "left" | "right",
-): HTMLElement {
-  const slot = el("div", `bu-slot ${side}`);
-  if (!entry) return slot;
-  slot.style.setProperty("--brand", entry.team.brand);
-  slot.classList.toggle("player", entry.player);
-  const place = el("div", "bu-slot-place");
+function fillTag(tag: HTMLElement, entry: GridEntry | undefined): void {
+  tag.hidden = !entry;
+  if (!entry) return;
+  tag.style.setProperty("--brand", entry.team.brand);
+  tag.classList.toggle("player", entry.player);
+  const place = el("div", "bu-car-tag-place");
   place.append(
     el("b", "", String(entry.position)),
     el("sup", "", ordinal(entry.position)),
   );
-  const car = el("img", "bu-slot-car");
-  car.src = (side === "left" ? portrait?.left : portrait?.right) ?? "";
-  car.alt = "";
-  const names = el("div", "bu-slot-names");
+  const names = el("div", "bu-car-tag-names");
   names.append(
     el("span", "", entry.first),
     el("b", "", entry.last.toUpperCase()),
     el("small", "", `#${String(entry.number)} · ${entry.team.name}`),
   );
-  const brand = el("div", "bu-slot-brand");
+  const brand = el("div", "bu-car-tag-brand");
   const flag = el("img", "flag");
   flag.src = flagUrl(entry.nationality);
   flag.alt = "";
   brand.append(teamLogo(entry.team.id, entry.team.brand), flag);
-  slot.append(place, car, brand, names);
-  return slot;
+  tag.replaceChildren(place, names, brand);
+  tag.classList.remove("in");
+  void tag.getBoundingClientRect();
+  tag.classList.add("in");
 }
 
 class Director {
@@ -264,7 +273,8 @@ class Director {
   private readonly handlers: Record<StageId, (at: StagePosition) => void>;
   private map: CircuitMap | null = null;
   private flag: WavingFlag | null = null;
-  private portraits = new Map<string, CarPortrait>();
+  private shownStage: StageId | null = null;
+  private readonly probe = new THREE.Vector3();
   readonly view: BuildUpView;
   private resolve: () => void = () => undefined;
   private readonly onKey = (event: KeyboardEvent): void => {
@@ -315,7 +325,7 @@ class Director {
         this.show(this.view.flagSign, at.time > 0.8);
       },
       grid: (at) => {
-        this.drawFlag();
+        this.world(this.gridShot(at));
         this.gridStage(at);
       },
       walk: (at) => {
@@ -335,16 +345,12 @@ class Director {
   }
 
   async prepare(): Promise<void> {
-    const [map, flag, portraits] = await Promise.all([
+    const [map, flag] = await Promise.all([
       CircuitMap.load(),
       WavingFlag.load(flagUrl(eventCountry)),
-      this.options.kind === "race"
-        ? carPortraits(this.options.renderer)
-        : Promise.resolve(new Map<string, CarPortrait>()),
     ]);
     this.map = map;
     this.flag = flag;
-    this.portraits = portraits;
     this.buildLabels(map);
   }
 
@@ -455,6 +461,7 @@ class Director {
   }
 
   private world(pose: CameraPose): void {
+    if (this.options.field) this.options.world.updateField(this.options.field);
     this.options.world.setCinematic(pose);
     this.options.world.update(this.options.frame);
     this.options.drawWorld();
@@ -471,45 +478,48 @@ class Director {
       renderDisplay(this.options.renderer, this.flag.scene, this.flag.camera);
   }
 
+  private gridShot(at: StagePosition): CameraPose {
+    const { spots, track } = this.options;
+    const front = spots[at.stage.index * 2] ?? { distance: 0, lateral: 0 };
+    const back = spots[at.stage.index * 2 + 1] ?? front;
+    return poseAt(gridPairShot(front, back), at.progress, track);
+  }
+
   private gridStage(at: StagePosition): void {
     const { grid } = this.options;
-    if (at.stage.index !== this.shownPair) {
-      this.shownPair = at.stage.index;
-      this.renderPair(at.stage.index, grid);
+    const pair = at.stage.index;
+    if (pair !== this.shownPair) {
+      this.shownPair = pair;
+      this.view.gridTags.forEach((tag, k) => {
+        fillTag(tag, grid[pair * 2 + k]);
+      });
     }
+    this.placeTags(pair);
     const pairCount = Math.ceil(grid.length / 2);
-    this.show(
-      this.view.gridBox,
-      at.stage.index < pairCount - 1 || at.progress < 0.92,
-    );
+    this.show(this.view.gridBox, pair < pairCount - 1 || at.progress < 0.92);
     this.view.gridBox.classList.toggle("leaving", at.progress > 0.9);
   }
 
-  private renderPair(index: number, grid: GridEntry[]): void {
-    const first = grid[index * 2];
-    const second = grid[index * 2 + 1];
-    const box = this.view.gridBox;
-    const title = el("div", "bu-grid-event", eventName.toUpperCase());
-    const card = el("div", "bu-grid-card");
-    const head = el("h2", "", "Starting Grid");
-    const rows = el("div", "bu-grid-rows");
-    for (let row = Math.max(0, index * 2 - 2); row < index * 2 + 6; row++) {
-      const entry = grid[row];
-      if (!entry) continue;
-      const mark = el("i", row % 2 ? "even" : "odd", String(entry.position));
-      mark.classList.toggle(
-        "current",
-        row === index * 2 || row === index * 2 + 1,
-      );
-      rows.append(mark);
-    }
-    card.append(
-      head,
-      rows,
-      gridSlot(second, second && this.portraits.get(second.team.id), "left"),
-      gridSlot(first, first && this.portraits.get(first.team.id), "right"),
-    );
-    box.replaceChildren(title, card);
+  private placeTags(pair: number): void {
+    const { spots, track, world } = this.options;
+    const across = this.view.gridTags.map((tag, k) => {
+      const spot = spots[pair * 2 + k];
+      if (!spot) return 0;
+      const [x, y, z] = track(spot.distance, spot.lateral);
+      const p = this.probe.set(x, y, z + tagHeight).project(world.camera);
+      const inView =
+        p.z < 1 && Math.abs(p.x) < tagMargin && Math.abs(p.y) < tagMargin;
+      tag.classList.toggle("off", !inView);
+      putStyle(tag, "left", `${((p.x + 1) * 960).toFixed(1)}px`);
+      putStyle(tag, "top", `${((1 - p.y) * 540).toFixed(1)}px`);
+      return p.x;
+    });
+    const [first = 0, second = 0] = across;
+    this.view.gridTags.forEach((tag, k) => {
+      const mine = k === 0 ? first : second;
+      const other = k === 0 ? second : first;
+      tag.classList.toggle("lean", mine < other);
+    });
   }
 
   private captionStage(at: StagePosition): void {
@@ -606,6 +616,10 @@ class Director {
       this.resolve();
       return;
     }
+    if (at.stage.id !== this.shownStage) {
+      this.shownStage = at.stage.id;
+      this.options.onStage?.(at.stage.id);
+    }
     this.fade(at);
     this.handlers[at.stage.id](at);
     this.applyVisibility();
@@ -628,10 +642,6 @@ class Director {
     this.options.world.setCinematic(null);
     this.map?.dispose();
     this.flag?.dispose();
-    for (const portrait of this.portraits.values()) {
-      URL.revokeObjectURL(portrait.left);
-      URL.revokeObjectURL(portrait.right);
-    }
     this.view.dispose();
   }
 }

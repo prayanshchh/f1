@@ -13,6 +13,7 @@ import {
 import { Pilot } from "../support/pilot.ts";
 import type { RaceSystems } from "../support/race-systems.ts";
 import {
+  carMotion,
   type Rules,
   sessionKind,
   startField,
@@ -244,6 +245,23 @@ describe.runIf(existsSync(wasm))("race control", () => {
       decisions(m).filter((d) => d.offence === offence.formationOvertake),
     ).toEqual([]);
   }, 600_000);
+
+  test("cars waiting their turn to leave the grid keep their wheels straight", async () => {
+    const m = await race(2, { formationLap: true });
+    m._sdStep(250);
+    let parked = 0;
+    let locked = 0;
+    for (let s = 0; s < 2 * 500; s += stepsPerSample) {
+      m._sdStep(stepsPerSample);
+      for (const car of carMotion(m, fieldCars).slice(1)) {
+        if (car.speed > 0.5) continue;
+        parked++;
+        if (Math.abs(car.steer) > 0.5) locked++;
+      }
+    }
+    expect(parked).toBeGreaterThan(fieldCars);
+    expect(locked / parked).toBeLessThan(0.05);
+  });
 
   test("a rolling start keeps the field behind the safety car until the line", async () => {
     const m = await race(2, { rollingStart: true });

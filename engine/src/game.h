@@ -46,6 +46,9 @@ void sdTyresService(int index, int compound);
 void sdTyresSetTrackGrip(double grip);
 double sdTyresGrip(int index);
 double sdTyresWeakestAxle(int index);
+double sdTyresWetShare(int index);
+double sdTyresWetShareAt(int index, double water);
+double sdWeatherLineShare(double offset);
 double sdTyresHeat(int index);
 double sdTyresWorstWear(int index);
 int sdTyresCompound(int index);
@@ -67,6 +70,14 @@ void sdCarTeleport(int index, double distance, double lateral);
 int sdCarToGrid(int index, int slot);
 void sdCarSetFuel(int index, double litres);
 void sdEnergySetPerformance(int index, double factor);
+void sdWeatherReset();
+void sdWeatherStep(tSituation *s, double dt);
+double sdWeatherWaterAt(double distance, double toMiddle);
+double sdWeatherWheelWater(tCarElt *car, int wheel);
+double sdWeatherCarWater(tCarElt *car);
+double sdWeatherFutureLine(double seconds);
+bool sdWeatherWetCompound(int compound);
+int sdWeatherIdealCompound(double water, int dryChoice);
 
 const int SD_CAR_STRIDE = 49;
 

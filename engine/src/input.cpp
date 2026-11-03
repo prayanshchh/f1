@@ -332,6 +332,11 @@ void sdInputUpdate(tCarElt *car, double dt)
 
 extern "C" {
 
+EMSCRIPTEN_KEEPALIVE void sdInputRelease()
+{
+    left = right = up = down = false;
+}
+
 EMSCRIPTEN_KEEPALIVE void sdInputAnalog(int active, double steerValue, double throttleValue, double brakeValue)
 {
     analog = active != 0;

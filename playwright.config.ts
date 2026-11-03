@@ -10,11 +10,6 @@ function dockerRunning(): boolean {
   }
 }
 
-const macRunnerWithoutLocalNetwork =
-  process.platform === "darwin" && process.env["CI"]
-    ? ["--disable-features=WebRtcHideLocalIpsWithMdns"]
-    : [];
-
 const softwareGpuArguments = [
   "--enable-unsafe-webgpu",
   "--enable-features=Vulkan",
@@ -35,10 +30,7 @@ export default defineConfig({
     baseURL: "http://127.0.0.1:4173",
     channel: "chrome",
     launchOptions: {
-      args:
-        process.platform === "linux"
-          ? softwareGpuArguments
-          : macRunnerWithoutLocalNetwork,
+      args: process.platform === "linux" ? softwareGpuArguments : [],
     },
   },
   projects: [
@@ -60,6 +52,6 @@ export default defineConfig({
       "pnpm run build && pnpm --filter ./apps/client run preview --host 127.0.0.1 --port 4173 --strictPort",
     url: "http://127.0.0.1:4173",
     reuseExistingServer: false,
-    timeout: 600_000,
+    timeout: 180_000,
   },
 });

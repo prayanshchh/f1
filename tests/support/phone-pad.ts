@@ -583,11 +583,7 @@ export interface CarControls {
 export class Game {
   private constructor(readonly page: Page) {}
 
-  static async open(
-    browser: Browser,
-    baseURL: string,
-    loadTimeout = 170_000,
-  ): Promise<Game> {
+  static async open(browser: Browser, baseURL: string): Promise<Game> {
     const page = await browser.newPage({
       baseURL,
       viewport: { width: 1280, height: 720 },
@@ -603,7 +599,7 @@ export class Game {
     await page.waitForFunction(
       () => document.body.dataset["driveStatus"] === "running",
       null,
-      { timeout: loadTimeout },
+      { timeout: 170_000 },
     );
     await page.evaluate(wrapEngine);
     return new Game(page);

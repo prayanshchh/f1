@@ -27,45 +27,24 @@ jobs:
       - uses: ./.github/actions/setup
       - run: pnpm run test
   browser:
-    name: Browser integration (${{ matrix.suite }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    name: Browser integration (${{ matrix.project }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - suite: app
-            os: ubuntu-latest
-            projects: --project app
-            lfs: "false"
-          - suite: phone pad on simulated networks
-            os: ubuntu-latest
-            projects: --project pad-network
-            lfs: "false"
-          - suite: phone pad with the full game
-            os: macos-15
-            projects: --project phone-pad --project ios-simulator --workers 1
-            lfs: "true"
+        project: [app, pad-network]
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: ./.github/actions/setup
         with:
           emscripten: "true"
           chrome: "true"
-          lfs: ${{ matrix.lfs }}
-      - if: runner.os == 'macOS'
-        run: brew install ios-webkit-debug-proxy
-      - name: Boot an iPhone simulator
-        if: runner.os == 'macOS'
-        run: |
-          udid=$(xcrun simctl list devices available -j | jq -r '[.devices | to_entries[] | select(.key | contains("iOS")) | .value[] | select(.name | startswith("iPhone"))][0].udid')
-          xcrun simctl boot "$udid"
-          xcrun simctl bootstatus "$udid" -b
-      - run: pnpm exec playwright test ${{ matrix.projects }}
+      - run: pnpm exec playwright test --project ${{ matrix.project }}
       - uses: actions/upload-artifact@v7.0.2
-        if: always()
+        if: failure()
         with:
-          name: browser-${{ strategy.job-index }}
+          name: browser-integration-failures-${{ matrix.project }}
           path: test-results/
-          if-no-files-found: ignore
+          if-no-files-found: warn
           retention-days: 7

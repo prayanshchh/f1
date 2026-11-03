@@ -83,7 +83,7 @@ test.describe("phone pad in the iOS Simulator's Safari", () => {
   let left = 0;
 
   test.beforeAll(async ({ browser }, testInfo) => {
-    testInfo.setTimeout(600_000);
+    testInfo.setTimeout(420_000);
     if (!(await simulatorReady()))
       throw new Error(
         "Install Xcode with an iPhone simulator and run: brew install ios-webkit-debug-proxy",
@@ -176,8 +176,7 @@ test.describe("phone pad in the iOS Simulator's Safari", () => {
       expect(results.map((result) => result.carFrames)).toEqual(
         results.map(() => 1),
       );
-      if (!process.env["CI"])
-        expect(reached.p95).toBeLessThan(frame + 8 + phoneClock.error);
+      expect(reached.p95).toBeLessThan(frame + 8 + phoneClock.error);
 
       const since = nodeClock();
       await phone.evaluate(`(location.replace("about:blank"), true)`);

@@ -26,7 +26,6 @@ const level = 0.02;
 const moved = 0.005;
 const boostMode = ersModes.findIndex((mode) => mode.id === "boost");
 const directRoute = /^(host|prflx)-(host|prflx)$/;
-const sharedRunner = Boolean(process.env["CI"]);
 
 function pause(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -210,9 +209,8 @@ for (const kind of phoneKinds) {
     test("a phone only drives the game whose QR code it scanned", async ({
       browser,
     }, testInfo) => {
-      test.setTimeout(600_000);
       const baseURL = testInfo.project.use.baseURL ?? "";
-      const other = await Game.open(browser, baseURL, 480_000);
+      const other = await Game.open(browser, baseURL);
       try {
         const phone = await openPhone({}, game);
         await phone.startAndCalibrate();
@@ -455,11 +453,9 @@ for (const kind of phoneKinds) {
       );
       expect(milliseconds.phoneSends.p95).toBeLessThan(3);
       expect(milliseconds.phoneReaches90.p95).toBeLessThan(3);
-      if (!sharedRunner) {
-        expect(milliseconds.network.p50).toBeLessThan(5);
-        expect(milliseconds.network.p95).toBeLessThan(8);
-        expect(milliseconds.carReaches90.p95).toBeLessThan(frame + 8);
-      }
+      expect(milliseconds.network.p50).toBeLessThan(5);
+      expect(milliseconds.network.p95).toBeLessThan(8);
+      expect(milliseconds.carReaches90.p95).toBeLessThan(frame + 8);
     });
 
     test("pressing gas reaches the car's throttle within one game frame", async () => {
@@ -498,7 +494,7 @@ for (const kind of phoneKinds) {
         presses.map(() => 1),
       );
       expect(reached.samples).toBe(8);
-      if (!sharedRunner) expect(reached.p95).toBeLessThan(frame + 8);
+      expect(reached.p95).toBeLessThan(frame + 8);
     });
 
     if (kind.ios) {

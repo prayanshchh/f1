@@ -54,6 +54,28 @@ function padText(phone: SafariPage, name: string): Promise<string> {
   );
 }
 
+function pairingReport(phone: SafariPage): Promise<string> {
+  return phone.evaluate(`JSON.stringify({
+    link: document.querySelector("[data-pad=link]").textContent,
+    notice: document.querySelector("[data-pad=notice]").textContent.trim(),
+    error: document.querySelector("[data-pad=error]").textContent,
+    links: window.padProbe.links,
+    requests: performance
+      .getEntriesByType("resource")
+      .map((entry) => entry.name)
+      .filter((name) => name.includes("/api/")),
+  })`);
+}
+
+async function waitLive(phone: SafariPage): Promise<void> {
+  const until = Date.now() + 30_000;
+  while (Date.now() < until) {
+    if ((await padText(phone, "link")) === "Live") return;
+    await pause(250);
+  }
+  throw new Error(`Safari never went Live: ${await pairingReport(phone)}`);
+}
+
 test.describe("phone pad in the iOS Simulator's Safari", () => {
   test.setTimeout(180_000);
   let game: Game;
@@ -87,9 +109,7 @@ test.describe("phone pad in the iOS Simulator's Safari", () => {
       await phone.evaluate(
         `(document.querySelector("[data-pad=go]").click(), true)`,
       );
-      await expect
-        .poll(() => padText(phone, "link"), { timeout: 30_000 })
-        .toBe("Live");
+      await waitLive(phone);
       await expect(game.phoneBadge()).toBeVisible();
       for (const route of await game.route())
         expect(route).toMatch(/^(host|prflx)-(host|prflx)$/);

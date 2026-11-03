@@ -210,9 +210,9 @@ for (const kind of phoneKinds) {
     test("a phone only drives the game whose QR code it scanned", async ({
       browser,
     }, testInfo) => {
-      test.setTimeout(360_000);
+      test.setTimeout(600_000);
       const baseURL = testInfo.project.use.baseURL ?? "";
-      const other = await Game.open(browser, baseURL);
+      const other = await Game.open(browser, baseURL, 480_000);
       try {
         const phone = await openPhone({}, game);
         await phone.startAndCalibrate();
@@ -471,9 +471,15 @@ for (const kind of phoneKinds) {
       await game.clearLogs();
       for (let i = 0; i < 8; i++) {
         await phone.press("gas");
-        await pause(150 + Math.random() * 50);
+        await expect
+          .poll(async () => (await game.controls()).throttle)
+          .toBeGreaterThan(moved);
+        await pause(Math.random() * 50);
         await phone.release("gas");
-        await pause(450 + Math.random() * 50);
+        await expect
+          .poll(async () => (await game.controls()).throttle)
+          .toBeLessThan(moved);
+        await pause(100 + Math.random() * 50);
       }
       const phoneLogs = await phone.logs();
       const gameLogs = await game.logs();

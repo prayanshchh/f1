@@ -59,6 +59,7 @@ interface PhoneProbe {
   sent: Sample[];
   tilt: Tilt | null;
   muted: boolean;
+  links: string[];
 }
 
 interface GameProbe {
@@ -155,8 +156,33 @@ export function installPhoneProbe(options: {
       return [...new Float32Array(data.buffer, data.byteOffset, 3)];
     return [];
   };
-  const probe: PhoneProbe = { tilts: [], sent: [], tilt: null, muted: false };
+  const probe: PhoneProbe = {
+    tilts: [],
+    sent: [],
+    tilt: null,
+    muted: false,
+    links: [],
+  };
   Object.assign(window, { padProbe: probe });
+  const NativePeer = window.RTCPeerConnection;
+  window.RTCPeerConnection = class extends NativePeer {
+    constructor(config?: RTCConfiguration) {
+      super(config);
+      const note = (what: string) => {
+        probe.links.push(`${String(Math.round(performance.now()))} ${what}`);
+      };
+      note("created");
+      this.addEventListener("icegatheringstatechange", () => {
+        note(`gathering ${this.iceGatheringState}`);
+      });
+      this.addEventListener("icecandidate", (event) => {
+        note(`candidate ${event.candidate?.candidate ?? "end"}`);
+      });
+      this.addEventListener("connectionstatechange", () => {
+        note(`connection ${this.connectionState}`);
+      });
+    }
+  };
   window.addEventListener(
     "deviceorientation",
     (event) => {
@@ -557,7 +583,11 @@ export interface CarControls {
 export class Game {
   private constructor(readonly page: Page) {}
 
-  static async open(browser: Browser, baseURL: string): Promise<Game> {
+  static async open(
+    browser: Browser,
+    baseURL: string,
+    loadTimeout = 170_000,
+  ): Promise<Game> {
     const page = await browser.newPage({
       baseURL,
       viewport: { width: 1280, height: 720 },
@@ -573,7 +603,7 @@ export class Game {
     await page.waitForFunction(
       () => document.body.dataset["driveStatus"] === "running",
       null,
-      { timeout: 170_000 },
+      { timeout: loadTimeout },
     );
     await page.evaluate(wrapEngine);
     return new Game(page);

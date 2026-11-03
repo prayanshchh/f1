@@ -124,10 +124,15 @@ export class Scene {
   private signalAt = 0;
   private readonly viewFrustum = new THREE.Frustum();
   private mirrorViews: THREE.Frustum[] = [];
+  private insetView: THREE.Frustum | null = null;
+  private liveFrame: Float64Array | null = null;
+  private liveDraw: [boolean, boolean, boolean] | null = null;
+  private liveShown: boolean[] = [];
   private readonly seen = {
     intersectsSphere: (sphere: THREE.Sphere): boolean =>
       this.viewFrustum.intersectsSphere(sphere) ||
-      this.mirrorViews.some((view) => view.intersectsSphere(sphere)),
+      this.mirrorViews.some((view) => view.intersectsSphere(sphere)) ||
+      (this.insetView?.intersectsSphere(sphere) ?? false),
     containsSphere: (sphere: THREE.Sphere): boolean =>
       frustumContains(this.viewFrustum, sphere),
   };
@@ -543,7 +548,45 @@ export class Scene {
     );
   }
 
+  showInset(view: THREE.Frustum | null): void {
+    this.insetView = view;
+  }
+
+  posePast(frame: Float64Array, cars: Float64Array, eye: THREE.Camera): void {
+    if (!this.liveDraw) {
+      this.liveDraw = this.car.drawn;
+      this.liveShown = this.presentOnly().map((root) => root.visible);
+    }
+    this.car.pose(frame);
+    this.car.setDraw(true, true, false);
+    for (const root of this.presentOnly()) root.visible = false;
+    this.field?.update(cars, eye);
+    this.commitPoses();
+  }
+
+  posePresent(): void {
+    if (!this.liveDraw || !this.liveFrame) return;
+    this.car.pose(this.liveFrame);
+    this.car.setDraw(...this.liveDraw);
+    this.liveDraw = null;
+    this.presentOnly().forEach((root, k) => {
+      root.visible = this.liveShown[k] ?? true;
+    });
+    if (this.cars) this.field?.update(this.cars, this.camera);
+    this.commitPoses();
+  }
+
+  private presentOnly(): THREE.Object3D[] {
+    return [this.racingLine.root, this.safetyCar.root, this.debris.root];
+  }
+
+  private commitPoses(): void {
+    for (const object of this.moving)
+      if (object.visible) object.updateMatrixWorld();
+  }
+
   update(frame: Float64Array): void {
+    this.liveFrame = frame;
     this.car.update(frame);
     this.updateContact(frame);
     this.racingLine.update(

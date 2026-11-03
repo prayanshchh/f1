@@ -459,6 +459,15 @@ export class GltfCar {
   }
 
   update(frame: Float64Array): void {
+    this.pose(frame);
+    this.updateDash(frame);
+  }
+
+  get drawn(): [boolean, boolean, boolean] {
+    return [this.root.visible, this.driverHead?.visible ?? true, this.onboard];
+  }
+
+  pose(frame: Float64Array): void {
     this.root.matrix.fromArray(frame, frameIndex.posMat);
     this.root.matrix.elements[14] += this.lift + this.heave;
     this.root.matrix.multiply(this.rollMatrix.makeRotationX(this.roll));
@@ -497,7 +506,6 @@ export class GltfCar {
       0,
       -(frame[frameIndex.steer] ?? 0) * steeringWheelRotation,
     );
-    this.updateDash(frame);
   }
 
   private updateDash(frame: Float64Array): void {

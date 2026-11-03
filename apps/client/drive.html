@@ -104,6 +104,14 @@
         </div>
       </section>
 
+      <section class="incident" data-hud="incident" hidden>
+        <canvas class="incident-view"></canvas>
+        <div class="incident-tag"><i></i>Replay</div>
+        <div class="incident-caption">
+          <b data-incident="title"></b><span data-incident="detail"></span>
+        </div>
+      </section>
+
       <div class="lights part-lights" data-hud="lights"></div>
       <div class="start-hint part-lights" data-hud="start-hint">
         Wait for lights out<span>Moving early is a jump start penalty</span>
@@ -455,9 +463,7 @@
           the way the car steers.
         </p>
         <button type="button" class="ready-go" data-ready="go">
-          <kbd>Enter</kbd>Start<span data-ready="pedal" hidden
-            >or press Gas on your phone</span
-          >
+          <kbd>Enter</kbd>Start
         </button>
       </section>
     </div>
@@ -465,19 +471,12 @@
     <div class="pad-panel" data-pad="panel" hidden>
       <h2>Drive with your phone</h2>
       <p>
-        Scan with your phone camera. Phone and computer on the same Wi-Fi, or
-        join your phone's hotspot from this computer. Press P to close.
+        Scan the code with your phone camera, then hold it sideways like a
+        wheel.
       </p>
-      <div class="pad-codes">
-        <figure>
-          <div class="pad-qr" data-pad="pad-qr"></div>
-          <figcaption>
-            <b>Controller</b><br />Hold sideways like a wheel<br /><span
-              data-pad="pad-url"
-            ></span>
-          </figcaption>
-        </figure>
-      </div>
+      <div class="pad-qr" data-pad="pad-qr"></div>
+      <p class="pad-url" data-pad="pad-url"></p>
+      <p class="pad-close"><kbd>P</kbd>Close</p>
     </div>
     <script type="module" src="/src/drive.ts"></script>
   </body>

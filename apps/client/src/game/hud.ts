@@ -327,6 +327,7 @@ export class Hud {
   private readonly notices: Notice[] = [];
   private noticeUntil = 0;
   private noticeShown = "";
+  private readonly incidents = new Map<number, StewardMessage>();
   private blackWhiteUntil = 0;
   private flagKey = "";
   private mapFlags: SVGPathElement[] = [];
@@ -503,10 +504,21 @@ export class Hud {
         message.penalty === penalty.blackWhite
       )
         this.blackWhiteUntil = now + blackWhiteShown;
-      const notice = noticeFor(message, view.name, view.turns, view.racing);
+      if (message.stage === stage.flag)
+        this.incidents.set(message.car, message);
+      const notice = noticeFor(
+        message,
+        view.name,
+        view.turns,
+        view.racing,
+        this.incidents,
+      );
       if (!notice) continue;
-      if (this.notices.length >= noticeQueue) this.notices.shift();
-      this.notices.push(notice);
+      if (notice.kind === "flag" || notice.kind === "penalty") {
+        this.notices.unshift(notice);
+        this.noticeUntil = 0;
+      } else this.notices.push(notice);
+      if (this.notices.length > noticeQueue) this.notices.pop();
     }
     this.showNotice(now);
     const badge = penaltyBadge(car);

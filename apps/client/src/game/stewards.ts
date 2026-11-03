@@ -46,7 +46,7 @@ export const raceControlState = {
   suspended: 8,
 } as const;
 
-const controlEvent = {
+export const controlEvent = {
   vsc: 0,
   vscEnding: 1,
   safetyCar: 2,
@@ -70,6 +70,14 @@ export const stage = {
   flag: 7,
   clear: 8,
   control: 9,
+} as const;
+
+export const flagCause = {
+  none: 0,
+  slow: 1,
+  off: 2,
+  spun: 3,
+  stopped: 4,
 } as const;
 
 export const penalty = {
@@ -302,7 +310,12 @@ const playerNotices: Record<number, PlayerNotice> = {
   [stage.instruction]: (message, name) => ({
     kind: "warning",
     title: "Give the position back",
-    detail: `Let ${name(message.other)} past within ${String(Math.round(message.value))} seconds`,
+    detail: joined(
+      message.offence === offence.yellowOvertake
+        ? "You overtook under yellow flags"
+        : "",
+      `Let ${name(message.other)} past within ${String(Math.round(message.value))} seconds`,
+    ),
     seconds: 6,
   }),
   [stage.returned]: (message, name) => ({
@@ -340,10 +353,30 @@ function aboutPlayer(
   return build ? build(message, name, place(message, turns)) : null;
 }
 
+function passedYou(message: StewardMessage): string {
+  return message.offence === offence.yellowOvertake
+    ? "Passed you under yellow flags"
+    : "Passed you off the track";
+}
+
 function aboutVictim(
   message: StewardMessage,
   name: (car: number) => string,
 ): Notice | null {
+  if (message.stage === stage.instruction)
+    return {
+      kind: "info",
+      title: `${name(message.car)} must give the place back`,
+      detail: `${passedYou(message)} - they will wait for you to pass`,
+      seconds: 6,
+    };
+  if (message.stage === stage.returned)
+    return {
+      kind: "cleared",
+      title: `${name(message.car)} gave the place back`,
+      detail: "Position restored",
+      seconds: 4,
+    };
   if (message.stage !== stage.decision) return null;
   return {
     kind: "info",
@@ -353,12 +386,76 @@ function aboutVictim(
   };
 }
 
-const controlNotices: Record<number, (value: number) => Notice> = {
-  [controlEvent.vsc]: () => ({
+const causeVerbs: Record<number, string> = {
+  [flagCause.slow]: "slowed on track",
+  [flagCause.off]: "went off",
+  [flagCause.spun]: "spun",
+  [flagCause.stopped]: "stopped on track",
+};
+
+function flagReason(
+  message: StewardMessage,
+  name: (car: number) => string,
+): string {
+  const verb = causeVerbs[message.points] ?? "had a problem";
+  if (message.car === 0)
+    return message.other > 0
+      ? `You ${verb} after contact with ${name(message.other)}`
+      : `You ${verb}`;
+  return message.other === 0
+    ? `${name(message.car)} ${verb} after contact with you`
+    : `${name(message.car)} ${verb}`;
+}
+
+export function flagTitle(message: StewardMessage): string {
+  return message.count >= 2 ? "Double yellow flag" : "Yellow flag";
+}
+
+export function flagCaption(
+  message: StewardMessage,
+  name: (car: number) => string,
+  turns: Turn[],
+): string {
+  return joined(flagReason(message, name), turnAt(message.distance, turns));
+}
+
+function flagNotice(
+  message: StewardMessage,
+  name: (car: number) => string,
+  turns: Turn[],
+): Notice {
+  return {
+    kind: "flag",
+    title: flagTitle(message),
+    detail: joined(
+      flagCaption(message, name, turns),
+      message.count >= 2 ? "Be ready to stop" : "Slow down, no overtaking",
+    ),
+    seconds: 7,
+  };
+}
+
+function crashOf(
+  car: number,
+  name: (car: number) => string,
+  incidents: Map<number, StewardMessage>,
+  turns: Turn[],
+): string {
+  if (car < 0) return "";
+  const who = car === 0 ? "your" : `${name(car)}'s`;
+  const incident = incidents.get(car);
+  const where = incident ? turnAt(incident.distance, turns) : "";
+  return where ? `After ${who} crash at ${where}` : `After ${who} crash`;
+}
+
+type ControlNotice = (value: number, crash: string) => Notice;
+
+const controlNotices: Record<number, ControlNotice> = {
+  [controlEvent.vsc]: (_value, crash) => ({
     kind: "flag",
     title: "Virtual safety car",
-    detail: "Keep your delta positive - no overtaking",
-    seconds: 6,
+    detail: joined(crash, "Keep your delta positive - no overtaking"),
+    seconds: 7,
   }),
   [controlEvent.vscEnding]: () => ({
     kind: "flag",
@@ -366,11 +463,11 @@ const controlNotices: Record<number, (value: number) => Notice> = {
     detail: "Green flag in a few seconds",
     seconds: 5,
   }),
-  [controlEvent.safetyCar]: () => ({
+  [controlEvent.safetyCar]: (_value, crash) => ({
     kind: "flag",
     title: "Safety car deployed",
-    detail: "Slow down and close up behind - no overtaking",
-    seconds: 6,
+    detail: joined(crash, "Slow down and close up behind - no overtaking"),
+    seconds: 7,
   }),
   [controlEvent.safetyCarIn]: () => ({
     kind: "flag",
@@ -384,11 +481,11 @@ const controlNotices: Record<number, (value: number) => Notice> = {
     detail: "Track clear - racing resumes",
     seconds: 4,
   }),
-  [controlEvent.red]: () => ({
+  [controlEvent.red]: (_value, crash) => ({
     kind: "penalty",
     title: "Red flag",
-    detail: "Session suspended - slow down, no overtaking",
-    seconds: 7,
+    detail: joined(crash, "Session suspended - slow down, no overtaking"),
+    seconds: 8,
   }),
   [controlEvent.suspended]: (value) => ({
     kind: "warning",
@@ -416,16 +513,27 @@ const controlNotices: Record<number, (value: number) => Notice> = {
   }),
 };
 
+const causedBy = new Set<number>([
+  controlEvent.vsc,
+  controlEvent.safetyCar,
+  controlEvent.red,
+]);
+
 export function noticeFor(
   message: StewardMessage,
   name: (car: number) => string,
   turns: Turn[],
   racing: boolean,
+  incidents = new Map<number, StewardMessage>(),
 ): Notice | null {
-  if (message.stage === stage.control)
-    return controlNotices[message.offence]?.(message.value) ?? null;
-  if (message.stage === stage.flag || message.stage === stage.clear)
-    return null;
+  if (message.stage === stage.control) {
+    const crash = causedBy.has(message.offence)
+      ? crashOf(Math.round(message.value), name, incidents, turns)
+      : "";
+    return controlNotices[message.offence]?.(message.value, crash) ?? null;
+  }
+  if (message.stage === stage.flag) return flagNotice(message, name, turns);
+  if (message.stage === stage.clear) return null;
   if (message.car === 0) return aboutPlayer(message, name, turns, racing);
   if (message.other === 0) return aboutVictim(message, name);
   return null;

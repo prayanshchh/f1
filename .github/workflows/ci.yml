@@ -55,6 +55,12 @@ jobs:
           lfs: ${{ matrix.lfs }}
       - if: runner.os == 'macOS'
         run: brew install ios-webkit-debug-proxy
+      - name: Boot an iPhone simulator
+        if: runner.os == 'macOS'
+        run: |
+          udid=$(xcrun simctl list devices available -j | jq -r '[.devices | to_entries[] | select(.key | contains("iOS")) | .value[] | select(.name | startswith("iPhone"))][0].udid')
+          xcrun simctl boot "$udid"
+          xcrun simctl bootstatus "$udid" -b
       - run: pnpm exec playwright test ${{ matrix.projects }}
       - uses: actions/upload-artifact@v7.0.2
         if: always()

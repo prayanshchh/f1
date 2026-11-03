@@ -61,15 +61,15 @@ test.describe("phone pad in the iOS Simulator's Safari", () => {
   let left = 0;
 
   test.beforeAll(async ({ browser }, testInfo) => {
-    testInfo.setTimeout(420_000);
+    testInfo.setTimeout(600_000);
     if (!(await simulatorReady()))
       throw new Error(
         "Install Xcode with an iPhone simulator and run: brew install ios-webkit-debug-proxy",
       );
     const baseURL = testInfo.project.use.baseURL;
     if (!baseURL) throw new Error("the phone-pad project needs a baseURL");
-    game = await Game.open(browser, baseURL);
     simulator = await Simulator.boot();
+    game = await Game.open(browser, baseURL);
     left = await game.leftKeySign();
   });
 

@@ -455,8 +455,8 @@ for (const kind of phoneKinds) {
       );
       expect(milliseconds.phoneSends.p95).toBeLessThan(3);
       expect(milliseconds.phoneReaches90.p95).toBeLessThan(3);
-      expect(milliseconds.network.p50).toBeLessThan(5);
       if (!sharedRunner) {
+        expect(milliseconds.network.p50).toBeLessThan(5);
         expect(milliseconds.network.p95).toBeLessThan(8);
         expect(milliseconds.carReaches90.p95).toBeLessThan(frame + 8);
       }

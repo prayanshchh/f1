@@ -107,6 +107,11 @@ function extractBetween(source, startPattern, endPattern) {
   return source.slice(start, end + 1).join("\n");
 }
 
+function writeGenerated(file, text) {
+  if (existsSync(file) && readFileSync(file, "utf8") === text) return;
+  writeFileSync(file, text);
+}
+
 const racetrack = lines("src/modules/racing/standardgame/racetrack.cpp");
 const raceinit = lines("src/modules/racing/standardgame/raceinit.cpp");
 const camera = lines("src/modules/graphic/osggraph/Viewer/OsgCamera.cpp");
@@ -135,7 +140,7 @@ const raceTrackFunctions = [
   "void reTrackSetPolar(",
 ];
 
-writeFileSync(
+writeGenerated(
   path.join(generated, "race-extract.cpp"),
   [
     "#include <cstdlib>",
@@ -181,7 +186,7 @@ const mirrorEnd = camera.findIndex((line) =>
 );
 if (mirrorStart < 0 || mirrorEnd < mirrorStart)
   throw new Error("missing SDCarCamMirror section");
-writeFileSync(
+writeGenerated(
   path.join(generated, "camera-extract.cpp"),
   [
     ...camera
@@ -198,7 +203,7 @@ writeFileSync(
   ].join("\n"),
 );
 
-writeFileSync(
+writeGenerated(
   path.join(generated, "view-extract.cpp"),
   [
     "#include <cstdio>",
@@ -387,6 +392,7 @@ const exported = [
   "_sdCarStatus",
   "_sdCarDamageSet",
   "_sdCarImpact",
+  "_sdCarBreakDown",
   "_sdTyreDamage",
   "_sdEnergyDifferential",
   "_sdEnergyStraight",

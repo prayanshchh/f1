@@ -31,6 +31,7 @@ const retryDelay = 1500;
 const maxPedalStep = 0.25;
 const pedalBite = 1 / 60;
 const roomPattern = /^[A-Za-z0-9_-]{22}$/;
+const pedalReach = 0.03;
 const riseTime: Record<Pedal, number> = { gas: 1.2, brake: 0.8 };
 const fallTime: Record<Pedal, number> = { gas: 0.2, brake: 0.15 };
 
@@ -79,6 +80,12 @@ function savedSensitivity(): number {
 function pulse(rumble: number): void {
   if ("vibrate" in navigator && rumble > vibrateFrom)
     navigator.vibrate(vibratePulse);
+}
+
+function onAButton(touch: Touch): boolean {
+  return (
+    touch.target instanceof Element && touch.target.closest("button") !== null
+  );
 }
 
 function isPortrait(): boolean {
@@ -513,16 +520,13 @@ class Pad {
   }
 
   private onTouch(event: TouchEvent): void {
-    const onButton = Array.from(event.changedTouches).some(
-      (touch) =>
-        touch.target instanceof Element && touch.target.closest("button"),
-    );
+    const onButton = Array.from(event.changedTouches).some(onAButton);
     if (!onButton) event.preventDefault();
     this.advancePedals(performance.now());
     const active = new Set<number>();
     for (const touch of Array.from(event.touches)) {
       active.add(touch.identifier);
-      if (this.touches.has(touch.identifier)) continue;
+      if (this.touches.has(touch.identifier) || onAButton(touch)) continue;
       const pedal = this.pedalAt(this.toLocalX(touch.clientX, touch.clientY));
       if (!pedal) continue;
       this.touches.set(touch.identifier, pedal);
@@ -537,8 +541,14 @@ class Pad {
   }
 
   private pedalAt(x: number): Pedal | null {
-    if (x < 1 / 3) return "brake";
-    if (x > 2 / 3) return "gas";
+    const width = this.root.offsetWidth;
+    const brake = this.fills.brake.closest<HTMLElement>(".pedal");
+    const gas = this.fills.gas.closest<HTMLElement>(".pedal");
+    if (!brake || !gas || width === 0) return null;
+    const brakeEdge = (brake.offsetLeft + brake.offsetWidth) / width;
+    const gasEdge = gas.offsetLeft / width;
+    if (x <= brakeEdge + pedalReach) return "brake";
+    if (x >= gasEdge - pedalReach) return "gas";
     return null;
   }
 

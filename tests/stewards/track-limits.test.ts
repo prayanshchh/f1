@@ -57,8 +57,9 @@ function drive(
   }
 }
 
-async function practiceLap(offTrack: boolean) {
+async function practiceLap(offTrack: boolean, enforced = true) {
   const m = await startCota<Driven>();
+  if (enforced) m._sdStewardsTrackLimits(1);
   drive(
     m,
     (lap) => offTrack && lap === 1,
@@ -69,10 +70,22 @@ async function practiceLap(offTrack: boolean) {
     last: frame[lastLapIndex] ?? 0,
     best: frame[bestLapIndex] ?? 0,
     invalid: stewardCar(m, 0).lastLapInvalid,
+    offTracks: stewardCar(m, 0).offTracks,
+    limits: stewardMessages(m).filter(
+      (message) => message.offence === offence.trackLimits,
+    ),
   };
 }
 
 describe.runIf(existsSync(wasm))("track limits", () => {
+  test("are off by default: going wide keeps the lap and draws no track limits message", async () => {
+    const cut = await practiceLap(true, false);
+    expect(cut.offTracks).toBeGreaterThan(0);
+    expect(cut.invalid).toBe(false);
+    expect(cut.best).toBeCloseTo(cut.last, 3);
+    expect(cut.limits).toEqual([]);
+  }, 180_000);
+
   test("a lap with all four wheels past the white line is deleted and never becomes the best lap", async () => {
     const clean = await practiceLap(false);
     expect(clean.invalid).toBe(false);
@@ -94,6 +107,7 @@ describe.runIf(existsSync(wasm))("track limits", () => {
       plan: { entrants: [player], slots: [0] },
       autopilot: false,
     })) as unknown as Driven;
+    m._sdStewardsTrackLimits(1);
     const ladder = () =>
       stewardMessages(m).filter(
         (message) =>

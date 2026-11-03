@@ -135,7 +135,6 @@ export interface Settings {
   pitExperience: ChoiceId<"pitExperience">;
   safetyCar: ChoiceId<"safetyCar">;
   redFlags: boolean;
-  formationLap: boolean;
   startType: ChoiceId<"startType">;
   abs: boolean;
   tc: boolean;
@@ -171,7 +170,7 @@ export const defaults: Settings = {
   laps: 10,
   difficulty: 90,
   startSlot: 10,
-  qualifying: "run",
+  qualifying: "skip",
   rivalLaps: "simulate",
   fuel: 0,
   compound: "medium",
@@ -192,7 +191,6 @@ export const defaults: Settings = {
   pitExperience: "immersive",
   safetyCar: "standard",
   redFlags: true,
-  formationLap: true,
   startType: "standing",
   abs: true,
   tc: true,
@@ -213,12 +211,17 @@ export const defaults: Settings = {
 };
 
 const storageKey = "f1.settings";
+const settingsVersion = 2;
+
+type Stored = Partial<Settings> & { version?: number };
 
 function storedSettings(): Partial<Settings> {
   try {
-    return JSON.parse(
+    const { version = 1, ...stored } = JSON.parse(
       localStorage.getItem(storageKey) ?? "{}",
-    ) as Partial<Settings>;
+    ) as Stored;
+    if (version < settingsVersion) delete stored.qualifying;
+    return stored;
   } catch {
     return {};
   }
@@ -285,7 +288,10 @@ function startFuel(settings: Settings, stage: Stage | null): number {
 }
 
 export function saveSettings(settings: Settings): void {
-  localStorage.setItem(storageKey, JSON.stringify(settings));
+  localStorage.setItem(
+    storageKey,
+    JSON.stringify({ ...settings, version: settingsVersion }),
+  );
 }
 
 export function carOf(settings: Settings): (typeof cars)[number] {

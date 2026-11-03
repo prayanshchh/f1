@@ -62,7 +62,6 @@ export interface RaceSystems {
 interface RaceRules {
   safetyCar: number;
   redFlags: boolean;
-  formationLap: boolean;
   rollingStart: boolean;
 }
 
@@ -226,7 +225,6 @@ function configureRules(module: SpeedDreamsModule, race: RaceSystems): void {
   module._sdRaceControlConfigure(
     race.rules.safetyCar,
     race.rules.redFlags ? 1 : 0,
-    race.rules.formationLap ? 1 : 0,
     race.rules.rollingStart ? 1 : 0,
   );
 }

@@ -134,6 +134,7 @@ export interface HudOptions {
   field: Entrant[] | null;
   qualifying: boolean;
   start: StartLights;
+  startHint: boolean;
   onLap: (lap: LapResult) => void;
   stewards: StewardView;
 }
@@ -217,11 +218,6 @@ interface RaceStatus {
 }
 
 const raceStatuses: Record<number, RaceStatus> = {
-  [raceControlState.formation]: {
-    state: "formation",
-    label: "Formation lap",
-    detail: "No overtaking",
-  },
   [raceControlState.vsc]: {
     state: "yellow",
     label: "Virtual safety car",
@@ -323,6 +319,7 @@ export class Hud {
   private finalLapShown = false;
   private tyreStage = "ok";
   private countdown = false;
+  private lit = 0;
   private readonly tower: Tower | null;
   private mapScreen: [number, number][] = [];
   private readonly mapDots: SVGCircleElement[] = [];
@@ -336,7 +333,6 @@ export class Hud {
   private lastDistance = 0;
   private start: StartLights;
   private signalAt = 0;
-  private raceState: number = raceControlState.green;
   private neutralDelta: { label: string; value: number } | null = null;
   private lineupsSeen = 0;
 
@@ -1042,22 +1038,29 @@ export class Hud {
     this.countdown = false;
   }
 
+  get litLights(): number {
+    return this.lit;
+  }
+
   private updateLights(raceTime: number): void {
     if (this.options.qualifying) return;
     const gantry = this.find("lights");
     const time = raceTime - this.signalAt;
-    const formation = this.raceState === raceControlState.formation;
-    const lit = formation ? 0 : this.start.lit(time);
+    const lit = this.start.lit(time);
+    this.lit = lit;
     this.lights.forEach((light, i) => {
       light.classList.toggle("on", i < lit);
     });
-    if (time < 0 && !formation) this.countdown = true;
+    if (time < 0) this.countdown = true;
     gantry.classList.toggle("show", this.countdown && time < 1);
     gantry.classList.toggle("out", time >= 0);
+    this.find("start-hint").classList.toggle(
+      "show",
+      this.options.startHint && this.countdown && time < 0,
+    );
   }
 
   updateRaceControl(rc: RaceControlInfo): void {
-    this.raceState = rc.state;
     const status = raceStatus(rc);
     const strip = this.find("rc-status");
     putHidden(strip, !status);

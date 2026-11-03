@@ -19,7 +19,7 @@
       ]
     },
     "apps/client": {
-      "entry": ["api-server.ts"],
+      "entry": ["api-server.ts", "engine-build.ts"],
       "project": ["src/**/*.ts"],
       "ignoreDependencies": ["flag-icons"]
     },

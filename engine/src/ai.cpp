@@ -113,7 +113,6 @@ const double slideCatchGain = 1.2;
 const double slideCatchSpeed = 5.0;
 const double slowCornerFloor = 8.0;
 const double launchRevs = 2.0;
-const double parkedSpeed = 0.5;
 
 struct PitLayout
 {
@@ -1882,7 +1881,7 @@ void sdAiDrive(int index, tCarElt *car, tSituation *s)
     }
     updateForecasts(s);
     double sinceSignal = sdRaceControlSinceSignal(s);
-    if (sdRaceControlHolding(s) || (!sdRaceControlFormation() && sinceSignal < driver.reaction))
+    if (sdRaceControlHolding(s) || sinceSignal < driver.reaction)
     {
         hold(car);
         car->_accelCmd = sinceSignal > -launchRevs && sinceSignal < driver.reaction ? 0.7f : 0.0f;
@@ -1967,10 +1966,7 @@ void sdAiDrive(int index, tCarElt *car, tSituation *s)
     upcoming = std::min(upcoming, safe);
     double offset = lateral - laneLateralAt(pos, driver.lane);
     const auto path = [&](double at) { return clampLateral(at, laneLateralAt(at, driver.lane) + offset); };
-    if (sdRaceControlFormation() && target < parkedSpeed && fabs(v) < parkedSpeed)
-        driver.steer = 0.0;
-    else
-        driver.steer = steerFor(driver, car, lateral, path, dt);
+    driver.steer = steerFor(driver, car, lateral, path, dt);
     car->_steerCmd = (tdble)driver.steer;
     applyPedals(driver, car, target, upcoming, dt);
     car->_gearCmd = chooseGear(car);

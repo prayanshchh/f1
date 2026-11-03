@@ -31,6 +31,7 @@ void sdCarStatusStep(tCarElt *car, double dt);
 bool sdPlayerAutopilot();
 double sdDamageDrag(int index);
 double sdCarDamageShare(int index);
+double sdCarWreckage(int index);
 void sdCarStatusRepair(int index);
 void sdCarStatusTeleported(int index);
 double sdDamagePower(int index);

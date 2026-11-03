@@ -82,7 +82,7 @@ const shadowDistance = 4000;
 const shadowSoftness = 1.5;
 const cascadeEnds = [24, 90, 340, 1600];
 const cascadePeriods = [1, 2, 4, 8];
-const cascadePixels = [2048, 2048, 1024, 1024];
+const cascadePixels = [4096, 4096, 2048, 2048];
 const casterMargin = 6;
 export const shadowOnlyLayer = 1;
 export const alphaTestedOrder = 1;
@@ -572,10 +572,34 @@ export function surface(
   return material;
 }
 
-async function loadBaked(anisotropy: number): Promise<BakedGround> {
+function fitImage(map: THREE.Texture, limit: number): void {
+  const image = map.image as { width: number; height: number };
+  const scale = limit / Math.max(image.width, image.height);
+  if (scale >= 1) return;
+  const canvas = new OffscreenCanvas(
+    Math.max(1, Math.floor(image.width * scale)),
+    Math.max(1, Math.floor(image.height * scale)),
+  );
+  canvas
+    .getContext("2d")
+    ?.drawImage(
+      map.image as CanvasImageSource,
+      0,
+      0,
+      canvas.width,
+      canvas.height,
+    );
+  map.image = canvas;
+}
+
+async function loadBaked(
+  anisotropy: number,
+  limit: number,
+): Promise<BakedGround> {
   const loader = new THREE.TextureLoader();
   const load = async (url: string, colorSpace: string) => {
     const map = releaseOnceUploaded(await loader.loadAsync(url));
+    fitImage(map, limit);
     map.flipY = false;
     map.colorSpace = colorSpace;
     map.wrapS = THREE.ClampToEdgeWrapping;
@@ -598,11 +622,12 @@ async function loadBaked(anisotropy: number): Promise<BakedGround> {
 export async function loadRoad(
   url: string,
   anisotropy: number,
+  textureLimit: number,
   sky: SkyRadiance | null = null,
 ): Promise<THREE.Object3D> {
   const [gltf, baked] = await Promise.all([
     new GLTFLoader().loadAsync(url),
-    loadBaked(anisotropy),
+    loadBaked(anisotropy, textureLimit),
   ]);
   gltf.scene.traverse((object) => {
     if (!(object instanceof THREE.Mesh)) return;

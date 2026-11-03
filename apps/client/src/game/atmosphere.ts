@@ -1,6 +1,5 @@
 import * as THREE from "three/webgpu";
 import { bloom } from "three/examples/jsm/tsl/display/BloomNode.js";
-import { taau } from "three/examples/jsm/tsl/display/TAAUNode.js";
 import {
   dot,
   exp,
@@ -11,15 +10,11 @@ import {
   getViewPosition,
   hash,
   If,
-  int,
   length,
-  Loop,
   max,
   min,
   mix,
-  mrt,
   normalize,
-  output,
   pass,
   pow,
   smoothstep,
@@ -27,7 +22,6 @@ import {
   uniform,
   uv,
   vec2,
-  velocity,
   vec3,
   vec4,
 } from "three/tsl";
@@ -42,16 +36,12 @@ const dropLifeFast = 1.6;
 const dropStreak = 0.9;
 const hazeMax = 0.92;
 const hazeForward = 0.35;
-const blurSamples = 8;
-const blurShutter = 0.55;
-const blurLimit = 0.045;
-const blurNear = 5;
-const blurFar = 14;
 const bloomStrength = 0.1;
 const bloomRadius = 0.55;
 const bloomThreshold = 1.6;
 const bloomResolution = 0.25;
-const renderScale = 0.72;
+const renderScale = 1;
+const multisamples = 4;
 const detailScaleMax = 1.5;
 const detailPixels = 3.6e6;
 const detailSharpen = 0.7;
@@ -109,7 +99,6 @@ export class Atmosphere {
   private readonly sunView = uniform(new THREE.Vector3(0, 0, -1));
   private readonly hazeColor = uniform(new THREE.Color());
   private readonly sunColor = uniform(new THREE.Color());
-  private readonly previousView = uniform(new THREE.Matrix4());
   private readonly hazeDistance = uniform(clearHaze);
   private readonly lensWater = uniform(0);
   private readonly airflow = uniform(0);
@@ -127,13 +116,9 @@ export class Atmosphere {
   ) {
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
-    const scenePass = pass(scene, camera, { samples: 0 });
-    scenePass.setMRT(mrt({ output, velocity }));
-    scenePass.setResolutionScale(renderScale);
+    const scenePass = pass(scene, camera, { samples: multisamples });
     this.scenePass = scenePass;
-    scenePass.getTexture("velocity").format = THREE.RGFormat;
-    const color = scenePass.getTextureNode("output");
-    const motion = scenePass.getTextureNode("velocity");
+    const resolved = scenePass.getTextureNode("output");
     const depthTexture = scenePass.getTextureNode("depth");
     const depth = depthTexture.r;
     const view = getViewPosition(
@@ -152,17 +137,6 @@ export class Atmosphere {
       this.sunColor,
       pow(toSun, 8).mul(hazeForward),
     );
-    const stable = taau(color, depthTexture, motion, camera);
-    const resolved = stable.getTextureNode();
-    const world = uniform(camera.matrixWorld).mul(vec4(view, 1));
-    const before = this.previousView.mul(world);
-    const beforeUv = before.xy.div(before.w).mul(vec2(0.5, -0.5)).add(0.5);
-    const rawSmear = uv().sub(beforeUv).mul(blurShutter);
-    const speed = rawSmear.length();
-    const smear = rawSmear
-      .div(max(speed, 1e-5))
-      .mul(min(speed, blurLimit))
-      .mul(smoothstep(blurNear, blurFar, view.length()));
     const crisp = Fn(() => {
       const centre = resolved.rgb.toVar();
       If(this.sharpen.greaterThan(0), () => {
@@ -181,25 +155,9 @@ export class Atmosphere {
       });
       return centre;
     })();
-    const blurred = Fn(() => {
-      const sum = crisp.toVar();
-      If(smear.dot(smear).greaterThan(0), () => {
-        Loop(
-          { start: int(1), end: int(blurSamples), type: "int", condition: "<" },
-          ({ i }) => {
-            const along = float(i)
-              .div(blurSamples - 1)
-              .sub(0.5);
-            sum.addAssign(resolved.sample(uv().add(smear.mul(along))).rgb);
-          },
-        );
-        sum.divAssign(blurSamples);
-      });
-      return sum;
-    })();
-    const glow = bloom(stable, bloomStrength, bloomRadius, bloomThreshold);
+    const glow = bloom(resolved, bloomStrength, bloomRadius, bloomThreshold);
     glow.setResolutionScale(bloomResolution);
-    const graded = mix(blurred, tint, haze)
+    const graded = mix(crisp, tint, haze)
       .add(glow.rgb)
       .mul(vec3(grade.x, grade.y, grade.z));
     const wetLens = Fn(() => {
@@ -256,8 +214,5 @@ export class Atmosphere {
 
   render(): void {
     this.pipeline.render();
-    this.previousView.value
-      .copy(this.camera.projectionMatrix)
-      .multiply(this.camera.matrixWorldInverse);
   }
 }

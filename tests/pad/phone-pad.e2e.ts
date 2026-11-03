@@ -185,7 +185,7 @@ for (const kind of phoneKinds) {
       const phone = await openPhone({ strictCertificates: true });
       await phone.startAndCalibrate();
       await expect(game.phoneBadge()).toBeVisible();
-      await game.page.keyboard.press("p");
+      await game.resume();
     });
 
     test("once paired, input goes straight from phone to game with no server in between", async () => {

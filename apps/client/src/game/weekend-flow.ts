@@ -1,9 +1,4 @@
-import {
-  carStride,
-  type CarTiming,
-  type Engine,
-  sessionPhase,
-} from "./engine.ts";
+import { type CarTiming, type Engine, sessionPhase } from "./engine.ts";
 import type { Hud } from "./hud.ts";
 import type { PitStop } from "./pitstop.ts";
 import type { Scene } from "./scene.ts";
@@ -11,7 +6,6 @@ import type { Settings } from "./settings.ts";
 import type { GameSound } from "./sound/game-sound.ts";
 import type { Music } from "./sound/music.ts";
 import { penaltyBadge } from "./stewards.ts";
-import { CarLabels } from "./tower.ts";
 import {
   playerRun,
   saveWeekend,
@@ -38,9 +32,7 @@ export interface WeekendContext {
   pit: PitStop;
   sound: GameSound;
   music: Music;
-  canvas: HTMLCanvasElement;
   hudRoot: HTMLElement;
-  labelsRoot: HTMLElement;
   resultsRoot: HTMLElement;
   settings: Settings;
   trackLabel: string;
@@ -55,12 +47,10 @@ export class WeekendFlow {
   private timing: CarTiming[];
   private timingClock = 0;
   private scale = 1;
-  private readonly labels: CarLabels;
   private readonly garage: GarageScreen;
 
   constructor(private readonly ctx: WeekendContext) {
     this.timing = ctx.engine.timing();
-    this.labels = new CarLabels(ctx.labelsRoot, ctx.field.entrants);
     this.garage = new GarageScreen(ctx.field.entrants, {
       go: (compound) => {
         ctx.engine.setPitCompound(compound);
@@ -102,19 +92,10 @@ export class WeekendFlow {
   }
 
   update(now: number): void {
-    const { engine, scene, canvas, hud } = this.ctx;
+    const { engine, scene, hud } = this.ctx;
     if (this.ctx.stage === "qualifying") this.followPlayerRun();
     const cars = engine.cars();
     scene.updateField(cars);
-    if (!this.garage.open)
-      this.labels.update(
-        cars,
-        carStride,
-        this.timing,
-        scene.camera,
-        canvas.clientWidth,
-        canvas.clientHeight,
-      );
     if (now - this.timingClock < timingPeriod) return;
     this.timingClock = now;
     this.timing = engine.timing();

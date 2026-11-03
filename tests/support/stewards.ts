@@ -13,6 +13,7 @@ export interface Stewarded extends SpeedDreams {
   _sdStewardsMessages: (out: number, max: number, after: number) => number;
   _sdStewardsCar: (index: number, out: number) => void;
   _sdStewardsLights: (interval: number) => void;
+  _sdStewardsTrackLimits: (on: number) => void;
 }
 
 const batch = 256;

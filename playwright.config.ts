@@ -1,4 +1,6 @@
 import { execFileSync } from "node:child_process";
+import os from "node:os";
+import path from "node:path";
 import { defineConfig } from "@playwright/test";
 
 function dockerRunning(): boolean {
@@ -53,5 +55,8 @@ export default defineConfig({
     url: "http://127.0.0.1:4173",
     reuseExistingServer: false,
     timeout: 180_000,
+    env: {
+      F1_DATA_DIR: path.join(os.tmpdir(), `f1-e2e-${String(process.pid)}`),
+    },
   },
 });

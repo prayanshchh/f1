@@ -30,7 +30,6 @@ enum Offence
     O_SC_GAP,
     O_RESTART_OVERTAKE,
     O_RED_FLAG,
-    O_FORMATION_OVERTAKE,
     O_UNSAFE_RELEASE
 };
 
@@ -61,13 +60,11 @@ enum Penalty
     P_TIME_ADDED,
     P_GRID,
     P_DISQUALIFIED,
-    P_LAP_DELETED,
-    P_BACK_OF_GRID
+    P_LAP_DELETED
 };
 
 enum ControlEvent
 {
-    EV_FORMATION,
     EV_VSC,
     EV_VSC_ENDING,
     EV_SC,
@@ -94,6 +91,8 @@ bool sdStewardsDisqualified(int index);
 bool sdStewardsYield(int index);
 int sdStewardsGridDrop(int index);
 int sdStewardsOffTracks(int index);
+bool sdStewardsPlayerTrouble(int index);
+bool sdStewardsSpun(int index, double seconds);
 void sdStewardsDecide(int car, int offence, int penalty, double value, int other, double distance, double delay, int points);
 void sdStewardsAnnounce(int event, double value, double distance);
 void sdStewardsArmStart(tSituation *s, double signal, double countdown);

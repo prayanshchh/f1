@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import { apiServer } from "./api-server.ts";
+import { engineBuild } from "./engine-build.ts";
 
 const headers = {
   "Cross-Origin-Opener-Policy": "same-origin",
@@ -8,7 +9,7 @@ const headers = {
 };
 
 export default defineConfig({
-  plugins: [apiServer()],
+  plugins: [engineBuild(), apiServer()],
   server: {
     headers,
     fs: { allow: [fileURLToPath(new URL("../..", import.meta.url))] },

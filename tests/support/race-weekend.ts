@@ -59,7 +59,6 @@ export interface Weekend extends SpeedDreams {
   _sdRaceControlConfigure: (
     safetyCar: number,
     redFlags: number,
-    formationLap: number,
     rollingStart: number,
   ) => void;
   _sdRaceControlDeploy: (which: number) => number;
@@ -98,7 +97,6 @@ export interface FieldOptions {
 export interface Rules {
   safetyCar?: number;
   redFlags?: boolean;
-  formationLap?: boolean;
   rollingStart?: boolean;
 }
 
@@ -111,7 +109,6 @@ export async function startField(options: FieldOptions): Promise<Weekend> {
     m._sdRaceControlConfigure(
       rules.safetyCar ?? 2,
       rules.redFlags === false ? 0 : 1,
-      rules.formationLap ? 1 : 0,
       rules.rollingStart ? 1 : 0,
     );
     m._sdTyresConfigure(1, options.wear ?? 1);
@@ -252,6 +249,9 @@ export function carPoses(m: Weekend, cars: number) {
       headingX: at(0),
       headingY: at(1),
       frontAxle: Math.max(at(16), at(22)),
+      speed: at(40),
+      toMiddle: at(47),
+      distance: at(48),
     };
   });
 }

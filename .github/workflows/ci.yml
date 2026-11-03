@@ -25,6 +25,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: ./.github/actions/setup
+        with:
+          emscripten: "true"
+      - run: pnpm run build:engine
       - run: pnpm run test
   browser:
     name: Browser integration (${{ matrix.project }})

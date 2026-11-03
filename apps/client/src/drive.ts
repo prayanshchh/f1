@@ -65,19 +65,15 @@ import { LapTrace } from "./game/laptrace.ts";
 import { Menu } from "./game/menu.ts";
 import type { CarStatus } from "./game/mfd.ts";
 import { type PadCommands, PadLink } from "./game/pad.ts";
+import { readyCard } from "./game/ready-card.ts";
 import { Atmosphere } from "./game/atmosphere.ts";
 import { RaceLog } from "./game/race-log.ts";
 import { loadReference, rememberReference } from "./game/reference.ts";
 import { fetchJson, Scene } from "./game/scene.ts";
 import { GameSound, openAudio } from "./game/sound/game-sound.ts";
 import { Music } from "./game/sound/music.ts";
-import { StartLights } from "./game/start-lights.ts";
-import {
-  pitPenaltyFor,
-  raceControlState,
-  type StewardCar,
-  type Turn,
-} from "./game/stewards.ts";
+import { LightCue, StartLights } from "./game/start-lights.ts";
+import { pitPenaltyFor, type StewardCar, type Turn } from "./game/stewards.ts";
 import { surname } from "./game/tower.ts";
 import { Studio } from "./game/studio.ts";
 import {
@@ -388,7 +384,6 @@ function raceSystems(
         (c) => c.id === settings.safetyCar,
       ),
       redFlags: settings.redFlags,
-      formationLap: settings.formationLap && stage === "race",
       rollingStart: settings.startType === "rolling" && stage === "race",
     },
     dynamicWeather: settings.rain === "dynamic",
@@ -484,6 +479,7 @@ function hudOptions(
     field: setup.field?.entrants ?? null,
     qualifying: setup.stage === "qualifying",
     start: lights,
+    startHint: setup.stage === "race" && settings.startType === "standing",
     onLap,
   };
 }
@@ -518,16 +514,29 @@ function poseOf(frame: Float64Array) {
 async function createRenderer(
   target: HTMLCanvasElement,
 ): Promise<THREE.WebGPURenderer> {
+  const adapter = await navigator.gpu.requestAdapter();
   const renderer = new THREE.WebGPURenderer({
     canvas: target,
     reversedDepthBuffer: true,
     depth: false,
     alpha: false,
+    requiredLimits: adapter
+      ? { maxTextureDimension2D: adapter.limits.maxTextureDimension2D }
+      : {},
   });
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap;
   await renderer.init();
   return renderer;
+}
+
+function typing(event: KeyboardEvent): boolean {
+  const target = event.target;
+  return (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    (target instanceof HTMLElement && target.isContentEditable)
+  );
 }
 
 function consumeAutostart(params: URLSearchParams): boolean {
@@ -899,6 +908,7 @@ async function main(): Promise<void> {
   };
   let buildingUp = false;
   let paused = false;
+  let waiting = false;
   let ended = false;
   let flow: WeekendFlow | null = null;
   const finished = () => ended || flow?.finished === true;
@@ -908,6 +918,7 @@ async function main(): Promise<void> {
     sound.mute(true);
     void menu.run(true).then((action) => {
       if (action === "resume" || action === "replay") {
+        pad.close();
         hud.setParts(settings.hud);
         paused = false;
         sound.mute(false);
@@ -918,6 +929,17 @@ async function main(): Promise<void> {
     });
   };
 
+  const phoneKey = (event: KeyboardEvent) => {
+    if (event.code !== "KeyP" || buildingUp || typing(event)) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (event.type !== "keydown" || event.repeat) return;
+    pad.toggle();
+    if (pad.panelOpen && !waiting) pause();
+  };
+  window.addEventListener("keydown", phoneKey, true);
+  window.addEventListener("keyup", phoneKey, true);
+
   const controls = raceControls(engine, hud, settings, stage === "race");
 
   const drive = (down: boolean, event: KeyboardEvent) => {
@@ -927,7 +949,6 @@ async function main(): Promise<void> {
     if (code === null) return;
     event.preventDefault();
     if (event.repeat) return;
-    if (down && code === "p".charCodeAt(0)) pad.toggle();
     if (down) engine.viewKey(code, event.ctrlKey);
     engine.key(code, down);
   };
@@ -968,7 +989,7 @@ async function main(): Promise<void> {
     trace,
     root: element("[data-replay-root]"),
     reelRoot: element("[data-reel-root]"),
-    hidden: [hudRoot, element("[data-hud=labels]")],
+    hidden: [hudRoot],
     names: field
       ? field.entrants.map((entrant) =>
           entrant.player ? "You" : seatDriver(seat, entrant).last,
@@ -1057,9 +1078,7 @@ async function main(): Promise<void> {
       pit,
       sound,
       music,
-      canvas,
       hudRoot,
-      labelsRoot: element("[data-hud=labels]"),
       resultsRoot: element("[data-results=root]"),
       settings,
       trackLabel: track.label,
@@ -1074,6 +1093,7 @@ async function main(): Promise<void> {
     });
     flow.start();
   };
+  const lightCue = new LightCue();
   let stewardSeen = 0;
   let stewardClock = 0;
   let lineups = 0;
@@ -1081,7 +1101,6 @@ async function main(): Promise<void> {
   const watchRaceControl = () => {
     const rc = engine.raceControl();
     hud.updateRaceControl(rc);
-    scene.setFormation(rc.state === raceControlState.formation);
     if (rc.lineups !== lineups) {
       lineups = rc.lineups;
       pit.abort();
@@ -1100,6 +1119,9 @@ async function main(): Promise<void> {
     const messages = engine.stewardMessages(stewardSeen);
     stewardSeen = messages.at(-1)?.id ?? stewardSeen;
     hud.updateStewards(messages, steward, engine.stewardFlags(), now);
+  };
+  const beepLights = () => {
+    if (lightCue.next(hud.litLights)) sound.startLight();
   };
   let pitDriving = false;
   const step = (now: number) => {
@@ -1155,6 +1177,7 @@ async function main(): Promise<void> {
     sound.update(audio);
     const status = engine.carStatus();
     hud.update(frame, info, tyres, energy, status, now, steward, weather);
+    beepLights();
     hud.updatePit(control);
     watchBest();
     if (!flow && status.stopped) finishRace(status);
@@ -1190,8 +1213,21 @@ async function main(): Promise<void> {
   }
   music.stop();
   hudRoot.hidden = false;
+  waiting = !params.has("autostart");
+  if (waiting)
+    void readyCard(element("[data-ready=root]"), pad).then(() => {
+      waiting = false;
+    });
   openWeekend();
+  const holdForReady = () => {
+    if (frameStale) draw();
+    frameStale = false;
+  };
   void renderer.setAnimationLoop(() => {
+    if (waiting) {
+      holdForReady();
+      return;
+    }
     const now = performance.now() / 1000;
     if (replay.active) {
       replay.frame(now);

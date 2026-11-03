@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import season from "../content/season/austin-2026.json";
 import {
   canStartLap,
@@ -10,7 +10,12 @@ import {
   teams,
 } from "../apps/client/src/game/weekend.ts";
 import { PitStop, type PitLayout } from "../apps/client/src/game/pitstop.ts";
-import { stageOf, type Settings } from "../apps/client/src/game/settings.ts";
+import {
+  loadSettings,
+  saveSettings,
+  stageOf,
+  type Settings,
+} from "../apps/client/src/game/settings.ts";
 import { fieldGrid, teamOf } from "../apps/client/src/game/teams.ts";
 
 const session = (
@@ -129,6 +134,42 @@ describe("session flow", () => {
   test("skipping qualifying goes straight to the race", () => {
     expect(stageOf(session("weekend", "skip"), null)).toBe("race");
     expect(stageOf(session("qualifying", "skip"), null)).toBe("qualifying");
+  });
+});
+
+describe("starting a session", () => {
+  const storage = new Map<string, string>();
+  const load = () => loadSettings(new URLSearchParams());
+
+  beforeEach(() => {
+    storage.clear();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => storage.set(key, value),
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  test("a new player goes straight to the race and qualifying is a choice", () => {
+    const settings = load();
+    expect(stageOf(settings, null)).toBe("race");
+    saveSettings({ ...settings, qualifying: "run" });
+    expect(stageOf(load(), null)).toBe("qualifying");
+  });
+
+  test("settings saved while qualifying was the default move to the race once, keeping the rest", () => {
+    storage.set(
+      "f1.settings",
+      JSON.stringify({ session: "weekend", qualifying: "run", laps: 10 }),
+    );
+    const moved = load();
+    expect(stageOf(moved, null)).toBe("race");
+    expect(moved.laps).toBe(10);
+    saveSettings({ ...moved, qualifying: "run" });
+    expect(stageOf(load(), null)).toBe("qualifying");
   });
 });
 

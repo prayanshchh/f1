@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import {
+  LightCue,
   StartLights,
   startLightCount,
 } from "../../apps/client/src/game/start-lights.ts";
@@ -30,21 +31,42 @@ const speedIndex = 45;
 const timeIndex = 0;
 
 describe("start light sequence", () => {
-  test("race lights come on one a second and go out at zero", () => {
+  test("race lights stay dark for a second, come on one a second and go out at zero", () => {
     const lights = StartLights.race(0.5);
     const start = -lights.countdown;
-    expect(lights.lit(start)).toBe(1);
-    expect(lights.lit(start + 0.99)).toBe(1);
-    expect(lights.lit(start + 1)).toBe(2);
-    expect(lights.lit(start + 4)).toBe(5);
+    expect(lights.lit(start)).toBe(0);
+    expect(lights.lit(start + 0.99)).toBe(0);
+    expect(lights.lit(start + 1)).toBe(1);
+    expect(lights.lit(start + 1.99)).toBe(1);
+    expect(lights.lit(start + 2)).toBe(2);
+    expect(lights.lit(start + 5)).toBe(5);
     expect(lights.lit(-0.001)).toBe(startLightCount);
     expect(lights.lit(0)).toBe(0);
     expect(lights.lit(30)).toBe(0);
   });
 
   test("the hold after five lights is random between 0.2 and 3 seconds", () => {
-    expect(StartLights.race(0).countdown).toBeCloseTo(5.2, 5);
-    expect(StartLights.race(1).countdown).toBeCloseTo(8, 5);
+    expect(StartLights.race(0).countdown).toBeCloseTo(6.2, 5);
+    expect(StartLights.race(1).countdown).toBeCloseTo(9, 5);
+  });
+
+  test("each light beeps once as it comes on, lights out is silent, and a restart beeps again", () => {
+    const frame = 1 / 60;
+    const cue = new LightCue();
+    const beeps: number[] = [];
+    const run = (lights: StartLights, from: number, to: number) => {
+      for (let t = from; t < to; t += frame)
+        if (cue.next(lights.lit(t))) beeps.push(t);
+    };
+    const race = StartLights.race(0.5);
+    run(race, -race.countdown, 3);
+    expect(beeps).toHaveLength(startLightCount);
+    beeps.forEach((at, i) => {
+      expect(at - -race.countdown).toBeCloseTo(1 + i, 1);
+    });
+    const restart = StartLights.restart(6.4);
+    run(restart, -restart.countdown, 1);
+    expect(beeps).toHaveLength(2 * startLightCount);
   });
 
   test("a restart uses the short sequence and still ends lit at zero", () => {

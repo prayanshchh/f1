@@ -49,7 +49,7 @@ test.describe("driver onboarding", () => {
     await expect(tiles).toHaveCount(11);
     await page.locator('.front-team-tile[data-team="corvus"]').click();
     await expect(page.locator(".front-team-name")).toHaveText(
-      "Orbis Corvus Motorsport",
+      "Orvex Corvus Motorsport",
     );
     await page.keyboard.press("Enter");
 

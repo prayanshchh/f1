@@ -214,13 +214,17 @@ export class Simulator {
       if (opened) break;
       await new Promise((resolve) => setTimeout(resolve, 5_000));
     }
-    for (let tries = 0; tries < 100; tries++) {
+    let seen: string[] = [];
+    for (let tries = 0; tries < 300; tries++) {
       const pages = await this.pages();
       const page = pages.find((listing) => listing.url === url);
       if (page) return SafariPage.connect(page.webSocketDebuggerUrl);
+      seen = pages.map((listing) => listing.url);
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
-    throw new Error(`Safari never opened ${url}`);
+    throw new Error(
+      `Safari never opened ${url}; it shows ${JSON.stringify(seen)}`,
+    );
   }
 
   private async pages(): Promise<Listing[]> {

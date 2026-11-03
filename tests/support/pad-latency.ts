@@ -22,6 +22,7 @@ export interface StepResult {
   gameUses: number;
   carStarts: number;
   carReaches90: number;
+  carFrames: number;
   carDelta: number;
 }
 
@@ -98,6 +99,15 @@ function valueOf(stamp: Stamp | null): number {
   return stamp ? stamp[1] : Number.NaN;
 }
 
+export function updatesBetween(
+  log: Stamp[],
+  after: number,
+  until: number,
+): number {
+  if (!Number.isFinite(after) || !Number.isFinite(until)) return Number.NaN;
+  return log.filter(([at]) => at > after && at <= until).length;
+}
+
 function stepResult(logs: Logs, step: TiltStep, window: Window): StepResult {
   const phone = moveOf(logs.sent, window);
   const sentAt = timeOf(phone.starts);
@@ -127,6 +137,7 @@ function stepResult(logs: Logs, step: TiltStep, window: Window): StepResult {
     gameUses: handedAt - arrivedAt,
     carStarts: timeOf(car.starts) - window.from,
     carReaches90: timeOf(car.settles) - window.from,
+    carFrames: updatesBetween(logs.car, arrivedAt, timeOf(car.settles)),
     carDelta: car.after - car.before,
   };
 }

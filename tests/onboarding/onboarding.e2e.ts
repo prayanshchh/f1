@@ -49,7 +49,7 @@ test.describe("driver onboarding", () => {
     await expect(tiles).toHaveCount(11);
     await page.locator('.front-team-tile[data-team="corvus"]').click();
     await expect(page.locator(".front-team-name")).toHaveText(
-      "Orbis Corvus Motorsport",
+      "Orvex Corvus Motorsport",
     );
     await page.keyboard.press("Enter");
 
@@ -88,8 +88,8 @@ test.describe("driver onboarding", () => {
     const session = crypto.randomUUID();
     await context.request.put(`/api/sessions/${session}`, {
       data: {
-        track: "cota",
-        car: "22mp1-sector-mcl36",
+        track: "hill-country",
+        car: "revracer-26",
         team: "corvus",
         kind: "race",
         plannedLaps: 2,

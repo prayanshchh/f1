@@ -24,7 +24,7 @@ function raceWithBuildUp(): void {
   if (sessionStorage.getItem("seeded")) return;
   sessionStorage.setItem("seeded", "1");
   localStorage.setItem(
-    "f1.settings",
+    "revracers.settings",
     JSON.stringify({
       session: "race",
       laps: 5,

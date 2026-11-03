@@ -83,8 +83,8 @@ describe("a lap from the game reaches the database and comes back as a delta", (
   test("second session starts with the stored best and shows real sector gaps", async () => {
     const race = {
       id: crypto.randomUUID(),
-      track: "cota",
-      car: "22mp1-sector-mcl36",
+      track: "hill-country",
+      car: "revracer-26",
       team: "corvus",
       kind: "race" as const,
       plannedLaps: 2,

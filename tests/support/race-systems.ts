@@ -1,4 +1,4 @@
-import { type SpeedDreams, startCota } from "./speed-dreams.ts";
+import { type SpeedDreams, startCircuit } from "./speed-dreams.ts";
 
 export const wheelFields = 10;
 const tyreFields = 44;
@@ -48,11 +48,11 @@ export interface RaceSystems extends SpeedDreams {
   };
 }
 
-const setupFile = "/sd/local/drivers/human/cars/22mp1-sector-mcl36/default.xml";
+const setupFile = "/sd/local/drivers/human/cars/revracer-26/default.xml";
 const raceFile = "/sd/local/config/raceman/quickrace.xml";
 
 export async function startRace(options: Options = {}): Promise<RaceSystems> {
-  return startCota<RaceSystems>((m) => {
+  return startCircuit<RaceSystems>((m) => {
     m._sdTyresConfigure(options.compound ?? 1, options.wear ?? 1);
     m._sdEnergyConfigure(
       options.race ? 1 : 0,

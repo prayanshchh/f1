@@ -47,7 +47,7 @@ function kerbMask(track, side, count) {
 }
 
 export function writeTrackData(root, target) {
-  const directory = path.join(root, "content/tracks/cota");
+  const directory = path.join(root, "content/tracks/hill-country");
   const read = (file) =>
     JSON.parse(readFileSync(path.join(directory, file), "utf8"));
   const track = read("track.json");

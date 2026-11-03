@@ -3,7 +3,7 @@ import { countGpuObjects } from "../support/gpu-counters.ts";
 
 function heavyRainRace(): void {
   localStorage.setItem(
-    "f1.settings",
+    "revracers.settings",
     JSON.stringify({ session: "race", laps: 3, rain: "heavy", buildUp: false }),
   );
 }

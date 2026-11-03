@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { describe, expect, test } from "vitest";
-import { startCota, wasm } from "../support/speed-dreams.ts";
+import { startCircuit, wasm } from "../support/speed-dreams.ts";
 
 const speedIndex = 45;
 const wheelIndex = 17;
@@ -11,7 +11,7 @@ const settleTicks = 200;
 const sampleTicks = 300;
 
 async function brakeAt(steer: number) {
-  const m = await startCota();
+  const m = await startCircuit();
   const memory = m._malloc(320);
   const frame = () => new Float64Array(m.HEAPF64.buffer, m._sdFrame(), 88);
   const lateral = () => {

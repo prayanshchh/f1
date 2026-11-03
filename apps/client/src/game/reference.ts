@@ -5,7 +5,7 @@ import { decodeTrace, encodeTrace, toMs } from "./race-log.ts";
 const serverWaitMs = 2500;
 
 function cacheKey(driver: Driver | null, track: string, car: string): string {
-  return `f1.reference.${driver?.id ?? "guest"}.${track}.${car}`;
+  return `revracers.reference.${driver?.id ?? "guest"}.${track}.${car}`;
 }
 
 function readCache(key: string): ServerReference | null {

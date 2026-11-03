@@ -9,7 +9,7 @@ import { planWeekend } from "../../apps/client/src/game/weekend.ts";
 import { Pilot } from "../support/pilot.ts";
 import type { RaceSystems } from "../support/race-systems.ts";
 import { startField, sessionKind } from "../support/race-weekend.ts";
-import { startCota, wasm } from "../support/speed-dreams.ts";
+import { startCircuit, wasm } from "../support/speed-dreams.ts";
 import {
   frameOf,
   type Stewarded,
@@ -58,7 +58,7 @@ function drive(
 }
 
 async function practiceLap(offTrack: boolean, enforced = true) {
-  const m = await startCota<Driven>();
+  const m = await startCircuit<Driven>();
   if (enforced) m._sdStewardsTrackLimits(1);
   drive(
     m,

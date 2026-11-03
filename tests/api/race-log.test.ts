@@ -134,9 +134,9 @@ describe("Outbox", () => {
 describe("RaceLog", () => {
   const race = {
     id: "11111111-1111-4111-8111-111111111111",
-    track: "cota",
-    car: "22mp1-sector-mcl36",
-    team: "vanta",
+    track: "hill-country",
+    car: "revracer-26",
+    team: "velza",
     kind: "race" as const,
     plannedLaps: 5,
     conditions: {},
@@ -213,7 +213,7 @@ describe("trace encoding", () => {
     expect(decoded[3]).toBeCloseTo(90.25, 3);
   });
 
-  test("handles a full COTA lap, one sample per metre", () => {
+  test("handles a full lap of the circuit, one sample per metre", () => {
     const trace = Array.from({ length: 5479 }, (_, i) => i * 0.0165);
     const decoded = decodeTrace(encodeTrace(trace));
     expect(decoded).toHaveLength(5479);

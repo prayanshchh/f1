@@ -18,9 +18,9 @@ import {
   vec3,
   vec4,
 } from "three/tsl";
-import albedoUrl from "../../../../content/tracks/cota/textures/baked/people_albedo.png?url";
-import crowdUrl from "../../../../content/tracks/cota/crowd.bin?url";
-import maskUrl from "../../../../content/tracks/cota/textures/baked/people_mask.png?url";
+import albedoUrl from "../../../../content/tracks/hill-country/textures/baked/people_albedo.png?url";
+import crowdUrl from "../../../../content/tracks/hill-country/crowd.bin?url";
+import maskUrl from "../../../../content/tracks/hill-country/textures/baked/people_mask.png?url";
 import { releaseOnceUploaded } from "./preload.ts";
 
 const stride = 8;

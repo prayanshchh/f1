@@ -34,22 +34,24 @@ const lapSeconds = 125;
 const untimedRun = 440;
 const boxDepth = 1;
 
-interface CotaTrack {
+interface CircuitTrack {
   length: number;
   centerline: { x: number; z: number }[];
   grid: { distance: number; offset: number }[];
 }
 
 interface Frame {
-  track: CotaTrack;
+  track: CircuitTrack;
   origin: { x: number; y: number };
   heading: number;
 }
 
-function cotaFrame(): Frame {
+function circuitFrame(): Frame {
   const read = (file: string): unknown =>
-    JSON.parse(readFileSync(`${repoRoot}/content/tracks/cota/${file}`, "utf8"));
-  const track = read("track.json") as CotaTrack;
+    JSON.parse(
+      readFileSync(`${repoRoot}/content/tracks/hill-country/${file}`, "utf8"),
+    );
+  const track = read("track.json") as CircuitTrack;
   const frame = read("sd-frame.json") as { origin: number[]; heading: number };
   return {
     track,
@@ -190,7 +192,7 @@ describe.runIf(existsSync(wasm))("race weekend on the real engine", () => {
       plan,
     });
     m._sdStep(1);
-    const frame = cotaFrame();
+    const frame = circuitFrame();
     const start = trackPoint(m, 0, 0);
     carPoses(m, fieldSize).forEach((car, index) => {
       const box = paintedBox(frame, start, plan.slots[index] ?? -1);

@@ -1,13 +1,17 @@
 import { existsSync } from "node:fs";
 import { describe, expect, test } from "vitest";
-import { type SpeedDreams, startCota, wasm } from "../support/speed-dreams.ts";
+import {
+  type SpeedDreams,
+  startCircuit,
+  wasm,
+} from "../support/speed-dreams.ts";
 
 const speedIndex = 45;
 const fields = 5;
 const grass = 2;
 
 async function start(): Promise<SpeedDreams> {
-  const m = await startCota();
+  const m = await startCircuit();
   m._sdStep(1000);
   return m;
 }

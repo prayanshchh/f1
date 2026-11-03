@@ -17,6 +17,7 @@ import {
   type Settings,
 } from "../apps/client/src/game/settings.ts";
 import { fieldGrid, teamOf } from "../apps/client/src/game/teams.ts";
+import liveries from "../content/cars/teams.json";
 
 const session = (
   value: Settings["session"],
@@ -89,10 +90,30 @@ describe("weekend plan", () => {
     expect(new Set(slots).size).toBe(22);
   });
 
-  test("without qualifying the field lines up as the real 2026 Austin grid", () => {
+  test("every rival races under their own team's fictional driver", () => {
+    for (const team of teams) {
+      const { entrants } = planWeekend(team.car, 0, null);
+      const rivals = entrants.filter((e) => !e.player);
+      expect(new Set(rivals.map((e) => e.code)).size).toBe(rivals.length);
+      for (const rival of rivals) {
+        const roster = liveries.find((l) => l.id === rival.car)?.drivers;
+        const person = roster?.find((d) => d.code === rival.code);
+        expect(person, `${rival.code} drives for ${rival.car}`).toBeDefined();
+        expect(rival.name).toBe(
+          `${person?.first.charAt(0) ?? ""} ${person?.last.toUpperCase() ?? ""}`,
+        );
+      }
+    }
+  });
+
+  test("without qualifying the field lines up as the real race grid", () => {
     const realOrder = [...season.grid]
       .sort((a, b) => a.realGrid - b.realGrid)
-      .map((driver) => driver.code);
+      .map((driver) => {
+        const car = teams.find((t) => t.index === driver.teamIndex)?.car;
+        const roster = liveries.find((l) => l.id === car)?.drivers;
+        return roster?.[driver.seat]?.code ?? "";
+      });
     for (const team of teams)
       for (const start of [0, 7, lastSlot]) {
         const { entrants, slots } = planWeekend(team.car, start, null);
@@ -162,7 +183,7 @@ describe("starting a session", () => {
 
   test("settings saved while qualifying was the default move to the race once, keeping the rest", () => {
     storage.set(
-      "f1.settings",
+      "revracers.settings",
       JSON.stringify({ session: "weekend", qualifying: "run", laps: 10 }),
     );
     const moved = load();

@@ -95,9 +95,9 @@ describe.each(backends)("api on %s", (_name, open) => {
   };
 
   const session = (overrides: object = {}) => ({
-    track: "cota",
-    car: "22mp1-sector-mcl36",
-    team: "vanta",
+    track: "hill-country",
+    car: "revracer-26",
+    team: "velza",
     kind: "race",
     plannedLaps: 5,
     conditions: { rain: "none" },
@@ -246,7 +246,7 @@ describe.each(backends)("api on %s", (_name, open) => {
         "/api/me",
         "/api/profile",
         "/api/profile/sessions",
-        "/api/references/cota/x",
+        "/api/references/hill-country/x",
       ]) {
         expect((await anonymous.call("GET", url)).status, url).toBe(401);
       }
@@ -407,7 +407,7 @@ describe.each(backends)("api on %s", (_name, open) => {
     const trace = Buffer.from(
       new Float32Array([0, 0.5, 1, Number.NaN]).buffer,
     ).toString("base64");
-    const url = "/api/references/cota/22mp1-sector-mcl36";
+    const url = "/api/references/hill-country/revracer-26";
     const reference = (timeMs: number, sectorsMs: number[], data = trace) => ({
       timeMs,
       sectorsMs,
@@ -606,8 +606,8 @@ describe.each(backends)("api on %s", (_name, open) => {
         "/api/profile",
       );
       expect(summary.bests.map((best) => best.car).sort()).toEqual([
-        "22mp1-sector-mcl36",
         "other-car",
+        "revracer-26",
       ]);
     });
 
@@ -668,7 +668,7 @@ describe.each(backends)("api on %s", (_name, open) => {
 });
 
 describe("embedded database on disk", () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "f1-api-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "revracers-api-"));
 
   afterAll(() => {
     rmSync(directory, { recursive: true, force: true });

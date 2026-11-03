@@ -144,6 +144,6 @@ JavaScript dependency to `third-party-licenses.md` next to the game.
 
 RevRacers is a fan-made racing game. All teams, drivers, sponsors, brands and
 venues in the game are fictional. RevRacers is not affiliated with, sponsored
-by or endorsed by Formula One, the FIA, any racing team, circuit, car maker,
-game publisher or the Speed Dreams project. All trademarks belong to their
+by or endorsed by any racing series, governing body, racing team, circuit,
+car maker, game publisher or the Speed Dreams project. All trademarks belong to their
 owners.

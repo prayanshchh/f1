@@ -23,7 +23,7 @@ import {
 import { releaseOnceUploaded } from "./preload.ts";
 
 const skyFiles = import.meta.glob<string>(
-  "../../../../content/tracks/cota/sky/*",
+  "../../../../content/tracks/hill-country/sky/*",
   { query: "?url", import: "default", eager: true },
 );
 

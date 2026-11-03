@@ -13,10 +13,10 @@ import { type Sample, installGameProbe, peerRoutes } from "./phone-pad.ts";
 const run = promisify(execFile);
 const repo = fileURLToPath(new URL("../..", import.meta.url));
 const browserImage = "mcr.microsoft.com/playwright:v1.64.1-noble";
-const toolsImage = "lightsout-pad-nettools";
+const toolsImage = "revracers-pad-nettools";
 const tools =
   "FROM alpine:3.22\nRUN apk add --no-cache iproute2 iproute2-tc iptables\n";
-const label = "lightsout.padlab";
+const label = "revracers.padlab";
 const serverPort = "3000";
 
 async function docker(...args: string[]): Promise<string> {
@@ -112,7 +112,7 @@ export class Lab {
       "-days",
       "2",
       "-subj",
-      "/CN=lightsout",
+      "/CN=revracers",
       "-keyout",
       path.join(files, "site.key"),
       "-out",

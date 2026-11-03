@@ -8,7 +8,7 @@ const script = fileURLToPath(
 
 export function engineBuild(): Plugin {
   return {
-    name: "f1-engine-build",
+    name: "revracers-engine-build",
     apply: "serve",
     buildStart() {
       execFileSync(process.execPath, [script], { stdio: "inherit" });

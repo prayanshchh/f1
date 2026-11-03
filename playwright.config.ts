@@ -56,7 +56,10 @@ export default defineConfig({
     reuseExistingServer: false,
     timeout: 180_000,
     env: {
-      F1_DATA_DIR: path.join(os.tmpdir(), `f1-e2e-${String(process.pid)}`),
+      REVRACERS_DATA_DIR: path.join(
+        os.tmpdir(),
+        `revracers-e2e-${String(process.pid)}`,
+      ),
     },
   },
 });

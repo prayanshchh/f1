@@ -4,8 +4,8 @@ import {
   type PitDrive,
   type PitLayout,
 } from "./game/pitstop.ts";
-import frameUrl from "../../../content/tracks/cota/sd-frame.json?url";
-import mapUrl from "../../../content/tracks/cota/circuit-map.json?url";
+import frameUrl from "../../../content/tracks/hill-country/sd-frame.json?url";
+import mapUrl from "../../../content/tracks/hill-country/circuit-map.json?url";
 import "@fontsource-variable/saira/wdth.css";
 import "./drive.css";
 import "./front.css";
@@ -124,7 +124,7 @@ const status = document.querySelector<HTMLElement>(
   "[data-testid=drive-status]",
 );
 const hudRoot = document.querySelector<HTMLElement>("[data-testid=hud]");
-const autostartKey = "f1.autostart";
+const autostartKey = "revracers.autostart";
 
 function element(selector: string): HTMLElement {
   const found = document.querySelector<HTMLElement>(selector);

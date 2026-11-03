@@ -1,9 +1,9 @@
 import * as THREE from "three/webgpu";
-import crewUrl from "../../../../content/tracks/cota/crew.glb?url";
-import frameUrl from "../../../../content/tracks/cota/sd-frame.json?url";
-import racingLineUrl from "../../../../content/tracks/cota/racing-line.json?url";
-import trackUrl from "../../../../content/tracks/cota/track.json?url";
-import roadUrl from "../../../../content/tracks/cota/road.glb?url";
+import crewUrl from "../../../../content/tracks/hill-country/crew.glb?url";
+import frameUrl from "../../../../content/tracks/hill-country/sd-frame.json?url";
+import racingLineUrl from "../../../../content/tracks/hill-country/racing-line.json?url";
+import trackUrl from "../../../../content/tracks/hill-country/track.json?url";
+import roadUrl from "../../../../content/tracks/hill-country/road.glb?url";
 import { FieldCars } from "./field-cars.ts";
 import { frameIndex, type Engine, type HudInfo } from "./engine.ts";
 import type { WeatherInfo } from "./weather.ts";

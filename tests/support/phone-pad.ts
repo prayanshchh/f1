@@ -591,7 +591,7 @@ export class Game {
     await page.addInitScript(installGameProbe);
     await page.addInitScript(() => {
       localStorage.setItem(
-        "f1.settings",
+        "revracers.settings",
         JSON.stringify({ session: "practice" }),
       );
     });

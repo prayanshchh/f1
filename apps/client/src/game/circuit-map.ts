@@ -12,7 +12,7 @@ import {
   uv,
   vec3,
 } from "three/tsl";
-import mapUrl from "../../../../content/tracks/cota/circuit-map.json?url";
+import mapUrl from "../../../../content/tracks/hill-country/circuit-map.json?url";
 
 const pink = new THREE.Color(0.86, 0.26, 0.3);
 const teal = new THREE.Color(0.2, 0.45, 0.54);

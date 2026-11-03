@@ -20,7 +20,7 @@ const tables = JSON.parse(
 ) as EngineTables;
 const fingerprint = JSON.parse(
   readFileSync(
-    path.join(repoRoot, "tests/sound/f1-25-onboard-fingerprint.json"),
+    path.join(repoRoot, "tests/sound/onboard-fingerprint.json"),
     "utf8",
   ),
 ) as { edges: number[]; levels: number[]; rpm: number[] };
@@ -124,7 +124,7 @@ describe("engine voice", () => {
     expect(peakNear(signal, firing, 0.03) / firing).toBeCloseTo(1, 2);
   });
 
-  test("matches the spectrum measured from F1 25 onboard gameplay", () => {
+  test("matches the spectrum measured from the reference onboard recording", () => {
     const sweep = fingerprint.rpm;
     const signal = render(sweep.length * 0.5 + 0.4, (time) => ({
       ...driving,

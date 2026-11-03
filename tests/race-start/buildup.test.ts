@@ -31,12 +31,15 @@ interface CircuitMapData {
 
 const map = JSON.parse(
   readFileSync(
-    path.join(repoRoot, "content/tracks/cota/circuit-map.json"),
+    path.join(repoRoot, "content/tracks/hill-country/circuit-map.json"),
     "utf8",
   ),
 ) as CircuitMapData;
 const track = JSON.parse(
-  readFileSync(path.join(repoRoot, "content/tracks/cota/track.json"), "utf8"),
+  readFileSync(
+    path.join(repoRoot, "content/tracks/hill-country/track.json"),
+    "utf8",
+  ),
 ) as { length: number; sectors: number[] };
 
 describe("build-up timeline", () => {
@@ -51,7 +54,7 @@ describe("build-up timeline", () => {
       expect(stageAt(stages, t), `no stage at ${String(t)}s`).not.toBeNull();
   });
 
-  test("a race follows the F1 25 order", () => {
+  test("a race follows the reference build-up order", () => {
     const order = buildUpStages("race", gridPairs).map((stage) => stage.id);
     expect([...new Set(order)]).toEqual([
       "black",
@@ -175,7 +178,7 @@ describe("camera shots", () => {
 });
 
 describe("circuit map content", () => {
-  test("has exactly the 20 COTA turns in lap order", () => {
+  test("has exactly the 20 Hill Country turns in lap order", () => {
     expect(map.turns.map((turn) => turn.number)).toEqual(
       Array.from({ length: 20 }, (_, i) => i + 1),
     );

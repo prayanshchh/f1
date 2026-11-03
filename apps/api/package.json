@@ -1,5 +1,5 @@
 {
-  "name": "@f1/api",
+  "name": "@revracers/api",
   "private": true,
   "type": "module",
   "dependencies": {

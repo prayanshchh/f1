@@ -9,7 +9,7 @@ import {
   type Weekend,
 } from "../support/race-weekend.ts";
 import { planWeekend } from "../../apps/client/src/game/weekend.ts";
-import { startCota, wasm } from "../support/speed-dreams.ts";
+import { startCircuit, wasm } from "../support/speed-dreams.ts";
 
 const fieldSize = 22;
 const wet = 4;
@@ -91,7 +91,7 @@ describe.runIf(existsSync(wasm))("rain and a drying track", () => {
 
   test("dynamic weather keeps its forecast and repeats for the same seed", async () => {
     const start = (weatherSeed: number) =>
-      startCota<Weekend>((m) => {
+      startCircuit<Weekend>((m) => {
         m._sdWeatherConfigure(1, weatherSeed);
       });
     const seeds = [11, 12, 13, 14, 15, 16];

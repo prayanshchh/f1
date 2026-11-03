@@ -6,7 +6,7 @@ import {
 } from "../../apps/client/src/game/pitstop.ts";
 import { driveStop, layout } from "../support/pit-drive.ts";
 import type { RaceSystems } from "../support/race-systems.ts";
-import { startCota, wasm } from "../support/speed-dreams.ts";
+import { startCircuit, wasm } from "../support/speed-dreams.ts";
 
 describe("turn-in timing", () => {
   test("grades a press by how far it was from the optimal moment", () => {
@@ -29,7 +29,7 @@ describe("turn-in timing", () => {
 
 describe.skipIf(!existsSync(wasm))("pit stop in the engine", () => {
   test("parks in the box, services the car and rejoins the fast lane", async () => {
-    const lap = driveStop(await startCota<RaceSystems>());
+    const lap = driveStop(await startCircuit<RaceSystems>());
     expect([...lap.phases]).toEqual(
       expect.arrayContaining(["lane", "boxing", "service", "release"]),
     );
@@ -45,8 +45,8 @@ describe.skipIf(!existsSync(wasm))("pit stop in the engine", () => {
   }, 120_000);
 
   test("asking for a new front wing makes the stop longer and fits it", async () => {
-    const plain = driveStop(await startCota<RaceSystems>());
-    const withWing = driveStop(await startCota<RaceSystems>(), {
+    const plain = driveStop(await startCircuit<RaceSystems>());
+    const withWing = driveStop(await startCircuit<RaceSystems>(), {
       replaceWing: true,
     });
     expect(withWing.stopTime).toBeGreaterThan(plain.stopTime + 7);

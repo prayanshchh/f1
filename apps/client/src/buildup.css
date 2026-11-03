@@ -83,7 +83,7 @@
   color: #fff;
 }
 
-.bu-card-logo .f1 {
+.bu-card-logo .brand-mark {
   width: 228px;
   height: 56px;
   fill: #fff;
@@ -620,7 +620,7 @@
   animation-delay: 0.1s;
 }
 
-.bu-wipe .f1 {
+.bu-wipe .brand-mark {
   position: relative;
   width: 520px;
   height: 130px;
@@ -628,7 +628,7 @@
   opacity: 0;
 }
 
-.bu-wipe.on .f1 {
+.bu-wipe.on .brand-mark {
   animation: bu-logo 1s ease both;
 }
 

@@ -4,12 +4,11 @@ pnpm-lock.yaml
 engine/speed-dreams/
 engine/third_party/
 engine/data/
-content/tracks/cota/track.json
-content/tracks/cota/racing-line.json
-content/tracks/cota/sd-frame.json
-content/tracks/cota/source/
+content/tracks/hill-country/track.json
+content/tracks/hill-country/racing-line.json
+content/tracks/hill-country/sd-frame.json
+content/tracks/hill-country/source/
 apps/client/src/game/sound/tables.json
 apps/client/src/game/sound/start-beep.json
-tests/sound/f1-25-chase-fingerprint.json
 tests/sound/start-beep-fingerprint.json
-content/tracks/cota/circuit-map.json
+content/tracks/hill-country/circuit-map.json

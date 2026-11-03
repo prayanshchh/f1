@@ -2,7 +2,7 @@ import {
   planWeekend,
   type WeekendPlan,
 } from "../../apps/client/src/game/weekend.ts";
-import { type SpeedDreams, startCota } from "./speed-dreams.ts";
+import { type SpeedDreams, startCircuit } from "./speed-dreams.ts";
 
 const timingStride = 20;
 const carStride = 49;
@@ -105,7 +105,7 @@ const raceFile = "/sd/local/config/raceman/quickrace.xml";
 export async function startField(options: FieldOptions): Promise<Weekend> {
   const plan = options.plan ?? planWeekend("corvus", 10, null);
   const rules = options.rules ?? {};
-  return startCota<Weekend>((m) => {
+  return startCircuit<Weekend>((m) => {
     m._sdRaceControlConfigure(
       rules.safetyCar ?? 2,
       rules.redFlags === false ? 0 : 1,

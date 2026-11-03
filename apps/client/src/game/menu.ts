@@ -113,7 +113,7 @@ const tabIntro: Record<string, string> = {
   session:
     "Choose the circuit, the car and the type of session, and set the weather conditions.",
   strategy:
-    "Choose the tyre you start on, how fast tyres wear, how much fuel you carry and how the battery deploys. These follow the 2026 regulations and the F1 25 2026 Season Pack.",
+    "Choose the tyre you start on, how fast tyres wear, how much fuel you carry and how the battery deploys. These follow the 2026 regulations.",
   assists:
     "Contains driver assist settings that allow you to make controlling the car easier or more authentic.",
   rules:
@@ -887,7 +887,7 @@ export class Menu {
       rows.push(
         this.choice(
           "Race Distance",
-          `The number of laps in the race. The 2026 United States Grand Prix ran ${String(raceLaps)} laps, 308 km.`,
+          `The number of laps in the race. A full race distance is ${String(raceLaps)} laps, 308 km.`,
           raceLapOptions().map((laps) => ({
             id: String(laps),
             label:
@@ -960,7 +960,7 @@ export class Menu {
       ),
       this.choice(
         "Tyre Wear",
-        "Real Life matches real Austin stints at race pace: Soft about 21 laps, Medium 29 and Hard 40 before they fall away, with the tread gone about 27, 37 and 53 laps in. Push harder, lock up or hit things and they go sooner. Race Length speeds wear up for shorter races, up to five times.",
+        "Real Life matches real stints on this circuit at race pace: Soft about 21 laps, Medium 29 and Hard 40 before they fall away, with the tread gone about 27, 37 and 53 laps in. Push harder, lock up or hit things and they go sooner. Race Length speeds wear up for shorter races, up to five times.",
         choices.tyreWear,
         () => s.tyreWear,
         (id) => {
@@ -1005,7 +1005,7 @@ export class Menu {
       ),
       this.toggle(
         "Active Aero Assist",
-        "On, Straight Mode opens by itself at full throttle on straights. Off, press X to arm it, as in F1 25. It closes when you brake or lift.",
+        "On, Straight Mode opens by itself at full throttle on straights. Off, press X to arm it. It closes when you brake or lift.",
         () => s.straightAssist,
         (v) => {
           s.straightAssist = v;
@@ -1077,7 +1077,7 @@ export class Menu {
       rows.push(
         this.toggle(
           "Anti-Lock Brakes",
-          "Off, as in F1, a heavy stop can lock the wheels: tyre smoke, flat spots and extra wear, sized by how hard the lock is. The brakes still ease off while you are steering. On prevents lock-ups altogether.",
+          "Off, as in a real race car, a heavy stop can lock the wheels: tyre smoke, flat spots and extra wear, sized by how hard the lock is. The brakes still ease off while you are steering. On prevents lock-ups altogether.",
           () => s.antiLock,
           (v) => {
             s.antiLock = v;

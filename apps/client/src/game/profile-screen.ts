@@ -13,7 +13,7 @@ import { teamOf } from "./teams.ts";
 import { compounds } from "./tyres.ts";
 
 const trackNames: Record<string, string> = {
-  cota: "Circuit of the Americas",
+  "hill-country": "Hill Country Circuit",
 };
 
 function fromMs(ms: number | null | undefined): string {

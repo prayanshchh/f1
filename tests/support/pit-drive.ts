@@ -14,7 +14,7 @@ import { repoRoot } from "./repo.ts";
 export const layout = (
   JSON.parse(
     readFileSync(
-      path.join(repoRoot, "content/tracks/cota/sd-frame.json"),
+      path.join(repoRoot, "content/tracks/hill-country/sd-frame.json"),
       "utf8",
     ),
   ) as { pit: PitLayout }

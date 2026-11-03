@@ -40,7 +40,7 @@ if (!softwareGpu) {
     await page.goto("/drive.html", { waitUntil: "commit" });
     await page.evaluate(() => {
       localStorage.setItem(
-        "f1.settings",
+        "revracers.settings",
         JSON.stringify({
           session: "weekend",
           qualifying: "run",
@@ -48,7 +48,7 @@ if (!softwareGpu) {
           version: 2,
         }),
       );
-      sessionStorage.setItem("f1.autostart", "1");
+      sessionStorage.setItem("revracers.autostart", "1");
     });
     await page.goto("/drive.html?debug", { waitUntil: "commit" });
     await page.waitForFunction(

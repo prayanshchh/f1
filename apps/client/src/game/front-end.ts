@@ -173,7 +173,7 @@ export class FrontEnd {
     swap.dataset["front"] = "swap";
     form.append(username, password, message, go, swap);
     const logo = el("div", "front-brand");
-    logo.innerHTML = '<svg class="f1"><use href="#f1-logo" /></svg>';
+    logo.innerHTML = '<svg class="brand-mark"><use href="#brand-logo" /></svg>';
     this.show(
       { Enter: () => void submit() },
       logo,
@@ -562,7 +562,7 @@ export class FrontEnd {
     const items: { label: string; detail: string; run: () => void }[] = [
       {
         label: "Race",
-        detail: "Set up a session at Circuit of the Americas",
+        detail: "Set up a session at Hill Country Circuit",
         run: () => {
           done({ action: "race", driver });
         },

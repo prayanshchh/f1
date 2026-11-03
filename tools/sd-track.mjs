@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-const directory = process.argv[2] ?? "content/tracks/cota";
+const directory = process.argv[2] ?? "content/tracks/hill-country";
 const track = JSON.parse(
   readFileSync(path.join(directory, "track.json"), "utf8"),
 );
@@ -272,7 +272,7 @@ const num = (name, value, unit) =>
 const str = (name, value) => `<attstr name="${name}" val="${value}"/>`;
 
 function kerbSurface(letter) {
-  return `<section name="cota-kerb-${letter}">${[
+  return `<section name="track-kerb-${letter}">${[
     str("texture name", `tr-curb-${letter}.png`),
     str("texture type", "continuous"),
     num("texture size", 2, "m"),
@@ -284,7 +284,7 @@ function kerbSurface(letter) {
 }
 
 function grassSurface() {
-  return `<section name="cota-grass">${[
+  return `<section name="track-grass">${[
     str("texture name", "tr-grass.png"),
     str("texture type", "continuous"),
     num("texture size", 2, "m"),
@@ -338,7 +338,7 @@ function borderOf(edge) {
   const style = kerb
     ? [
         num("height", kerbHeight * edge.kerb, "m"),
-        str("surface", `cota-kerb-${edge.letter}`),
+        str("surface", `track-kerb-${edge.letter}`),
         str("style", "curb"),
       ]
     : [
@@ -354,7 +354,7 @@ function side(name, s, isLeft) {
   const border = borderOf(edge);
   const sideWidth = (wall) =>
     Math.max(wall - edge.reach - half - border.width, minSideWidth);
-  const surface = edge.pitZone ? "asphalt-lines" : "cota-grass";
+  const surface = edge.pitZone ? "asphalt-lines" : "track-grass";
   return [
     `<section name="${name} Border">${border.xml}</section>`,
     `<section name="${name} Side">${num("start width", sideWidth(edge.wallStart), "m")}${num("end width", sideWidth(edge.wallEnd), "m")}${str("surface", surface)}</section>`,
@@ -401,7 +401,7 @@ ${grassSurface()}
 ${str("name", track.name)}
 ${str("category", "circuit")}
 ${num("version", 4)}
-${str("author", "generated from content/tracks/cota/track.json")}
+${str("author", "generated from content/tracks/hill-country/track.json")}
 </section>
 <section name="Local Info">
 ${str("station", "KAUS")}

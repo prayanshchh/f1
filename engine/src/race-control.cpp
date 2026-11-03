@@ -20,7 +20,6 @@ namespace
 enum State
 {
     RC_GREEN,
-    RC_FORMATION,
     RC_LIGHTS,
     RC_VSC,
     RC_VSC_ENDING,
@@ -41,10 +40,8 @@ enum Level
 
 const int kindRace = 1;
 const double unlimited = 1e9;
-const double formationBudget = 400.0;
 const double scShare = 1.55;
 const double deltaShare = 1.4;
-const double formationShare = 1.9;
 const double lineStep = 5.0;
 const double aiMargin = 0.97;
 const double scTopSpeed = 50.0;
@@ -52,13 +49,13 @@ const double scAccel = 6.0;
 const double scBraking = 12.0;
 const double brakingLook = 1.5;
 const double followGap = 20.0;
-const double formationGap = 30.0;
 const double restartGap = 10.0;
 const double followGain = 0.6;
 const double queueGap = 55.0;
 const double caughtGap = 60.0;
 const double queueShare = 0.75;
 const double queueTimeout = 90.0;
+const double queueStop = 1.0;
 const double deltaStart = 1.5;
 const double scSpawnAhead = 150.0;
 const double rollingAhead = 90.0;
@@ -76,18 +73,17 @@ const double startGrace = 5.0;
 const double stoppedSpeed = 2.0;
 const double onTrackMargin = 0.5;
 const double nearMargin = 4.0;
-const double strandedTime = 1.0;
 const double marshalRecovery = 50.0;
-const double redPersist = 60.0;
-const int redCars = 3;
+const double crashLook = 6.0;
+const double crashConfirm = 1.5;
+const double redWreckage = 3.0;
+const double redStranded = 30.0;
 const double passRange = 200.0;
 const double giveBackTime = 15.0;
 const double gapTimeLimit = 10.0;
-const double lineupBefore = 300.0;
 const double troubledShare = 0.5;
 const int marshalSectors = 24;
-const double scThreshold[] = {unlimited, 6.0, 3.0, 2.0};
-const double vscThreshold[] = {unlimited, 15.0, 8.0, 5.0};
+const double crashWreckage[] = {unlimited, 2.0, 1.2, 0.8};
 const int outFields = 16;
 
 struct Pass
@@ -99,8 +95,8 @@ struct Pass
 struct CarState
 {
     double stopOn = 0;
-    double stopNear = 0;
     double stopAny = 0;
+    double crashClock = 0;
     double delta = 0;
     int redSectors = 0;
     int sector = -1;
@@ -112,10 +108,8 @@ struct CarState
     double scSide = 0;
     bool crossed = false;
     int laps = 0;
-    double startProgress = 0;
     double aheadGap = unlimited;
     double aheadSpeed = 0;
-    int gridLaps = 0;
 };
 
 struct Hazard
@@ -129,7 +123,6 @@ struct Hazard
 
 int level = LEVEL_STANDARD;
 bool redFlags = true;
-bool formationLap = false;
 bool rollingStart = false;
 int kind = 0;
 State state = RC_GREEN;
@@ -220,11 +213,6 @@ bool deltaPeriod()
     return state == RC_VSC || state == RC_VSC_ENDING || state == RC_SC || state == RC_SC_IN || state == RC_RED;
 }
 
-bool neutral()
-{
-    return deltaPeriod() || state == RC_FORMATION;
-}
-
 bool safetyCarOut()
 {
     return state == RC_SC || state == RC_SC_IN;
@@ -238,9 +226,8 @@ void announce(int event, double value)
 Hazard scan(tSituation *s, double dt)
 {
     Hazard h;
-    int stranded = 0;
     bool persistent = false;
-    bool watching = state != RC_FORMATION && state != RC_LIGHTS && state != RC_SUSPENDED && now - signalTime > startGrace;
+    bool watching = state != RC_LIGHTS && state != RC_SUSPENDED && now - signalTime > startGrace;
     for (int i = 0; i < s->_ncars; i++)
     {
         CarState &c = cars[i];
@@ -254,20 +241,19 @@ Hazard scan(tSituation *s, double dt)
         bool near = edges && lat < left + nearMargin && lat > right - nearMargin;
         c.stopAny = stopped ? c.stopAny + dt : 0;
         c.stopOn = stopped && onTrack ? c.stopOn + dt : 0;
-        c.stopNear = stopped && near ? c.stopNear + dt : 0;
+        bool involved = watch && sdStewardsPlayerTrouble(i);
+        double wreck = sdCarWreckage(i);
+        bool crashed = involved && (stopped || sdStewardsSpun(i, crashLook)) && wreck >= crashWreckage[level];
+        c.crashClock = crashed ? c.crashClock + dt : 0;
         if (c.stopAny > marshalRecovery)
             continue;
-        if (c.stopNear > 0.5 && h.source < 0)
+        if (crashed && h.source < 0)
             h.source = i;
-        h.sc = h.sc || c.stopOn >= scThreshold[level];
-        h.vsc = h.vsc || c.stopNear >= vscThreshold[level];
-        h.any = h.any || c.stopNear > 0.5;
-        if (c.stopOn >= strandedTime)
-            stranded++;
-        persistent = persistent || c.stopOn > redPersist;
+        h.sc = h.sc || c.crashClock >= crashConfirm;
+        h.any = h.any || (involved && near && (stopped || crashed));
+        persistent = persistent || (involved && wreck >= redWreckage && c.stopOn > redStranded);
     }
-    h.sc = h.sc || (stranded >= 2 && level != LEVEL_OFF);
-    h.red = redFlags && (stranded >= redCars || persistent);
+    h.red = redFlags && persistent;
     return h;
 }
 
@@ -429,57 +415,13 @@ void place(tSituation *s, const std::vector<int> &grid)
     for (int slot = 0; slot < (int)grid.size(); slot++)
     {
         int i = grid[slot];
-        cars[i].gridLaps = sdCarToGrid(i, slot);
-        if (cars[i].gridLaps < 0)
+        if (sdCarToGrid(i, slot) < 0)
             continue;
         sdAiResetRunning(i);
         sdAiSetSpeedCap(i, unlimited);
         cars[i].passes.clear();
         cars[i].laps = s->cars[i]->_laps;
-        cars[i].startProgress = progress(s->cars[i]);
     }
-}
-
-void formationLineup(tSituation *s)
-{
-    std::vector<int> grid, back;
-    for (int i = 0; i < s->_ncars; i++)
-        if (present(s, i))
-            grid.push_back(i);
-    std::stable_sort(grid.begin(), grid.end(), [](int a, int b) { return sdSessionStartSlot(a) < sdSessionStartSlot(b); });
-    std::vector<int> ordered;
-    for (int i : grid)
-    {
-        if (standingPasses(s, i) > 0)
-        {
-            back.push_back(i);
-            sdStewardsDecide(i, O_FORMATION_OVERTAKE, P_BACK_OF_GRID, 0, cars[i].passes.front().other, s->cars[i]->_distFromStartLine, 0, 0);
-        }
-        else
-            ordered.push_back(i);
-    }
-    ordered.insert(ordered.end(), back.begin(), back.end());
-    s->currentTime = -countdown;
-    now = s->currentTime;
-    place(s, ordered);
-    for (int i : ordered)
-    {
-        tCarElt *car = s->cars[i];
-        car->_laps = std::max(0, cars[i].gridLaps);
-        car->_lastLapTime = 0;
-        car->_bestLapTime = 0;
-        car->_curLapTime = 0;
-        ReInfo->_reCarInfo[i].sTime = (tdble)now;
-        ReInfo->_reCarInfo[i].lapFlag = 0;
-        cars[i].laps = car->_laps;
-    }
-    signalTime = 0;
-    sdSessionRestartTiming(s);
-    sdStewardsArmStart(s, signalTime, countdown);
-    sdInputRelaunch();
-    lineups++;
-    announce(EV_LINEUP, 0);
-    enter(RC_LIGHTS);
 }
 
 void redFlagLineup(tSituation *s)
@@ -529,6 +471,18 @@ void startRolling(tSituation *s)
     announce(EV_ROLLING, 0);
 }
 
+bool queueing(tSituation *s, int k)
+{
+    tCarElt *car = s->cars[k];
+    if (!racingCar(s, k) || inLane(car) || cars[k].stopAny > queueStop)
+        return false;
+    double left = 0, right = 0;
+    if (!sdAiTrackEdges(car->_distFromStartLine, &left, &right))
+        return true;
+    double lat = car->_trkPos.toMiddle;
+    return lat < left + nearMargin && lat > right - nearMargin;
+}
+
 void findAhead(tSituation *s, int i)
 {
     CarState &c = cars[i];
@@ -537,7 +491,7 @@ void findAhead(tSituation *s, int i)
     c.aheadSpeed = 0;
     for (int k = 0; k < s->_ncars; k++)
     {
-        if (k == i || !racingCar(s, k) || inLane(s->cars[k]))
+        if (k == i || !queueing(s, k))
             continue;
         double gap = wrap(s->cars[k]->_distFromStartLine - car->_distFromStartLine);
         if (gap < c.aheadGap)
@@ -569,8 +523,6 @@ double capFor(tSituation *s, int i)
     double where = s->cars[i]->_distFromStartLine;
     switch (state)
     {
-    case RC_FORMATION:
-        return std::min(pace(where, formationShare), follow(c, formationGap));
     case RC_VSC:
     case RC_VSC_ENDING:
     case RC_RED:
@@ -679,7 +631,7 @@ void notePass(tSituation *s, int i, int k)
 
 void trackPasses(tSituation *s)
 {
-    bool watching = neutral() || state == RC_RESTART;
+    bool watching = deltaPeriod() || state == RC_RESTART;
     for (int i = 0; i < s->_ncars; i++)
     {
         CarState &c = cars[i];
@@ -753,14 +705,6 @@ void advance(tSituation *s, const Hazard &h, bool pitted)
 {
     switch (state)
     {
-    case RC_FORMATION:
-    {
-        int leader = leaderOnRoad(s);
-        double driven = leader >= 0 ? progress(s->cars[leader]) - cars[leader].startProgress : 0.0;
-        if (driven > length - lineupBefore || now > -countdown - 1.0)
-            formationLineup(s);
-        break;
-    }
     case RC_LIGHTS:
         if (now < signalTime)
             break;
@@ -847,11 +791,6 @@ void advance(tSituation *s, const Hazard &h, bool pitted)
 
 }
 
-double sdRaceControlStartOffset(int sessionKind)
-{
-    return sessionKind == kindRace && formationLap ? formationBudget : 0.0;
-}
-
 void sdRaceControlBegin(tSituation *s, int sessionKind)
 {
     kind = sessionKind;
@@ -866,24 +805,15 @@ void sdRaceControlBegin(tSituation *s, int sessionKind)
     lineups = 0;
     restarts = 0;
     signalTime = 0;
-    countdown = -(s->currentTime + sdRaceControlStartOffset(kind));
+    countdown = -s->currentTime;
     initialRolling = kind == kindRace && rollingStart;
     period = RC_GREEN;
     clearSince = -1;
     for (int i = 0; i < s->_ncars; i++)
-    {
         cars[i].laps = s->cars[i]->_laps;
-        cars[i].startProgress = progress(s->cars[i]);
-    }
     if (kind != kindRace)
     {
         enter(RC_GREEN);
-        return;
-    }
-    if (formationLap)
-    {
-        enter(RC_FORMATION);
-        announce(EV_FORMATION, 0);
         return;
     }
     enter(RC_LIGHTS);
@@ -906,21 +836,14 @@ bool sdRaceControlHolding(tSituation *s)
 {
     if (kind != kindRace)
         return s->currentTime < 0;
-    if (state == RC_FORMATION)
-        return false;
     if (state == RC_SUSPENDED)
         return true;
     return s->currentTime < signalTime;
 }
 
-bool sdRaceControlFormation()
-{
-    return kind == kindRace && state == RC_FORMATION;
-}
-
 bool sdRaceControlNeutralised()
 {
-    return kind == kindRace && neutral();
+    return kind == kindRace && deltaPeriod();
 }
 
 double sdRaceControlSinceSignal(tSituation *s)
@@ -930,11 +853,10 @@ double sdRaceControlSinceSignal(tSituation *s)
 
 extern "C" {
 
-EMSCRIPTEN_KEEPALIVE void sdRaceControlConfigure(int safetyCar, int red, int formation, int rolling)
+EMSCRIPTEN_KEEPALIVE void sdRaceControlConfigure(int safetyCar, int red, int rolling)
 {
     level = std::max(0, std::min(3, safetyCar));
     redFlags = red != 0;
-    formationLap = formation != 0;
     rollingStart = rolling != 0;
 }
 

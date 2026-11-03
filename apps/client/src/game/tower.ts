@@ -1,14 +1,8 @@
-import * as THREE from "three/webgpu";
 import type { CarTiming } from "./engine.ts";
 import { compounds } from "./tyres.ts";
 import type { Entrant } from "./weekend.ts";
 
 const aroundRows = 5;
-const labelRange = 140;
-const labelCount = 3;
-const labelNear = 6;
-const labelHeight = 1.4;
-const labelEdge = 0.95;
 const statusGarage = 5;
 const statusOut = 1;
 const statusIn = 3;
@@ -143,94 +137,6 @@ export class Tower {
       row.gap.textContent = gap;
       row.pen.textContent = pen;
       row.pen.hidden = pen === "";
-    });
-  }
-}
-
-const eyeSpace = new THREE.Vector3();
-
-function carPoint(cars: Float64Array, at: number): THREE.Vector3 {
-  return eyeSpace.set(
-    cars[at + 12] ?? 0,
-    cars[at + 13] ?? 0,
-    cars[at + 14] ?? 0,
-  );
-}
-
-function fillLabel(label: HTMLElement, entrant: Entrant, position: number) {
-  const text = `${String(position)}|${surname(entrant)}`;
-  if (label.dataset["key"] === text) return;
-  label.dataset["key"] = text;
-  const pos = document.createElement("span");
-  pos.textContent = String(position);
-  const bar = document.createElement("i");
-  bar.style.background = entrant.colour;
-  const name = document.createElement("b");
-  name.textContent = surname(entrant);
-  label.replaceChildren(pos, bar, name);
-}
-
-export class CarLabels {
-  private readonly labels: HTMLElement[] = [];
-
-  constructor(
-    root: HTMLElement,
-    private readonly entrants: Entrant[],
-  ) {
-    for (let i = 0; i < labelCount; i++) {
-      const label = document.createElement("div");
-      label.className = "car-label";
-      label.hidden = true;
-      root.append(label);
-      this.labels.push(label);
-    }
-  }
-
-  private nearest(
-    cars: Float64Array,
-    stride: number,
-    camera: THREE.Camera,
-  ): number[] {
-    const eye = new THREE.Vector3().setFromMatrixPosition(camera.matrixWorld);
-    const near: { index: number; distance: number }[] = [];
-    for (let i = 1; i < this.entrants.length; i++) {
-      const distance = carPoint(cars, i * stride).distanceTo(eye);
-      if (distance < labelRange && distance > labelNear)
-        near.push({ index: i, distance });
-    }
-    return near
-      .sort((a, b) => a.distance - b.distance)
-      .map(({ index }) => index);
-  }
-
-  update(
-    cars: Float64Array,
-    stride: number,
-    timing: CarTiming[],
-    camera: THREE.Camera,
-    width: number,
-    height: number,
-  ): void {
-    let used = 0;
-    for (const index of this.nearest(cars, stride, camera)) {
-      if (used >= labelCount) break;
-      const point = carPoint(cars, index * stride);
-      point.z += labelHeight;
-      point.project(camera);
-      const entrant = this.entrants[index];
-      const label = this.labels[used];
-      const row = timing[index];
-      if (point.z > 1 || Math.abs(point.x) > labelEdge) continue;
-      if (!label || !entrant || !row) continue;
-      fillLabel(label, entrant, row.position);
-      const x = (point.x * 0.5 + 0.5) * width;
-      const y = (1 - (point.y * 0.5 + 0.5)) * height;
-      label.style.transform = `translate(${x.toFixed(0)}px, ${y.toFixed(0)}px) translate(-50%, -100%)`;
-      label.hidden = false;
-      used++;
-    }
-    this.labels.forEach((label, i) => {
-      if (i >= used) label.hidden = true;
     });
   }
 }

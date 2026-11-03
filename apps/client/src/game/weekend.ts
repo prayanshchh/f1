@@ -50,7 +50,7 @@ const speedPerGap = 1.2;
 const powerPerGap = 2.4;
 const percent = 100;
 const difficultyMax = 110;
-const difficultyStep = 0.003;
+const difficultyStep = 0.001;
 const stageKey = "f1.weekend";
 const liveryOrder = [
   "meridian",

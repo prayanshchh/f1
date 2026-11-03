@@ -79,8 +79,6 @@
         </div>
       </section>
 
-      <div class="car-labels" data-hud="labels"></div>
-
       <section class="toast" data-hud="toast" data-kind="">
         <div class="toast-icon">
           <svg data-hud="toast-icon"><use href="#stopwatch" /></svg>
@@ -107,6 +105,9 @@
       </section>
 
       <div class="lights part-lights" data-hud="lights"></div>
+      <div class="start-hint part-lights" data-hud="start-hint">
+        Wait for lights out<span>Moving early is a jump start penalty</span>
+      </div>
 
       <div class="lineup-fade" data-hud="lineup-fade"></div>
       <section class="rc-screen" data-hud="rc-screen" hidden>
@@ -392,6 +393,73 @@
           <i class="btn-glyph">↵</i>Go To The Grid
         </button>
       </div>
+    </div>
+
+    <div class="ready" data-ready="root" hidden>
+      <section class="ready-card">
+        <div class="ready-demo" aria-hidden="true">
+          <span class="ready-side left">Tilt left</span>
+          <svg class="ready-phone ready-tilt" viewBox="0 0 168 88">
+            <rect
+              class="phone-body"
+              x="2"
+              y="2"
+              width="164"
+              height="84"
+              rx="16"
+            />
+            <rect
+              class="phone-pedal brake"
+              x="14"
+              y="12"
+              width="30"
+              height="64"
+              rx="8"
+            />
+            <rect
+              class="phone-pedal gas"
+              x="124"
+              y="12"
+              width="30"
+              height="64"
+              rx="8"
+            />
+            <circle class="phone-dial" cx="84" cy="44" r="18" />
+            <line class="phone-mark" x1="84" y1="22" x2="84" y2="31" />
+          </svg>
+          <span class="ready-equals">=</span>
+          <svg class="ready-wheel ready-tilt" viewBox="0 0 132 84">
+            <path
+              class="wheel-body"
+              d="M24 10h84a14 14 0 0 1 14 14v22a28 28 0 0 1-28 28H38a28 28 0 0 1-28-28V24a14 14 0 0 1 14-14z"
+            />
+            <rect
+              class="wheel-screen"
+              x="46"
+              y="20"
+              width="40"
+              height="22"
+              rx="4"
+            />
+            <line class="wheel-mark" x1="66" y1="2" x2="66" y2="14" />
+          </svg>
+          <span class="ready-side right">Tilt right</span>
+        </div>
+        <h2>Drive with your phone</h2>
+        <p data-ready="unlinked">
+          Press <kbd>P</kbd> and scan the code to connect your phone.
+        </p>
+        <p class="ready-linked" data-ready="linked" hidden>Phone connected</p>
+        <p>
+          Hold it sideways like a steering wheel. The way you tilt the phone is
+          the way the car steers.
+        </p>
+        <button type="button" class="ready-go" data-ready="go">
+          <kbd>Enter</kbd>Start<span data-ready="pedal" hidden
+            >or press Gas on your phone</span
+          >
+        </button>
+      </section>
     </div>
 
     <div class="pad-panel" data-pad="panel" hidden>

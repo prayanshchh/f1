@@ -88,6 +88,8 @@ export async function fetchJson<T>(url: string): Promise<T> {
   return (await response.json()) as T;
 }
 
+const defaultTextureLimit = 8192;
+
 export class Scene {
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(67.5, 1, 1, 41000);
@@ -120,7 +122,6 @@ export class Scene {
   private readonly moving: THREE.Object3D[];
   private readonly safetyCar = new SafetyCar();
   private signalAt = 0;
-  private formation = false;
   private readonly viewFrustum = new THREE.Frustum();
   private mirrorViews: THREE.Frustum[] = [];
   private readonly seen = {
@@ -233,6 +234,9 @@ export class Scene {
     lights: StartLights,
   ): Promise<Scene> {
     const anisotropy = renderer.getMaxAnisotropy();
+    const textureLimit =
+      (renderer.backend as { device?: GPUDevice }).device?.limits
+        .maxTextureDimension2D ?? defaultTextureLimit;
     const local = engine.trackLocal();
     const hours = local.timeOfDay / 3600;
     const elevation = ((90 - 15 * Math.abs(hours - 12)) * Math.PI) / 180;
@@ -245,7 +249,7 @@ export class Scene {
     const [frame, people, road, data, crew, car, gridData] = await Promise.all([
       fetchJson<TrackFrame>(frameUrl),
       Crowd.load(),
-      loadRoad(roadUrl, anisotropy, (direction) =>
+      loadRoad(roadUrl, anisotropy, textureLimit, (direction) =>
         skyBox.radiance(direction, false),
       ),
       fetchJson<RacingLineData>(racingLineUrl),
@@ -311,10 +315,6 @@ export class Scene {
   restartLights(lights: StartLights, signalAt: number): void {
     this.lights = lights;
     this.signalAt = signalAt;
-  }
-
-  setFormation(on: boolean): void {
-    this.formation = on;
   }
 
   get fieldCars(): Float64Array | null {
@@ -568,7 +568,7 @@ export class Scene {
       onboardReach * onboardReach;
     this.car.setDraw(shown(19), shown(20), onboard);
     const time = frame[frameIndex.time] ?? 0;
-    const lit = this.formation ? 0 : this.lights.lit(time - this.signalAt);
+    const lit = this.lights.lit(time - this.signalAt);
     setStartLights(this.cinematic ? 0 : lit);
     const sky = this.sky.update(time, time, eyeX, eyeY);
     const [focusX, focusY, focusZ] = this.cinematic?.target ?? [

@@ -117,7 +117,7 @@ const tabIntro: Record<string, string> = {
   assists:
     "Contains driver assist settings that allow you to make controlling the car easier or more authentic.",
   rules:
-    "Choose how the International Motor Racing Federation runs the race: safety cars, red flags, the formation lap and the type of start.",
+    "Choose how the International Motor Racing Federation runs the race: safety cars, red flags and the type of start.",
   osd: "Contains settings that allow you to customise the way the on-screen display is shown.",
   audio:
     "Music plays in the menus, the pre-race build-up and after a win. There is no music while you drive.",
@@ -415,7 +415,6 @@ export class Menu {
           Object.assign(this.settings, {
             safetyCar: defaults.safetyCar,
             redFlags: defaults.redFlags,
-            formationLap: defaults.formationLap,
             startType: defaults.startType,
           });
         },
@@ -754,7 +753,7 @@ export class Menu {
     return [
       this.choice(
         "Safety Car",
-        "How readily Race Control neutralises the race. A car stopped beside the track brings out the Virtual Safety Car; a car stopped on the racing surface brings out the Safety Car. Reduced waits longer before stepping in, Increased steps in sooner, Off never deploys either.",
+        "Only crashes you are part of count. A touch that spins nobody gets no flag; a spin or a stop waves a local yellow. The Safety Car comes out only when your car, or a car you hit, spins or stops with very heavy damage. Reduced needs a wrecked car, Increased steps in at lighter damage, Off never deploys it.",
         choices.safetyCar,
         () => s.safetyCar,
         (id) => {
@@ -763,18 +762,10 @@ export class Menu {
       ),
       this.toggle(
         "Red Flags",
-        "When several cars are stranded on track, or the track stays blocked for a minute, the race is suspended. Cars line up on the grid in race order, may change tyres and repair damage, and restart from a standing start.",
+        "When a car wrecked in a crash you are part of is left on the racing surface for 30 seconds, the race is suspended. Cars line up on the grid in race order, may change tyres and repair damage, and restart from a standing start.",
         () => s.redFlags,
         (v) => {
           s.redFlags = v;
-        },
-      ),
-      this.toggle(
-        "Formation Lap",
-        "Drive a slow lap behind the field to warm your tyres and brakes before the start. No overtaking: anyone still ahead of a car they passed when the grid forms up starts from the back.",
-        () => s.formationLap,
-        (v) => {
-          s.formationLap = v;
         },
       ),
       this.choice(

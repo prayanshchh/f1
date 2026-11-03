@@ -9,5 +9,7 @@ content/tracks/cota/racing-line.json
 content/tracks/cota/sd-frame.json
 content/tracks/cota/source/
 apps/client/src/game/sound/tables.json
+apps/client/src/game/sound/start-beep.json
 tests/sound/f1-25-chase-fingerprint.json
+tests/sound/start-beep-fingerprint.json
 content/tracks/cota/circuit-map.json

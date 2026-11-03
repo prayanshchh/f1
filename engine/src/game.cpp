@@ -421,7 +421,8 @@ static void runOneStep(double deltaTimeIncrement)
                 s->cars[i]->_brakeCmd = 1.0f;
                 s->cars[i]->_clutchCmd = 1.0f;
             }
-        sdCarStatusDriveLimit(s->cars[0]);
+        for (int i = 0; i < s->_ncars; i++)
+            sdCarStatusDriveLimit(s->cars[i]);
         pCurrReInfo->_reLastRobTime = s->currentTime;
     }
     else if (freshInput && !(playerAutopilot && sdFieldActive()))
@@ -472,7 +473,7 @@ static void startRace()
         SimUpdate(s, RCM_MAX_DT_SIMU);
 
     ReInfo->_reTimeMult = 1.0;
-    s->currentTime = (raceCountdown > 0.0 ? -raceCountdown : sdSessionStartClock()) - sdRaceControlStartOffset(sdSessionKindOf());
+    s->currentTime = (raceCountdown > 0.0 ? -raceCountdown : sdSessionStartClock());
     ReInfo->_reLastRobTime = s->currentTime - RCM_MAX_DT_ROBOTS;
     s->deltaTime = RCM_MAX_DT_SIMU;
     s->_raceState = RM_RACE_STARTING;

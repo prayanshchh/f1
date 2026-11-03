@@ -1,5 +1,7 @@
 import type { CarAudio } from "./sound-state.ts";
 import { soundState } from "./sound-state.ts";
+import startBeep from "./start-beep.json";
+import { renderStartBeep } from "./start-beep.ts";
 import workletUrl from "./worklet.ts?worker&url";
 
 const fullVolume = 1;
@@ -24,6 +26,7 @@ export class GameSound {
   private previous: CarAudio | null = null;
   private muted = false;
   private suspendTimer = 0;
+  private beep: AudioBuffer | null = null;
 
   private constructor(context: AudioContext, node: AudioWorkletNode) {
     this.context = context;
@@ -70,6 +73,27 @@ export class GameSound {
     this.node.port.postMessage(
       soundState(this.previous, this.previous, this.silent ? 0 : fullVolume),
     );
+  }
+
+  startLight(): void {
+    if (this.silent) return;
+    this.beep ??= this.beepBuffer();
+    const source = new AudioBufferSourceNode(this.context, {
+      buffer: this.beep,
+    });
+    source.connect(this.context.destination);
+    source.start();
+  }
+
+  private beepBuffer(): AudioBuffer {
+    const samples = renderStartBeep(startBeep, this.context.sampleRate);
+    const buffer = new AudioBuffer({
+      length: samples.length,
+      numberOfChannels: 1,
+      sampleRate: this.context.sampleRate,
+    });
+    buffer.copyToChannel(samples, 0);
+    return buffer;
   }
 
   update(car: CarAudio): void {

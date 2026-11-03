@@ -223,7 +223,7 @@ static void applySpeedLimit(tCarElt *car)
 
 void sdInputLaunch(tCarElt *car, tSituation *s)
 {
-    if (!assist || sdRaceControlFormation())
+    if (!assist)
         return;
     double since = sdRaceControlSinceSignal(s);
     if (since > launchWindow || (since > 0 && fabs(car->_speed_x) > launchSpeed))

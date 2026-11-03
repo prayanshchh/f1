@@ -40,6 +40,8 @@ class Aerial:
 LATERAL_REACH = 60.0
 LATERAL_STEP = 0.3
 ALONG_SIGMA = 2.0
+MASK_ROWS = 16384
+MASK_ALONG_SIGMA = 1.0
 ACROSS_SIGMA = 0.45
 EDGE_FILL = 1.6
 KERB_BAND = (0.3, 1.2)
@@ -84,8 +86,20 @@ def road_space(air, points, normal):
     return lateral, air.sample(grid)
 
 
-def soft(mask):
-    return gaussian_filter(mask.astype(np.float32), (ALONG_SIGMA, ACROSS_SIGMA), mode=("wrap", "nearest"))
+def soft(mask, along=ALONG_SIGMA):
+    return gaussian_filter(mask.astype(np.float32), (along, ACROSS_SIGMA), mode=("wrap", "nearest"))
+
+
+def resample(points, normal, half, rows):
+    count = len(points)
+    position = np.arange(rows) * count / rows
+    base = np.floor(position).astype(int)
+    following = (base + 1) % count
+    t = position - base
+    fine_points = points[base] * (1 - t[:, None]) + points[following] * t[:, None]
+    fine_normal = normal[base] * (1 - t[:, None]) + normal[following] * t[:, None]
+    fine_normal /= np.linalg.norm(fine_normal, axis=1, keepdims=True)
+    return fine_points, fine_normal, half[base] * (1 - t) + half[following] * t
 
 
 def band_mean(values, lateral, half, sign, near, far):
@@ -154,8 +168,8 @@ def write_masks(rgb, lateral, half, directory):
     found = classes(rgb)
     fill_to_edge(found, lateral, half)
     luminance = stretch(rgb @ np.array([0.2126, 0.7152, 0.0722], np.float32))
-    first = np.stack([soft(found["red"]), soft(found["teal"]), soft(found["blue"]), soft(found["white"])], -1)
-    second = np.stack([soft(found["concrete"]), soft(found["asphalt"]), gaussian_filter1d(luminance, 1.0, axis=0, mode="wrap"), np.ones(luminance.shape, np.float32)], -1)
+    first = np.stack([soft(found[name], MASK_ALONG_SIGMA) for name in ("red", "teal", "blue", "white")], -1)
+    second = np.stack([soft(found["concrete"], MASK_ALONG_SIGMA), soft(found["asphalt"], MASK_ALONG_SIGMA), gaussian_filter1d(luminance, 1.0, axis=0, mode="wrap"), np.ones(luminance.shape, np.float32)], -1)
     for name, data in (("apron_a.png", first), ("apron_b.png", second)):
         Image.fromarray(np.round(data * 255).astype(np.uint8), "RGBA").save(directory / name)
 
@@ -188,7 +202,9 @@ def bake(source, points, normal, half, step, blocked, textures, build):
     spans = kerb_spans(rgb, lateral, half, step, blocked)
     textures.mkdir(parents=True, exist_ok=True)
     build.mkdir(parents=True, exist_ok=True)
-    write_masks(rgb, lateral, half, textures)
+    fine_points, fine_normal, fine_half = resample(points, normal, half, MASK_ROWS)
+    fine_lateral, fine_rgb = road_space(air, fine_points, fine_normal)
+    write_masks(fine_rgb, fine_lateral, fine_half, textures)
     write_terrain(air, textures)
     (build / "aerial.json").write_text(json.dumps({**fit_affine(air), "reach": LATERAL_REACH}))
     return spans

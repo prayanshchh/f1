@@ -669,6 +669,13 @@ export class Game {
     await expect(panel).toBeVisible();
   }
 
+  async resume(): Promise<void> {
+    const menu = this.page.locator("[data-menu=root]");
+    if (await menu.isVisible()) await this.page.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+    await expect(this.page.locator("[data-pad=panel]")).toBeHidden();
+  }
+
   async logs(): Promise<Omit<GameProbe, "peers">> {
     return this.page.evaluate(() => {
       const probe = (window as unknown as ProbeWindow).gameProbe;

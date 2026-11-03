@@ -69,6 +69,7 @@ const double recklessClosing = 15.0;
 const double divedClosing = 6.0;
 const double strandedSpeed = 8.0;
 const double damageConsequence = 0.03;
+const double heavyWreckage = 1.0;
 const double sideBySideLateral = 1.1;
 const double rearEndGap = 3.0;
 const double moveWindow = 0.6;
@@ -92,6 +93,7 @@ const double stoppedSpeed = 2.0;
 const double troubleConfirm = 1.0;
 const double stoppedConfirm = 2.0;
 const double flagLinger = 2.0;
+const double playerContactWindow = 10.0;
 const double startGrace = 3.0;
 const double nearEdge = 4.0;
 const double singleSlowdown = 1.05;
@@ -207,6 +209,7 @@ struct Car
     double settleAt = 0;
     Excursion done;
     double lastContact = -100;
+    bool playerTrouble = false;
     double rejoinAt = -100;
     std::vector<int> rejoinBehindCars;
     double penalisedAt = -100;
@@ -272,6 +275,7 @@ struct Incident
     bool reckless = false;
     bool consequence = false;
     double victimDamage = 0;
+    double victimWreckage = 0;
     int victimPosition = 0;
     bool opening = false;
     bool rejoin = false;
@@ -304,11 +308,13 @@ struct Decision
     double distance;
     double at;
     int points;
+    bool cleared = false;
 };
 
 Kind kind = KIND_SOLO;
 int totalLaps = 0;
 double lightInterval = defaultLightInterval;
+bool trackLimitsOn = false;
 double startClock = 0;
 double signalTime = 0;
 bool started = false;
@@ -326,6 +332,8 @@ int flags[marshalSectors];
 double flagUntil[marshalSectors];
 int flagLevel[marshalSectors];
 int flagCar[marshalSectors];
+int hazard[marshalSectors];
+double hazardUntil[marshalSectors];
 double now = 0;
 
 double wrap(double d)
@@ -503,6 +511,11 @@ void disqualify(int i, int offence)
 
 void apply(const Decision &d)
 {
+    if (d.cleared)
+    {
+        post(d.car, d.other, d.offence, STAGE_NO_ACTION, P_NONE, 0, d.distance, 0, 0);
+        return;
+    }
     if (d.penalty == P_NONE)
     {
         post(d.car, d.other, d.offence, STAGE_NOTED, P_NONE, 0, d.distance, 0, 0);
@@ -538,11 +551,6 @@ void apply(const Decision &d)
     }
     else if (penalty == P_DRIVE_THROUGH || penalty == P_STOP_GO)
         c.queue.push_back({penalty, d.offence, crossingsAllowed, now});
-    else if (penalty == P_BACK_OF_GRID)
-    {
-        post(d.car, d.other, d.offence, STAGE_DECISION, penalty, value, d.distance, 0, d.points);
-        return;
-    }
     else if (penalty == P_DISQUALIFIED)
     {
         disqualify(d.car, d.offence);
@@ -566,6 +574,12 @@ void decide(int car, int offence, int penalty, double value, int other, double d
     }
     post(car, other, offence, STAGE_NOTED, P_NONE, 0, distance, 0, 0);
     decisions.push_back({car, offence, penalty, value, other, distance, now + delay, points});
+}
+
+void clear(int car, int offence, int other, double distance)
+{
+    post(car, other, offence, STAGE_NOTED, P_NONE, 0, distance, 0, 0);
+    decisions.push_back({car, offence, P_NONE, 0, other, distance, now + decisionDelay, 0, true});
 }
 
 int incrementOf(int penalty)
@@ -828,6 +842,7 @@ void noteContact(tSituation *s, int a, int b)
     if (in.victim >= 0)
     {
         in.victimDamage = sdCarDamageShare(in.victim);
+        in.victimWreckage = sdCarWreckage(in.victim);
         in.victimPosition = sdSessionPositionOf(in.victim);
     }
     in.mitigating = j.blamed >= 0 && maxSlipBetween(cars[j.blamed], now - 1.5, now) > lostControlSlip;
@@ -878,6 +893,15 @@ bool consequenceFor(tSituation *s, const Incident &in)
     return sdSessionPositionOf(in.victim) > in.victimPosition;
 }
 
+bool hurtAi(const Incident &in)
+{
+    if (in.blamed != 0 || in.victim <= 0)
+        return true;
+    if (maxSlipBetween(cars[in.victim], in.at, now) > spinSlip)
+        return true;
+    return !racing(in.victim) || sdCarWreckage(in.victim) - in.victimWreckage >= heavyWreckage;
+}
+
 void resolveIncidents(tSituation *s)
 {
     for (Incident &in : incidents)
@@ -889,6 +913,11 @@ void resolveIncidents(tSituation *s)
             continue;
         if (!racing(in.blamed) && !sdSessionFinished(in.blamed))
             continue;
+        if (!hurtAi(in))
+        {
+            clear(in.blamed, in.rejoin ? O_UNSAFE_REJOIN : in.offence, in.victim, in.distance);
+            continue;
+        }
         if (in.rejoin)
         {
             int penalty = kind == KIND_RACE ? P_TIME5 : kind == KIND_QUALIFYING ? P_GRID : P_REPRIMAND;
@@ -960,6 +989,7 @@ void checkForcing(tSituation *s, int i)
         in.distance = s->cars[i]->_distFromStartLine;
         in.closing = minorClosing;
         in.victimDamage = sdCarDamageShare(i);
+        in.victimWreckage = sdCarWreckage(i);
         in.victimPosition = sdSessionPositionOf(i);
         in.opening = lapOne(i) && s->cars[i]->_distFromStartLine < openingDistance;
         incidents.push_back(in);
@@ -995,11 +1025,14 @@ void startExcursion(tSituation *s, int i)
     c.ex.crowded = lapOne(i) && car->_distFromStartLine < openingDistance && crowdedAt(s, i);
     c.ex.ahead = kind == KIND_RACE ? carsAhead(s, i) : std::vector<int>();
     c.offTracks++;
-    if (!c.lapInvalid)
-        post(i, -1, O_TRACK_LIMITS, STAGE_WARNING, P_LAP_DELETED, 0, c.ex.distance, 0, 0);
-    deleteLap(i);
-    if (kind == KIND_QUALIFYING && wrap(car->_distFromStartLine) > length * (1.0 - benefitShare))
-        c.nextInvalid = true;
+    if (trackLimitsOn)
+    {
+        if (!c.lapInvalid)
+            post(i, -1, O_TRACK_LIMITS, STAGE_WARNING, P_LAP_DELETED, 0, c.ex.distance, 0, 0);
+        deleteLap(i);
+        if (kind == KIND_QUALIFYING && wrap(car->_distFromStartLine) > length * (1.0 - benefitShare))
+            c.nextInvalid = true;
+    }
     if (kind != KIND_SOLO)
         checkForcing(s, i);
 }
@@ -1064,7 +1097,7 @@ void settle(tSituation *s, int i)
     bool lostControl = slip > lostControlSlip;
     bool contact = c.lastContact >= ex.start - contactExempt && c.lastContact <= ex.end + 0.5;
     bool penalised = c.penalisedAt >= ex.start - settleTime && c.penalisedAt <= now;
-    if (kind != KIND_RACE)
+    if (kind != KIND_RACE || !trackLimitsOn)
         return;
     bool advantage = false;
     if (!ex.forced && !lostControl && !contact)
@@ -1316,7 +1349,7 @@ int troubleOf(tSituation *s, int i, double dt)
 {
     Car &c = cars[i];
     tCarElt *car = s->cars[i];
-    bool settled = sdRaceControlSinceSignal(s) > startGrace && !sdRaceControlHolding(s) && !sdRaceControlFormation();
+    bool settled = sdRaceControlSinceSignal(s) > startGrace && !sdRaceControlHolding(s);
     bool watched = settled && (racing(i) || (car->_state & RM_CAR_STATE_NO_SIMU) == 0) && !inLaneAt(car) && !c.visit.inLane && !sdSessionFinished(i);
     double v = fabs(car->_speed_x);
     int lap = car->_laps - 1;
@@ -1340,18 +1373,48 @@ int troubleOf(tSituation *s, int i, double dt)
     return 0;
 }
 
+void raise(int *levels, int k, int trouble)
+{
+    levels[k] = std::max(levels[k], trouble);
+    if (trouble == 2)
+    {
+        int before = (k - 1 + marshalSectors) % marshalSectors;
+        levels[before] = std::max(levels[before], 1);
+    }
+}
+
+void updateHazards(const int *seen)
+{
+    for (int k = 0; k < marshalSectors; k++)
+    {
+        if (seen[k] > 0)
+        {
+            hazard[k] = std::max(seen[k], now < hazardUntil[k] ? hazard[k] : 0);
+            hazardUntil[k] = now + flagLinger;
+        }
+        if (now >= hazardUntil[k])
+            hazard[k] = 0;
+    }
+}
+
 void updateFlags(tSituation *s, double dt)
 {
     int level[marshalSectors] = {0};
+    int seen[marshalSectors] = {0};
     int source[marshalSectors];
     for (int k = 0; k < marshalSectors; k++)
         source[k] = -1;
     for (int i = 0; i < s->_ncars; i++)
     {
-        cars[i].trouble = kind == KIND_SOLO ? 0 : troubleOf(s, i, dt);
-        if (cars[i].trouble == 0)
-            continue;
+        Car &c = cars[i];
+        c.trouble = kind == KIND_SOLO ? 0 : troubleOf(s, i, dt);
+        bool touchedPlayer = i == 0 || now - pairContact[0][i] < playerContactWindow;
+        c.playerTrouble = c.trouble > 0 && (touchedPlayer || c.playerTrouble);
         int k = sectorOf(s->cars[i]->_distFromStartLine);
+        if (c.trouble > 0)
+            raise(seen, k, c.trouble);
+        if (!c.playerTrouble)
+            continue;
         if (cars[i].trouble > level[k])
             source[k] = i;
         level[k] = std::max(level[k], cars[i].trouble);
@@ -1363,6 +1426,7 @@ void updateFlags(tSituation *s, double dt)
             level[before] = std::max(level[before], 1);
         }
     }
+    updateHazards(seen);
     for (int k = 0; k < marshalSectors; k++)
     {
         int was = flags[k];
@@ -1398,7 +1462,8 @@ void yellowCompliance(tSituation *s, int i)
         return;
     }
     double ahead = car->_distFromStartLine + cautionLook;
-    int caution = std::max(flags[k], flags[sectorOf(ahead)]);
+    int there = sectorOf(ahead);
+    int caution = std::max(std::max(flags[k], flags[there]), std::max(hazard[k], hazard[there]));
     double mine = progress(car);
     if (i != 0 || sdPlayerAutopilot())
     {
@@ -1657,6 +1722,8 @@ void sdStewardsBegin(tSituation *s, int sessionKind, int laps)
         flagUntil[k] = 0;
         flagLevel[k] = 0;
         flagCar[k] = -1;
+        hazard[k] = 0;
+        hazardUntil[k] = 0;
     }
     for (int i = 0; i < carCount; i++)
     {
@@ -1795,6 +1862,16 @@ void sdStewardsLapCompleted(int index)
     rollLap(ReInfo->s, index);
 }
 
+bool sdStewardsPlayerTrouble(int index)
+{
+    return index >= 0 && index < (int)cars.size() && cars[index].playerTrouble;
+}
+
+bool sdStewardsSpun(int index, double seconds)
+{
+    return index >= 0 && index < (int)cars.size() && maxSlipBetween(cars[index], now - seconds, now) > spinSlip;
+}
+
 bool sdStewardsLapInvalid(int index)
 {
     return index >= 0 && index < (int)cars.size() && cars[index].lapInvalid;
@@ -1840,6 +1917,11 @@ extern "C" {
 EMSCRIPTEN_KEEPALIVE void sdStewardsLights(double interval)
 {
     lightInterval = interval > 0 ? interval : defaultLightInterval;
+}
+
+EMSCRIPTEN_KEEPALIVE void sdStewardsTrackLimits(int on)
+{
+    trackLimitsOn = on != 0;
 }
 
 EMSCRIPTEN_KEEPALIVE int sdStewardsMessages(double *out, int max, int after)

@@ -166,7 +166,7 @@ describe.runIf(existsSync(wasm))("race weekend on the real engine", () => {
     const m = await startField({
       kind: sessionKind.race,
       laps,
-      seed: 6,
+      seed: 4,
       wear: 2,
       plan,
     });

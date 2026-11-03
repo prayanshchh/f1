@@ -31,35 +31,32 @@ export const offence = {
   safetyCarGap: 22,
   restartOvertake: 23,
   redFlag: 24,
-  formationOvertake: 25,
-  unsafeRelease: 26,
+  unsafeRelease: 25,
 } as const;
 
 export const raceControlState = {
   green: 0,
-  formation: 1,
-  lights: 2,
-  vsc: 3,
-  vscEnding: 4,
-  safetyCar: 5,
-  safetyCarIn: 6,
-  restart: 7,
-  red: 8,
-  suspended: 9,
+  lights: 1,
+  vsc: 2,
+  vscEnding: 3,
+  safetyCar: 4,
+  safetyCarIn: 5,
+  restart: 6,
+  red: 7,
+  suspended: 8,
 } as const;
 
 const controlEvent = {
-  formation: 0,
-  vsc: 1,
-  vscEnding: 2,
-  safetyCar: 3,
-  safetyCarIn: 4,
-  green: 5,
-  red: 6,
-  suspended: 7,
-  resume: 8,
-  rolling: 9,
-  lineup: 10,
+  vsc: 0,
+  vscEnding: 1,
+  safetyCar: 2,
+  safetyCarIn: 3,
+  green: 4,
+  red: 5,
+  suspended: 6,
+  resume: 7,
+  rolling: 8,
+  lineup: 9,
 } as const;
 
 export const stage = {
@@ -88,7 +85,6 @@ export const penalty = {
   grid: 9,
   disqualified: 10,
   lapDeleted: 11,
-  backOfGrid: 12,
 } as const;
 
 export interface StewardMessage {
@@ -174,7 +170,6 @@ const offenceNames: Record<number, string> = {
   [offence.safetyCarGap]: "Not within ten car lengths behind the safety car",
   [offence.restartOvertake]: "Overtaking before the line at the restart",
   [offence.redFlag]: "Failing to slow for the red flag",
-  [offence.formationOvertake]: "Overtaking on the formation lap",
   [offence.unsafeRelease]: "Unsafe release",
 };
 
@@ -192,7 +187,6 @@ const penaltyNames: Record<number, string> = {
   [penalty.disqualified]: "Disqualified",
   [penalty.lapDeleted]: "Lap time deleted",
   [penalty.warning]: "Warning",
-  [penalty.backOfGrid]: "Start from the back of the grid",
 };
 
 function penaltyName(code: number, value: number): string {
@@ -360,12 +354,6 @@ function aboutVictim(
 }
 
 const controlNotices: Record<number, (value: number) => Notice> = {
-  [controlEvent.formation]: () => ({
-    kind: "flag",
-    title: "Formation lap",
-    detail: "Keep your grid position - no overtaking",
-    seconds: 6,
-  }),
   [controlEvent.vsc]: () => ({
     kind: "flag",
     title: "Virtual safety car",

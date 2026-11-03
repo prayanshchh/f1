@@ -26,11 +26,14 @@ type TrackPoint = (
   lateral: number,
 ) => [number, number, number];
 
+const maxAnisotropy = 16;
+
 function textureOf(url: string, sRgb: boolean): THREE.Texture {
   const map = releaseOnceUploaded(new THREE.TextureLoader().load(url));
   map.flipY = false;
   map.anisotropy = anisotropy;
   map.colorSpace = sRgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+  map.anisotropy = maxAnisotropy;
   return map;
 }
 

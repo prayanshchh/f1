@@ -74,6 +74,7 @@ export class PadLink {
   private receivedAt = -Infinity;
   private sentAt = -Infinity;
   private seen = 0;
+  private linked = false;
 
   constructor(
     private readonly panel: HTMLElement,
@@ -88,6 +89,18 @@ export class PadLink {
 
   toggle(): void {
     this.panel.hidden = !this.panel.hidden;
+  }
+
+  close(): void {
+    this.panel.hidden = true;
+  }
+
+  get connected(): boolean {
+    return this.linked;
+  }
+
+  get panelOpen(): boolean {
+    return !this.panel.hidden;
   }
 
   current(now: number): PadInput | null {
@@ -225,6 +238,7 @@ export class PadLink {
   }
 
   private setConnected(on: boolean): void {
+    this.linked = on;
     this.badge.hidden = !on;
     if (on) this.panel.hidden = true;
   }

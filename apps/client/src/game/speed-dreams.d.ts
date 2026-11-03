@@ -100,7 +100,6 @@ declare module "*/wasm/speed-dreams.js" {
     _sdRaceControlConfigure(
       safetyCar: number,
       redFlags: number,
-      formationLap: number,
       rollingStart: number,
     ): void;
     _sdRaceControlInfo(out: number): void;

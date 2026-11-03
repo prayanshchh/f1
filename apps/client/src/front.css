@@ -958,3 +958,28 @@
   max-width: 1200px;
   margin: 0;
 }
+
+.front-car-loading {
+  position: absolute;
+  left: 50%;
+  bottom: 190px;
+  transform: translateX(-50%);
+  color: #d5d6de;
+  font-size: 20px;
+  font-weight: 700;
+  font-stretch: 118%;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.front-primary .loading {
+  justify-content: center;
+}
+
+.front-primary:disabled {
+  cursor: progress;
+}
+
+.front-error:has(.loading)::before {
+  content: none;
+}

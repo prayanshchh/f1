@@ -26,7 +26,7 @@ test.describe("credits and licences", () => {
       },
     });
 
-    await page.goto("/drive.html");
+    await page.goto("/");
     await page.mouse.move(1, 1);
     await expect(page.locator(".front-hub")).toBeVisible({ timeout: 60_000 });
     await page.getByRole("button", { name: /Credits/ }).click();

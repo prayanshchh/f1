@@ -31,7 +31,11 @@ import {
 
 type Raced = Weekend &
   Stewarded &
-  RaceSystems & { _sdCarBreakDown: (index: number) => void };
+  RaceSystems & {
+    _sdCarBreakDown: (index: number) => void;
+    _sdRaceControlInterventions: (on: number) => void;
+    _sdCarDamageSet: (part: number, value: number) => void;
+  };
 
 const fieldCars = 8;
 const stepsPerSample = 50;
@@ -40,6 +44,7 @@ const distanceIndex = 53;
 const lapIndex = 49;
 const speedIndex = 45;
 const heavyCrash = 40;
+const bodyParts = 7;
 const neutralised: number[] = [
   raceControlState.vsc,
   raceControlState.vscEnding,
@@ -157,7 +162,23 @@ function flagsRaised(m: Raced, car?: number): StewardMessage[] {
   );
 }
 
-function stopOnTrack(m: Raced, where: number, crash: number, hold: number) {
+function wreck(m: Raced, crash: number): void {
+  m._sdCarImpact(2.2, 0.3, -crash, 0);
+  for (let part = 0; part < bodyParts; part++) m._sdCarDamageSet(part, 0.8);
+}
+
+function crashAt(m: Raced, crash: number, wrecked: boolean): void {
+  if (wrecked) wreck(m, crash);
+  else if (crash > 0) m._sdCarImpact(2.2, 0.3, -crash, 0);
+}
+
+function stopOnTrack(
+  m: Raced,
+  where: number,
+  crash: number,
+  hold: number,
+  wrecked = false,
+) {
   const pilot = new Pilot(m, 0.85);
   holdOnGrid(m);
   let stoppedAt = -1;
@@ -166,7 +187,7 @@ function stopOnTrack(m: Raced, where: number, crash: number, hold: number) {
   for (let s = 0; s < 2 * lapSeconds * 500; s++) {
     if (stopStep(m, pilot, where) && stoppedAt < 0) {
       stoppedAt = time(m);
-      if (crash > 0) m._sdCarImpact(2.2, 0.3, -crash, 0);
+      crashAt(m, crash, wrecked);
     }
     const state = controlState(m);
     seen.add(state);
@@ -186,8 +207,24 @@ describe.runIf(existsSync(wasm))("race control", () => {
     expect(flagsRaised(m, 0).length).toBeGreaterThan(0);
   }, 600_000);
 
-  test("a heavy crash that leaves the player stopped brings out the safety car within seconds", async () => {
+  test("a wrecked player car left on track gets yellows only: race control never deploys a safety car or red flag by itself", async () => {
     const m = await race(3, {}, false);
+    const { stoppedAt, seen } = stopOnTrack(m, 3000, heavyCrash, 45, true);
+    expect(stoppedAt).toBeGreaterThan(0);
+    expect(seen.filter((state) => neutralised.includes(state))).toEqual([]);
+    expect(flagsRaised(m, 0).length).toBeGreaterThan(0);
+  }, 600_000);
+
+  test("with interventions switched on, the same wreck is red flagged", async () => {
+    const m = await race(3, {}, false);
+    m._sdRaceControlInterventions(1);
+    const { seen } = stopOnTrack(m, 3000, heavyCrash, 45, true);
+    expect(seen).toContain(raceControlState.red);
+  }, 600_000);
+
+  test("with interventions switched on, a heavy crash that leaves the player stopped brings out the safety car within seconds", async () => {
+    const m = await race(3, {}, false);
+    m._sdRaceControlInterventions(1);
     const { stoppedAt, deployedAt } = stopOnTrack(m, 3000, heavyCrash, 10);
     expect(stoppedAt).toBeGreaterThan(0);
     expect(deployedAt - stoppedAt).toBeGreaterThan(1);

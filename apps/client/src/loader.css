@@ -1,0 +1,145 @@
+.loader {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  width: 120px;
+  aspect-ratio: 122 / 9;
+}
+
+.loader i {
+  flex: 0 0 17.2%;
+  height: 100%;
+  background: #ff2e2e;
+  box-shadow: 0 0 6px rgb(255 46 46 / 55%);
+  opacity: 0.16;
+  transform: skewX(-11.3deg);
+  transform-origin: bottom;
+  animation: 1.4s steps(1, end) infinite;
+}
+
+.loader i:nth-child(1) {
+  height: 33.3%;
+  animation-name: rev-1;
+}
+
+.loader i:nth-child(2) {
+  height: 50%;
+  animation-name: rev-2;
+}
+
+.loader i:nth-child(3) {
+  height: 66.7%;
+  animation-name: rev-3;
+}
+
+.loader i:nth-child(4) {
+  height: 83.3%;
+  animation-name: rev-4;
+}
+
+.loader i:nth-child(5) {
+  animation-name: rev-5;
+}
+
+@keyframes rev-1 {
+  14.3%,
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes rev-2 {
+  28.6%,
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes rev-3 {
+  42.9%,
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes rev-4 {
+  57.1%,
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes rev-5 {
+  71.4%,
+  100% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loader i {
+    animation-duration: 2.8s;
+  }
+}
+
+.status {
+  position: fixed;
+  inset: 0;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  margin: 0;
+  background:
+    radial-gradient(ellipse at 15% 110%, rgb(225 6 0 / 28%), transparent 55%),
+    #0d0e15;
+  color: #a9acbb;
+  font-family: "Saira Variable", "Saira", system-ui, sans-serif;
+}
+
+.status[hidden] {
+  display: none;
+}
+
+.status-word {
+  width: 300px;
+  height: 38px;
+  fill: #f4f5f8;
+}
+
+.status .loader {
+  width: 300px;
+}
+
+.status p {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  font-stretch: 125%;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+body[data-drive-status="error"] .status .loader i {
+  animation: none;
+}
+
+body[data-drive-status="error"] .status p {
+  max-width: 60ch;
+  color: #f4f5f8;
+  text-align: center;
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.loading .loader {
+  width: 72px;
+}

@@ -82,7 +82,11 @@ describe.runIf(hasTunnel)("the dev server's phone link", () => {
       await import("../../apps/client/vite.config.ts");
     const plugins = (config.plugins ?? []).filter(
       (plugin: PluginOption) =>
-        !(plugin && "name" in plugin && plugin.name === "f1-engine-build"),
+        !(
+          plugin &&
+          "name" in plugin &&
+          plugin.name === "revracers-engine-build"
+        ),
     );
     server = await createServer({
       ...config,

@@ -6,7 +6,7 @@ import {
   rememberDriver,
 } from "./api.ts";
 import { CreditsScreen } from "./credits-screen.ts";
-import { button, el, prompt } from "./dom.ts";
+import { button, el, loading, prompt } from "./dom.ts";
 import { countries, countryName, flagUrl, guessCountry } from "./flags.ts";
 import { ProfileScreen } from "./profile-screen.ts";
 import { framings, type Studio } from "./studio.ts";
@@ -60,6 +60,8 @@ function draftOf(driver: Driver): DriverProfile {
 export class FrontEnd {
   private keys: Keys = {};
   private readonly stage: HTMLElement;
+  private readonly carLoader = loading("Loading cars", "front-car-loading");
+  private carRequest = 0;
   private readonly keyHandler = (event: KeyboardEvent): void => {
     const action = this.keys[event.key];
     if (!action) return;
@@ -94,6 +96,22 @@ export class FrontEnd {
     this.keys = {};
   }
 
+  private showCar(team: string, enter = true): void {
+    this.carRequest += 1;
+    const request = this.carRequest;
+    this.root.append(this.carLoader);
+    const done = () => {
+      if (request === this.carRequest) this.carLoader.remove();
+    };
+    this.studio.select(team, enter).then(done, done);
+  }
+
+  private hideCar(): void {
+    this.carRequest += 1;
+    this.carLoader.remove();
+    this.studio.hideCar();
+  }
+
   private show(keys: Keys, ...nodes: HTMLElement[]): void {
     this.keys = keys;
     this.stage.replaceChildren(...nodes);
@@ -114,7 +132,7 @@ export class FrontEnd {
 
   async welcome(): Promise<Driver> {
     this.studio.frame(framings.empty);
-    this.studio.hideCar();
+    this.hideCar();
     return new Promise((resolve) => {
       this.authScreen("register", resolve);
     });
@@ -138,7 +156,10 @@ export class FrontEnd {
     const message = el("p", "front-error");
     message.dataset["front"] = "error";
     const submit = async () => {
+      if (go.disabled) return;
       message.textContent = "";
+      go.disabled = true;
+      go.replaceChildren(loading());
       try {
         const name = username.value.trim();
         done(
@@ -150,6 +171,9 @@ export class FrontEnd {
         message.textContent = errorText(error);
         const field = error instanceof ApiError ? error.field : null;
         (field === "password" ? password : username).focus();
+      } finally {
+        go.disabled = false;
+        go.textContent = label;
       }
     };
     const form = el("form", "front-auth");
@@ -157,11 +181,8 @@ export class FrontEnd {
       event.preventDefault();
       void submit();
     });
-    const go = el(
-      "button",
-      "front-primary",
-      creating ? "Create Driver" : "Sign In",
-    );
+    const label = creating ? "Create Driver" : "Sign In";
+    const go = el("button", "front-primary", label);
     go.dataset["front"] = "submit";
     const swap = button(
       "front-link",
@@ -242,7 +263,7 @@ export class FrontEnd {
     next: () => void,
   ): void {
     this.studio.frame(framings.empty);
-    this.studio.hideCar();
+    this.hideCar();
     const input = el("input", "front-name");
     input.value = draft[field];
     input.maxLength = 24;
@@ -275,7 +296,7 @@ export class FrontEnd {
     next: () => void,
   ): void {
     this.studio.frame(framings.empty);
-    this.studio.hideCar();
+    this.hideCar();
     const list = el("div", "front-countries");
     const search = el("input", "front-search");
     search.placeholder = "Search countries";
@@ -338,7 +359,7 @@ export class FrontEnd {
     next: () => void,
   ): void {
     this.studio.frame(framings.empty);
-    this.studio.hideCar();
+    this.hideCar();
     const grid = el("div", "front-numbers");
     const tiles = Array.from({ length: driverNumbers }, (_, index) => {
       const number = index + 1;
@@ -394,7 +415,7 @@ export class FrontEnd {
     next: () => void,
   ): void {
     this.studio.frame(framings.team);
-    void this.studio.select(draft.team);
+    this.showCar(draft.team);
     let insight = 0;
     const title = el("h1", "front-team-name");
     const details = el("dl", "front-team-details");
@@ -462,7 +483,7 @@ export class FrontEnd {
         tile.classList.toggle("active", tile.dataset["team"] === team.id);
       });
       paintBoard(team);
-      void this.studio.select(team.id);
+      this.showCar(team.id);
     };
     const shift = (delta: number) => {
       const index = teams.findIndex((team) => team.id === draft.team);
@@ -510,13 +531,19 @@ export class FrontEnd {
     done: (driver: Driver) => void,
   ): void {
     this.studio.frame(framings.confirm);
-    void this.studio.select(draft.team, false);
+    this.showCar(draft.team, false);
     const message = el("p", "front-error");
+    let saving = false;
     const confirm = async () => {
+      if (saving) return;
+      saving = true;
+      message.replaceChildren(loading("Saving driver"));
       try {
         done(await api.saveProfile(draft));
       } catch (error) {
         message.textContent = errorText(error);
+      } finally {
+        saving = false;
       }
     };
     const team = teamOf(draft.team);
@@ -547,7 +574,7 @@ export class FrontEnd {
 
   async hub(driver: Driver): Promise<HubChoice> {
     this.studio.frame(framings.hub);
-    void this.studio.select(driver.team ?? teams[0]?.id ?? "", false);
+    this.showCar(driver.team ?? teams[0]?.id ?? "", false);
     return new Promise((resolve) => {
       this.hubScreen(driver, resolve);
     });

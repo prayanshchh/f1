@@ -64,7 +64,7 @@ if (process.platform !== "linux") {
     });
     await page.addInitScript(watchMusicContexts);
     await page.addInitScript(raceWithBuildUp);
-    await page.goto("/drive.html");
+    await page.goto("/");
     await expect(page.locator(".front-hub")).toBeVisible({ timeout: 60_000 });
     await page.mouse.click(4, 4);
     await expect

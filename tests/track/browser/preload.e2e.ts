@@ -9,7 +9,7 @@ if (!softwareGpu) {
   }) => {
     test.setTimeout(420_000);
     await page.addInitScript(countGpuObjects);
-    await page.goto("/drive.html?autostart=1", { waitUntil: "commit" });
+    await page.goto("/?autostart=1", { waitUntil: "commit" });
     await page.waitForFunction(
       () => document.body.dataset["driveStatus"] === "running",
       null,

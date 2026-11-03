@@ -6,7 +6,7 @@ import {
   type SessionDetail,
   type SessionSummary,
 } from "./api.ts";
-import { button, el, prompt } from "./dom.ts";
+import { button, el, loading, prompt } from "./dom.ts";
 import { lapTime } from "./hud.ts";
 import { teamLogo } from "./team-logos.ts";
 import { teamOf } from "./teams.ts";
@@ -217,7 +217,7 @@ export class ProfileScreen {
   }
 
   private async load<T>(work: Promise<T>): Promise<T | null> {
-    this.body.replaceChildren(el("p", "records-note", "Loading…"));
+    this.body.replaceChildren(loading("Loading records", "records-note"));
     try {
       return await work;
     } catch (error) {

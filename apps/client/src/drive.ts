@@ -123,6 +123,7 @@ const canvas = document.querySelector<HTMLCanvasElement>(
 const status = document.querySelector<HTMLElement>(
   "[data-testid=drive-status]",
 );
+const statusText = document.querySelector<HTMLElement>("[data-status-text]");
 const hudRoot = document.querySelector<HTMLElement>("[data-testid=hud]");
 const autostartKey = "revracers.autostart";
 
@@ -137,10 +138,8 @@ function padLink(): PadLink {
 }
 
 function setStatus(text: string): void {
-  if (status) {
-    status.textContent = text;
-    status.hidden = text === "";
-  }
+  if (status) status.hidden = text === "";
+  if (statusText && text) statusText.textContent = text;
 }
 
 function restart(autostart: boolean): void {
@@ -384,6 +383,7 @@ function raceSystems(
   settings: Settings,
   stage: Stage | null,
   lights: StartLights,
+  interventions: boolean,
 ): RaceSystems {
   return {
     countdown: lights.countdown,
@@ -394,6 +394,7 @@ function raceSystems(
       ),
       redFlags: settings.redFlags,
       rollingStart: settings.startType === "rolling" && stage === "race",
+      interventions,
     },
     dynamicWeather: settings.rain === "dynamic",
     weatherSeed: Math.floor(Math.random() * 1_000_000) + 1,
@@ -744,9 +745,9 @@ async function enterGame(
   const front = new FrontEnd(element("[data-front=root]"), studio);
   front.open();
   music.opening();
-  setStatus("");
   void studio.preloadTeams();
   let driver = await currentDriver();
+  setStatus("");
   for (;;) {
     driver ??= await front.welcome();
     if (!driver.onboarded) {
@@ -830,7 +831,8 @@ async function main(): Promise<void> {
   const module = await loadSpeedDreams();
   const settings = loadSettings(params);
   const source = setupSource(module);
-  const menu = new Menu(source, settings);
+  const interventions = params.has("interventions");
+  const menu = new Menu(source, settings, interventions);
   const music = new Music(() => settings.musicVolume / 100);
 
   const autostart = consumeAutostart(params);
@@ -856,7 +858,7 @@ async function main(): Promise<void> {
     settings.assist,
     settings.antiLock,
     performance.now() / 1000,
-    raceSystems(settings, stage, lights),
+    raceSystems(settings, stage, lights, interventions),
     plan,
   );
   const scene = await Scene.load(

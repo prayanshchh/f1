@@ -70,7 +70,7 @@ pnpm install
 pnpm --filter ./apps/client exec vite
 ```
 
-Then open <http://localhost:5173/drive.html>. The first start compiles Speed Dreams to WebAssembly, which takes a few minutes; later starts reuse the build.
+Then open <http://localhost:5173/>. The first start compiles Speed Dreams to WebAssembly, which takes a few minutes; later starts reuse the build.
 
 For a production build, run `pnpm run build`; the game is written to `apps/client/dist`.
 

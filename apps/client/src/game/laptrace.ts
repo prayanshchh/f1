@@ -21,8 +21,11 @@ export interface StoredReference {
   fastestSectors?: number[];
 }
 
+const lineSlack = 30;
+
 export class LapTrace {
   private current: Float64Array;
+  private fromLine = false;
   private best: Float64Array | null;
   private bestSectors: number[];
   private lastDistance = -1;
@@ -79,6 +82,7 @@ export class LapTrace {
     this.lap = lap;
     this.current.fill(Number.NaN);
     this.lastDistance = -1;
+    this.fromLine = false;
     this.sectorTimes = this.sectorTimes.map(() => null);
     this.sectorStatus = this.sectorStatus.map(() => null);
     this.sectorDeltas = this.sectorDeltas.map(() => null);
@@ -92,6 +96,7 @@ export class LapTrace {
     if (this.lastDistance < 0) {
       this.current[bin] = time;
       this.lastDistance = bin;
+      this.fromLine = bin < lineSlack;
       return;
     }
     if (bin <= this.lastDistance || bin - this.lastDistance >= 200) return;
@@ -145,6 +150,7 @@ export class LapTrace {
 
   private crossSectors(from: number, to: number): void {
     this.boundaries.forEach((boundary, index) => {
+      if (index === 0 && !this.fromLine) return;
       if (from >= 0 && from < boundary && to >= boundary)
         this.closeSector(index, this.current[Math.floor(boundary)] ?? 0);
     });
@@ -177,7 +183,7 @@ export class LapTrace {
     this.closeSector(last, lapTime);
     const sectors = this.sectorTimes.map((t) => t ?? 0);
     const previous = this.bestLapTime();
-    const best = previous === null || lapTime < previous;
+    const best = this.fromLine && (previous === null || lapTime < previous);
     const delta = previous === null ? null : lapTime - previous;
     if (best && sectors.every((t) => t > 0)) {
       const trace = Float64Array.from(this.current);

@@ -14,11 +14,10 @@ import {
   type CarTiming,
   frameIndex,
   type HudInfo,
-  sessionPhase,
   type SessionInfo,
 } from "./engine.ts";
 import { Tower } from "./tower.ts";
-import { clockText, type Entrant, segmentNames } from "./weekend.ts";
+import { type Entrant, segmentNames } from "./weekend.ts";
 import type { LapResult, LapTrace, SectorState } from "./laptrace.ts";
 import { type CarStatus, Mfd } from "./mfd.ts";
 import { closedPolyline, type Polyline, pointAlong } from "./polyline.ts";
@@ -99,6 +98,7 @@ function ersLabel(energy: EnergyInfo, boosting: boolean): string {
 }
 
 const revLeds = 15;
+const pitTyres = [0, 1, 2];
 const sectorColors = ["map-s1", "map-s2", "map-s3"];
 
 export interface TrackMap {
@@ -160,7 +160,7 @@ export class Hud {
   private mapScreen: [number, number][] = [];
   private readonly mapDots: SVGCircleElement[] = [];
   private invalidShown = false;
-  private flagShown = false;
+  private tyreChoice = -1;
 
   constructor(
     private readonly root: HTMLElement,
@@ -242,17 +242,10 @@ export class Hud {
     this.find("position").textContent = mine
       ? `${String(mine.position)} / ${String(total)}`
       : "";
-    if (this.options.qualifying) this.updateClock(info);
+    if (this.options.qualifying)
+      this.find("session").textContent = segmentNames[info.segment] ?? "Q";
     this.updateFieldDots(cars);
     this.updateSessionToasts(info, now);
-  }
-
-  private updateClock(info: SessionInfo): void {
-    const clock = this.find("clock");
-    clock.hidden = false;
-    this.find("clock-time").textContent =
-      info.phase === sessionPhase.running ? clockText(info.clock) : "0:00";
-    this.find("session").textContent = segmentNames[info.segment] ?? "Q";
   }
 
   private updateFieldDots(cars: Float64Array): void {
@@ -282,17 +275,6 @@ export class Hud {
         until: now + 4,
       };
     this.invalidShown = info.invalidLap;
-    if (info.phase !== sessionPhase.running && !this.flagShown) {
-      this.flagShown = true;
-      if (this.options.qualifying)
-        this.toast = {
-          kind: "final",
-          title: "Chequered flag",
-          detail: "Finish your lap to set a time",
-          until: now + 6,
-        };
-    }
-    if (info.phase === sessionPhase.running) this.flagShown = false;
   }
 
   setParts(parts: Record<HudPart, boolean>): void {
@@ -341,8 +323,26 @@ export class Hud {
     this.find("wing-change").textContent = replace ? "Replace +8s" : "Keep";
   }
 
+  setTyreChoice(compound: number): void {
+    if (compound === this.tyreChoice) return;
+    this.tyreChoice = compound;
+    this.find("pit-tyre-options").replaceChildren(
+      ...pitTyres.map((index) => {
+        const tyre = compounds[index] ?? compounds[0];
+        const option = document.createElement("span");
+        option.classList.toggle("active", index === compound);
+        const badge = document.createElement("i");
+        badge.textContent = tyre.letter;
+        badge.style.setProperty("--tyre", tyre.colour);
+        option.append(badge, tyre.label);
+        return option;
+      }),
+    );
+  }
+
   updatePit(control: PitControl): void {
     const active = control.phase !== "track";
+    putHidden(this.find("pit-tyres"), !control.choosingTyres);
     this.updatePitPanel(control, active);
     this.updatePitBanner(control, active);
     this.updatePitTurn(control);

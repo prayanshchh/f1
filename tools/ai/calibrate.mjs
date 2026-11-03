@@ -15,7 +15,7 @@ const loaded = await import(
 );
 const m = await loaded.default({ print: () => {}, printErr: () => {} });
 m._sdFieldClear();
-m._sdSessionConfigure(3, 0, 1, 1, 1);
+m._sdSessionConfigure(3, 0, 1, 1);
 m._sdFieldAutopilot(1);
 m._sdTyresConfigure(1, 0);
 const status = m.cwrap("sdInit", "number", [

@@ -90,6 +90,7 @@ class Pad {
   private ersPresses = 0;
   private pagePresses = 0;
   private wingPresses = 0;
+  private tyrePresses = 0;
   private stalledSince = 0;
 
   async start(): Promise<void> {
@@ -138,6 +139,9 @@ class Pad {
     });
     element("wing").addEventListener("click", () => {
       this.wingPresses++;
+    });
+    element("tyre").addEventListener("click", () => {
+      this.tyrePresses++;
     });
     element("center").addEventListener("click", () => {
       this.calibrate();
@@ -387,6 +391,7 @@ class Pad {
         this.ersPresses,
         this.pagePresses,
         this.wingPresses,
+        this.tyrePresses,
       ]),
     );
   }

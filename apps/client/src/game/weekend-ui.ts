@@ -1,7 +1,12 @@
 import { type CarTiming, sessionPhase, type SessionInfo } from "./engine.ts";
 import { lapText, surname } from "./tower.ts";
 import { compounds } from "./tyres.ts";
-import { clockText, type Entrant, segmentNames } from "./weekend.ts";
+import {
+  canStartLap,
+  type Entrant,
+  playerRun,
+  segmentNames,
+} from "./weekend.ts";
 
 const statusLabels = [
   "On Track",
@@ -13,6 +18,7 @@ const statusLabels = [
   "Finished",
   "Retired",
   "Knocked Out",
+  "Next Out",
 ];
 const knockouts = [6, 6, 0];
 const garageCompounds = [0, 1, 2];
@@ -51,12 +57,16 @@ function tyreCell(compound: number): HTMLTableCellElement {
   return td;
 }
 
-function garageNote(mine: CarTiming | undefined): string {
+function garageNote(mine: CarTiming | undefined, info: SessionInfo): string {
   if (mine?.eliminated)
-    return "You are out of this session. Skip to the end to see who takes pole.";
-  if (mine && mine.segmentBest > 0)
-    return `Your best is ${lapText(mine.segmentBest)}, P${String(mine.position)}. Fresh tyres are fitted when you leave.`;
-  return "No lap time yet. The cut comes at the flag, so leave enough time for an out lap and a flying lap.";
+    return "You are knocked out. Fast forward or skip to see who goes through.";
+  if (info.playerRun === playerRun.queued)
+    return "Heading out. The car on track is called in.";
+  if (info.playerRun === playerRun.done)
+    return mine && mine.segmentBest > 0
+      ? `Your lap: ${lapText(mine.segmentBest)}, P${String(mine.position)}. Fast forward or skip the other laps.`
+      : "Your lap was not timed. Fast forward or skip the other laps.";
+  return "Leave the pits, do an out lap to bring the tyres and battery up, then your next lap is timed. Nobody else is on track.";
 }
 
 function qualifyingGap(row: CarTiming, leaderBest: number): string {
@@ -96,25 +106,32 @@ export interface GarageActions {
   go: (compound: number) => void;
   fast: () => boolean;
   skip: () => void;
+  race: (() => void) | null;
 }
 
 export class GarageScreen {
   private readonly root = find("[data-garage=root]");
   private compound = 0;
   private fastOn = false;
+  private ready = false;
 
   constructor(
     private readonly entrants: Entrant[],
     private readonly actions: GarageActions,
   ) {
     find("[data-garage=go]").addEventListener("click", () => {
-      this.actions.go(this.compound);
+      this.go();
     });
     find("[data-garage=fast]").addEventListener("click", () => {
       this.toggleFast();
     });
     find("[data-garage=skip]").addEventListener("click", () => {
       this.actions.skip();
+    });
+    const race = find("[data-garage=race]");
+    race.hidden = actions.race === null;
+    race.addEventListener("click", () => {
+      this.actions.race?.();
     });
     window.addEventListener(
       "keydown",
@@ -130,13 +147,21 @@ export class GarageScreen {
 
   private onKey(event: KeyboardEvent): void {
     if (event.repeat) return;
-    if (event.key === "Enter") this.actions.go(this.compound);
-    else if (event.key.toLowerCase() === "f") this.toggleFast();
-    else if (event.key.toLowerCase() === "s") this.actions.skip();
+    const key = event.key.toLowerCase();
+    if (event.key === "Enter") this.go();
+    else if (key === "f") this.toggleFast();
+    else if (key === "s") this.actions.skip();
+    else if (key === "r" && this.actions.race) this.actions.race();
     else if (event.key === "ArrowLeft") this.nudge(-1);
     else if (event.key === "ArrowRight") this.nudge(1);
     else return;
     event.preventDefault();
+  }
+
+  private go(): void {
+    if (!this.ready) return;
+    this.ready = false;
+    this.actions.go(this.compound);
   }
 
   private nudge(delta: number): void {
@@ -190,17 +215,24 @@ export class GarageScreen {
     const out = knockouts[info.segment] ?? 0;
     find("[data-garage=title]").textContent = segmentNames[info.segment] ?? "Q";
     find("[data-garage=subtitle]").textContent = out
-      ? `Bottom ${String(out)} knocked out`
-      : "Top ten shootout for pole";
-    const running = info.phase === sessionPhase.running;
-    find("[data-garage=clock]").textContent = running
-      ? clockText(info.clock)
-      : "Flag";
+      ? `One timed lap - bottom ${String(out)} knocked out`
+      : "One timed lap - top ten shootout for pole";
+    const alive = timing.filter((row) => !row.eliminated).length;
+    find("[data-garage=clock]").textContent =
+      `${String(alive - info.toRun)}/${String(alive)}`;
     const mine = timing[0];
-    find("[data-garage=note]").textContent = garageNote(mine);
-    find("[data-garage=go]").toggleAttribute(
+    find("[data-garage=note]").textContent = garageNote(mine, info);
+    this.ready = canStartLap(
+      mine,
+      info.phase === sessionPhase.running,
+      info.playerRun,
+    );
+    find("[data-garage=go]").toggleAttribute("disabled", !this.ready);
+    find("[data-garage=go-label]").textContent =
+      info.playerRun === playerRun.queued ? "Next Out" : "Start Your Lap";
+    find("[data-garage=skip]").toggleAttribute(
       "disabled",
-      mine?.eliminated === true || !running,
+      info.phase !== sessionPhase.running,
     );
     const danger = out ? dangerFrom(timing, info.segment) : Infinity;
     const leader = ranked(timing)[0]?.segmentBest ?? 0;

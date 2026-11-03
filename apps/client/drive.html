@@ -74,13 +74,6 @@
         </div>
       </section>
 
-      <section class="session-clock" data-hud="clock" hidden>
-        <b data-hud="clock-time">0:00</b>
-        <i
-          ><svg><use href="#stopwatch" /></svg
-        ></i>
-      </section>
-
       <div class="car-labels" data-hud="labels"></div>
 
       <section class="toast" data-hud="toast" data-kind="">
@@ -116,6 +109,11 @@
             ><small>Stop<br />Time</small><b data-hud="pit-stop">-.-</b></span
           >
         </div>
+      </section>
+      <section class="pit-tyres" data-hud="pit-tyres" hidden>
+        <header>Choose Tyres</header>
+        <div data-hud="pit-tyre-options"></div>
+        <small>Press 1 2 3 or T, or Tyres on the pad</small>
       </section>
       <section class="pit-turn" data-hud="pit-turn" hidden>
         <small>Turn-In</small>
@@ -306,25 +304,29 @@
           <header>
             <h1 data-garage="title">Q1</h1>
             <p data-garage="subtitle"></p>
-            <b class="garage-clock" data-garage="clock">18:00</b>
+            <b class="garage-clock" data-garage="clock">0/22</b>
           </header>
           <table class="garage-table">
             <tbody data-garage="rows"></tbody>
           </table>
         </section>
         <section class="garage-panel">
-          <h2>Your Run</h2>
+          <h2>Your Lap</h2>
           <div class="garage-tyres" data-garage="tyres"></div>
           <p class="garage-note" data-garage="note"></p>
           <button type="button" class="primary" data-garage="go">
-            <i class="btn-glyph">↵</i>Go To Track
+            <i class="btn-glyph">↵</i
+            ><span data-garage="go-label">Start Your Lap</span>
           </button>
           <button type="button" data-garage="fast">
             <i class="btn-glyph">F</i
             ><span data-garage="fast-label">Fast Forward</span>
           </button>
           <button type="button" data-garage="skip">
-            <i class="btn-glyph">S</i>Skip To End Of Session
+            <i class="btn-glyph">S</i>Skip The Other Laps
+          </button>
+          <button type="button" data-garage="race" hidden>
+            <i class="btn-glyph">R</i>Skip To Race, Start Last
           </button>
         </section>
       </div>

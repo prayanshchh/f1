@@ -133,8 +133,9 @@ struct TrackModel
     std::vector<double> gain;
     std::vector<float> laneLateral[laneCount];
     std::vector<float> laneSpeed[laneCount];
-    std::vector<double> gridDistance;
-    std::vector<double> gridLateral;
+    std::vector<double> gridX;
+    std::vector<double> gridY;
+    std::vector<double> gridYaw;
     PitLayout pit;
     bool ready = false;
 };
@@ -1488,12 +1489,20 @@ bool sdAiLoadTrack(tTrack *track)
     const auto &pitValues = data["pit"];
     model.pit = {pitValues[0], pitValues[1], pitValues[2], pitValues[3], pitValues[4], pitValues[5], pitValues[6], pitValues[7], pitValues[8], pitValues[9], pitValues[10], pitValues[11], pitValues[12]};
 
-    const auto &gridDistance = data["grid_distance"];
-    const auto &gridOffset = data["grid_offset"];
-    model.gridDistance = gridDistance;
-    model.gridLateral.resize(gridDistance.size());
-    for (size_t i = 0; i < gridDistance.size(); i++)
-        model.gridLateral[i] = gridOffset[i] - pitShift(gridDistance[i]);
+    const auto &gridX = data["grid_x"];
+    const auto &gridZ = data["grid_z"];
+    const auto &gridHeading = data["grid_heading"];
+    model.gridX.clear();
+    model.gridY.clear();
+    model.gridYaw.clear();
+    for (size_t i = 0; i < gridX.size(); i++)
+    {
+        double wx, wy;
+        toWorld(frame, gridX[i], gridZ[i], &wx, &wy);
+        model.gridX.push_back(wx);
+        model.gridY.push_back(wy);
+        model.gridYaw.push_back(gridHeading[i] - frame.heading);
+    }
 
     const auto &pitX = data["pit_x"];
     const auto &pitZ = data["pit_z"];
@@ -1669,12 +1678,13 @@ bool sdAiPitDone(int index)
     return drivers[index].pitDone;
 }
 
-bool sdAiGridSlot(int slot, double *distance, double *lateral)
+bool sdAiGridPose(int slot, double *x, double *y, double *yaw)
 {
-    if (slot < 0 || slot >= (int)model.gridDistance.size())
+    if (slot < 0 || slot >= (int)model.gridX.size())
         return false;
-    *distance = model.gridDistance[slot] * model.length / (model.gridDistance.empty() ? model.length : model.length);
-    *lateral = model.gridLateral[slot];
+    *x = model.gridX[slot];
+    *y = model.gridY[slot];
+    *yaw = model.gridYaw[slot];
     return true;
 }
 
@@ -1771,7 +1781,7 @@ void sdAiDrive(int index, tCarElt *car, tSituation *s)
     if (driver.task == AI_RACE && targetSpeedAt(driver, pos + v * 2.0, driver.lane) > slowCornerSpeed && holdsInside(index, car, s))
         speedFactor = std::max(speedFactor, insideLateBrake);
     double beyond = std::max((double)car->_trkPos.toMiddle - sampled(model.leftBound, pos), sampled(model.rightBound, pos) - (double)car->_trkPos.toMiddle);
-    if (car->_laps <= 1 && pos < firstLapDistance && s->currentTime < 60.0)
+    if (driver.task == AI_RACE && car->_laps <= 1 && pos < firstLapDistance && s->currentTime < 60.0)
         speedFactor = std::min(speedFactor, firstLapCaution);
     if (beyond > 1.0)
     {

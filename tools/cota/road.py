@@ -329,8 +329,9 @@ def rectangle(track, s0, s1, l0, l1, lift):
 
 def markings(track, mat):
     parts = []
-    span = track.half[0] - LINE_WIDTH
-    parts.append(rectangle(track, -START_LINE_WIDTH / 2, START_LINE_WIDTH / 2, -span, span, PAINT_LIFT))
+    for line in (0.0, track.data["startLine"]):
+        span = track.half[int(line / track.length * track.count) % track.count] - LINE_WIDTH
+        parts.append(rectangle(track, line - START_LINE_WIDTH / 2, line + START_LINE_WIDTH / 2, -span, span, PAINT_LIFT))
     for slot in track.data["grid"]:
         d, o = slot["distance"], slot["offset"]
         parts.append(rectangle(track, d - GRID_BAR, d, o - GRID_HALF_WIDTH, o + GRID_HALF_WIDTH, PAINT_LIFT))

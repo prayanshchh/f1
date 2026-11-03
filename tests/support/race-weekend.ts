@@ -5,7 +5,8 @@ import {
 import { type SpeedDreams, startCota } from "./speed-dreams.ts";
 
 const timingStride = 20;
-const sessionFields = 10;
+const carStride = 49;
+const sessionFields = 12;
 const statFields = 6;
 const stepsPerCall = 20;
 const secondsPerCall = stepsPerCall / 500;
@@ -14,9 +15,10 @@ export const sessionKind = { race: 1, qualifying: 2 } as const;
 export const sessionPhase = { running: 0, complete: 2 } as const;
 export const carStatus = {
   outLap: 1,
-  pushLap: 2,
-  inLap: 3,
+  flyingLap: 2,
   garage: 5,
+  knockedOut: 8,
+  queued: 9,
 } as const;
 
 export interface Weekend extends SpeedDreams {
@@ -36,13 +38,11 @@ export interface Weekend extends SpeedDreams {
     raceSpeed: number,
     power: number,
   ) => void;
-  _sdFieldRun: (index: number, segment: number, at: number) => void;
   _sdFieldStint: (index: number, compound: number, from: number) => void;
   _sdFieldAutopilot: (on: number) => void;
   _sdSessionConfigure: (
     kind: number,
     laps: number,
-    lengthScale: number,
     difficulty: number,
     seed: number,
   ) => void;
@@ -50,10 +50,11 @@ export interface Weekend extends SpeedDreams {
   _sdSessionStats: (out: number) => void;
   _sdSessionAdvance: () => number;
   _sdSessionSimulate: () => void;
-  _sdSessionPlayerGarage: (on: number) => void;
+  _sdSessionPlayerRun: () => number;
   _sdSessionGrid: (out: number) => number;
   _sdQualifyingTimes: (index: number, out: number) => void;
   _sdTiming: (out: number) => void;
+  _sdCars: (out: number) => void;
 }
 
 export interface FieldOptions {
@@ -99,13 +100,10 @@ export async function startField(options: FieldOptions): Promise<Weekend> {
           1,
         );
       m._sdFieldPlan(index, entrant.speed, entrant.raceSpeed, entrant.power);
-      entrant.runs.forEach((runs, segment) => {
-        for (const at of runs) m._sdFieldRun(index, segment, at);
-      });
       for (const stint of entrant.stints)
         m._sdFieldStint(index, stint.compound, stint.from);
     });
-    m._sdSessionConfigure(options.kind, options.laps, 1, 1, options.seed);
+    m._sdSessionConfigure(options.kind, options.laps, 1, options.seed);
     if (options.autopilot ?? true) m._sdFieldAutopilot(1);
   });
 }
@@ -122,12 +120,21 @@ function read(
   return values;
 }
 
+export function sessionOf(m: Weekend) {
+  const v = read(m, sessionFields, (p) => {
+    m._sdSessionInfo(p);
+  });
+  return {
+    phase: v[1] ?? 0,
+    segment: v[2] ?? 0,
+    toRun: v[3] ?? 0,
+    playerRun: v[10] ?? 0,
+    onTrack: v[11] ?? -1,
+  };
+}
+
 export function phaseOf(m: Weekend): number {
-  return (
-    read(m, sessionFields, (p) => {
-      m._sdSessionInfo(p);
-    })[1] ?? 0
-  );
+  return sessionOf(m).phase;
 }
 
 export function statsOf(m: Weekend) {
@@ -154,14 +161,40 @@ export function timingOf(m: Weekend, cars: number) {
       status: field(1),
       laps: field(2),
       best: field(3),
+      lastLap: field(4),
       compound: field(8),
       pits: field(10),
       finished: field(12) === 1,
       retired: field(12) === 2,
       finishTime: field(13),
+      segmentBest: field(11),
       eliminated: field(14) === 1,
     };
   });
+}
+
+export function carPoses(m: Weekend, cars: number) {
+  const v = read(m, cars * carStride, (p) => {
+    m._sdCars(p);
+  });
+  return Array.from({ length: cars }, (_, index) => {
+    const at = (k: number) => v[index * carStride + k] ?? 0;
+    return {
+      x: at(12),
+      y: at(13),
+      headingX: at(0),
+      headingY: at(1),
+      frontAxle: Math.max(at(16), at(22)),
+    };
+  });
+}
+
+export function trackPoint(m: Weekend, distance: number, lateral: number) {
+  const pointer = m._malloc(12);
+  m._sdTrackLocal2Global(distance, lateral, pointer);
+  const [x = 0, y = 0] = new Float32Array(m.HEAPF64.buffer, pointer, 2);
+  m._free(pointer);
+  return { x, y };
 }
 
 export function qualifyingTimes(m: Weekend, index: number): number[] {

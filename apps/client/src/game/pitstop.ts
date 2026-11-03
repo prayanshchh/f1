@@ -42,6 +42,7 @@ export interface PitControl {
   stopTime: number | null;
   estimate: number | null;
   wingChange: boolean;
+  choosingTyres: boolean;
   distanceToBox: number | null;
   speedKph: number;
 }
@@ -295,6 +296,8 @@ export class PitStop {
           )
         : null,
       wingChange: this.wingChange,
+      choosingTyres:
+        (this.phase === "lane" || this.phase === "boxing") && !this.serviced,
       distanceToBox: this.boxRemaining(car),
       speedKph: Math.abs(car.speed) * 3.6,
     };

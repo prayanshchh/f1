@@ -68,7 +68,6 @@ export interface RaceSystems {
 export interface SessionPlan {
   kind: SessionKind;
   laps: number;
-  lengthScale: number;
   difficulty: number;
   seed: number;
   reference: number;
@@ -94,13 +93,15 @@ export interface SessionInfo {
   kind: number;
   phase: number;
   segment: number;
-  clock: number;
+  toRun: number;
   totalLaps: number;
   startDelay: number;
   chequered: boolean;
   leaderLaps: number;
   invalidLap: boolean;
   offTracks: number;
+  playerRun: number;
+  onTrack: number;
 }
 
 export interface CarTiming {
@@ -141,7 +142,8 @@ export const carField = {
   distance: 48,
 } as const;
 const timingStride = 20;
-const sessionFields = 10;
+const sessionFields = 12;
+const practiceGridSlot = 1;
 
 export async function loadSpeedDreams(): Promise<SpeedDreamsModule> {
   return createSpeedDreams({
@@ -202,19 +204,10 @@ function configureField(module: SpeedDreamsModule, plan: SessionPlan): void {
         1,
       );
     module._sdFieldPlan(index, entrant.speed, entrant.raceSpeed, entrant.power);
-    entrant.runs.forEach((runs, segment) => {
-      for (const at of runs) module._sdFieldRun(index, segment, at);
-    });
     for (const stint of entrant.stints)
       module._sdFieldStint(index, stint.compound, stint.from);
   });
-  module._sdSessionConfigure(
-    plan.kind,
-    plan.laps,
-    plan.lengthScale,
-    plan.difficulty,
-    plan.seed,
-  );
+  module._sdSessionConfigure(plan.kind, plan.laps, plan.difficulty, plan.seed);
   module._sdSessionReference(plan.reference);
 }
 
@@ -241,6 +234,7 @@ export class Engine {
     session: SessionPlan | null,
   ): Engine {
     if (session) configureField(module, session);
+    else module._sdPracticeGridSlot(practiceGridSlot);
     module._sdRaceCountdown(race.countdown);
     module._sdInputAssist(assist ? 1 : 0);
     module._sdInputAntiLock(antiLock ? 1 : 0);
@@ -301,13 +295,15 @@ export class Engine {
       kind: at(0),
       phase: at(1),
       segment: at(2),
-      clock: at(3),
+      toRun: at(3),
       totalLaps: at(4),
       startDelay: at(5),
       chequered: at(6) !== 0,
       leaderLaps: at(7),
       invalidLap: at(8) !== 0,
       offTracks: at(9),
+      playerRun: at(10),
+      onTrack: at(11),
     };
   }
 
@@ -371,8 +367,8 @@ export class Engine {
     this.module._sdSessionSimulate();
   }
 
-  playerInGarage(on: boolean): void {
-    this.module._sdSessionPlayerGarage(on ? 1 : 0);
+  queuePlayerRun(): boolean {
+    return this.module._sdSessionPlayerRun() !== 0;
   }
 
   timeScale(scale: number): void {

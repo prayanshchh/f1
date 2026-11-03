@@ -68,18 +68,17 @@ declare module "*/wasm/speed-dreams.js" {
     _sdFieldPlayer(teamIndex: number, seat: number, slot: number): void;
     _sdFieldAutopilot(on: number): void;
     _sdFieldPlayerBox(): number;
+    _sdPracticeGridSlot(slot: number): void;
     _sdFieldPlan(
       index: number,
       speed: number,
       raceSpeed: number,
       power: number,
     ): void;
-    _sdFieldRun(index: number, segment: number, at: number): void;
     _sdFieldStint(index: number, compound: number, from: number): void;
     _sdSessionConfigure(
       kind: number,
       laps: number,
-      lengthScale: number,
       difficulty: number,
       seed: number,
     ): void;
@@ -88,7 +87,7 @@ declare module "*/wasm/speed-dreams.js" {
     _sdAiPlayerLaneClear: () => number;
     _sdSessionAdvance(): number;
     _sdSessionSimulate(): void;
-    _sdSessionPlayerGarage(on: number): void;
+    _sdSessionPlayerRun(): number;
     _sdSessionPitCompound(compound: number): void;
     _sdQualifyingTimes(index: number, out: number): void;
     _sdTiming(out: number): void;

@@ -12,7 +12,6 @@ interface SeasonDriver {
   qualifyingGap: number;
   raceGap: number;
   realGrid: number;
-  runs: number[][];
   stints: { compound: number; from: number }[];
 }
 
@@ -35,7 +34,7 @@ export interface Entrant {
   speed: number;
   raceSpeed: number;
   power: number;
-  runs: number[][];
+  realGrid: number;
   stints: { compound: number; from: number }[];
 }
 
@@ -52,11 +51,6 @@ const powerPerGap = 2.4;
 const percent = 100;
 const difficultyMax = 110;
 const difficultyStep = 0.003;
-const fallbackRuns = [
-  [120, 880],
-  [120, 690],
-  [70, 600],
-];
 const stageKey = "f1.weekend";
 const liveryOrder = [
   "meridian",
@@ -108,8 +102,11 @@ export const teams: Team[] = [
 
 export const segmentNames = season.qualifying.segments.map((s) => s.name);
 
+export const lastSlot = drivers.length - 1;
+const sprintLaps = 5;
+
 export function raceLapOptions(): number[] {
-  const options: number[] = [];
+  const options: number[] = [sprintLaps];
   for (let laps = 10; laps < raceLaps; laps += 10) options.push(laps);
   options.push(raceLaps);
   return options;
@@ -141,9 +138,7 @@ function toEntrant(driver: SeasonDriver): Entrant {
     speed: 1 - (speedPerGap * driver.qualifyingGap) / percent,
     raceSpeed: 1 - (speedPerGap * driver.raceGap) / percent,
     power: 1 - (powerPerGap * gap) / percent,
-    runs: driver.runs.map((runs, i) =>
-      runs.length > 0 ? runs : (fallbackRuns[i] ?? []),
-    ),
+    realGrid: driver.realGrid,
     stints: driver.stints,
   };
 }
@@ -161,7 +156,7 @@ function playerEntrant(team: Team): Entrant {
     speed: 1,
     raceSpeed: 1,
     power: 1,
-    runs: [[], [], []],
+    realGrid: 0,
     stints: [],
   };
 }
@@ -178,7 +173,7 @@ function gridSlots(
   const ranked = entrants
     .map((entrant, index) => ({ entrant, index }))
     .filter(({ entrant }) => !entrant.player)
-    .sort((a, b) => b.entrant.speed - a.entrant.speed);
+    .sort((a, b) => a.entrant.realGrid - b.entrant.realGrid);
   const slots = new Array<number>(entrants.length).fill(0);
   const player = Math.max(0, Math.min(entrants.length - 1, playerSlot));
   let next = 0;
@@ -204,6 +199,27 @@ export function planWeekend(
   return { entrants, slots: gridSlots(entrants, gridCodes, playerSlot) };
 }
 
+export const playerRun = {
+  queued: -1,
+  waiting: 0,
+  outLap: 1,
+  flying: 2,
+  done: 3,
+} as const;
+
+export function canStartLap(
+  mine: { eliminated: boolean } | undefined,
+  sessionRunning: boolean,
+  run: number,
+): boolean {
+  return (
+    mine !== undefined &&
+    !mine.eliminated &&
+    sessionRunning &&
+    run === playerRun.waiting
+  );
+}
+
 export interface WeekendState {
   stage: Stage;
   grid: string[] | null;
@@ -223,10 +239,4 @@ export function loadWeekend(): WeekendState | null {
 export function saveWeekend(state: WeekendState | null): void {
   if (state) sessionStorage.setItem(stageKey, JSON.stringify(state));
   else sessionStorage.removeItem(stageKey);
-}
-
-export function clockText(seconds: number): string {
-  const whole = Math.ceil(Math.max(0, seconds));
-  const minutes = Math.floor(whole / 60);
-  return `${String(minutes)}:${String(whole % 60).padStart(2, "0")}`;
 }

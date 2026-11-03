@@ -3,6 +3,8 @@ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { createMiddleware } from "hono/factory";
 import { hashPassword, newToken, tokenHash, verifyPassword } from "./auth.ts";
 import type { Db } from "./db.ts";
+import { padRoutes } from "./pad.ts";
+import { PadRooms, RoomsFull } from "./pad-rooms.ts";
 import {
   addLap,
   createDriver,
@@ -48,6 +50,8 @@ type Env = { Variables: { driver: Driver } };
 export interface ApiOptions {
   secureCookies: boolean;
   dummyPasswordHash: string;
+  padRooms?: PadRooms;
+  padWait?: number;
 }
 
 async function readBody(c: Context): Promise<Body> {
@@ -83,8 +87,12 @@ export function createApi(db: Db, options: ApiOptions): Hono<Env> {
   app.onError((error, c) => {
     if (error instanceof Invalid)
       return c.json({ error: error.message, field: error.field }, 400);
+    if (error instanceof RoomsFull)
+      return c.json({ error: "Too many games are pairing." }, 503);
     throw error;
   });
+
+  padRoutes(app, options.padRooms ?? new PadRooms(), options.padWait ?? 20_000);
 
   const startSession = async (c: Context, driver: Driver) => {
     const token = newToken();

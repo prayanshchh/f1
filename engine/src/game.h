@@ -23,6 +23,7 @@ void sdInputKey(int key, int state);
 void sdInputApplyHold(tCarElt *car);
 void sdInputLaunch(tCarElt *car, tSituation *s);
 void sdInputRelaunch();
+bool sdInputFresh();
 void sdInputUpdate(tCarElt *car, double dt);
 void sdInputState(double *out);
 void sdCarStatusReset(tCarElt *car);

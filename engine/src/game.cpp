@@ -66,6 +66,7 @@ bool sdPlayerAutopilot()
 static double frame[SD_FRAME_SIZE];
 static double simuTick = RCM_MAX_DT_SIMU;
 static double clockNow = 0.0;
+static double playerDriveTime = 0.0;
 static int damageLimit = 0;
 
 int sdDamageLimit()
@@ -354,6 +355,22 @@ static void manageCar(tCarElt *car)
     car->_distRaced = (car->_laps - 1) * ReInfo->track->length + car->_distFromStartLine;
 }
 
+static void drivePlayer(tSituation *s, double limit)
+{
+    tCarElt *car = s->cars[0];
+    double tick = s->deltaTime;
+    double since = s->currentTime - playerDriveTime;
+    s->deltaTime = since > 0 && since < limit ? since : limit;
+    sdInputUpdate(car, s->deltaTime);
+    if ((car->_state & RM_CAR_STATE_NO_SIMU) == 0)
+        car->robot->rbDrive(car->robot->index, car, s);
+    sdInputLaunch(car, s);
+    sdInputApplyHold(car);
+    sdCarStatusDriveLimit(car);
+    s->deltaTime = tick;
+    playerDriveTime = s->currentTime;
+}
+
 static void runOneStep(double deltaTimeIncrement)
 {
     tRmInfo *pCurrReInfo = ReInfo;
@@ -382,6 +399,7 @@ static void runOneStep(double deltaTimeIncrement)
 
     s->accelTime = s->currentTime;
 
+    bool freshInput = sdInputFresh();
     if ((s->currentTime - pCurrReInfo->_reLastRobTime) >= RCM_MAX_DT_ROBOTS)
     {
         s->deltaTime = s->currentTime - pCurrReInfo->_reLastRobTime;
@@ -390,23 +408,12 @@ static void runOneStep(double deltaTimeIncrement)
         sdSessionTick(s);
         bool playerOnAi = playerAutopilot && sdFieldActive();
         if (!playerOnAi)
-            sdInputUpdate(s->cars[0], s->deltaTime);
-        for (int i = 0; i < s->_ncars; i++)
+            drivePlayer(s, s->deltaTime);
+        for (int i = playerOnAi ? 0 : 1; i < s->_ncars; i++)
         {
             if ((s->cars[i]->_state & RM_CAR_STATE_NO_SIMU) != 0)
                 continue;
-            if (i > 0 || playerOnAi)
-            {
-                sdAiDrive(i, s->cars[i], s);
-                continue;
-            }
-            tRobotItf *robot = s->cars[i]->robot;
-            robot->rbDrive(robot->index, s->cars[i], s);
-        }
-        if (!playerOnAi)
-        {
-            sdInputLaunch(s->cars[0], s);
-            sdInputApplyHold(s->cars[0]);
+            sdAiDrive(i, s->cars[i], s);
         }
         if (sdRaceControlHolding(s))
             for (int i = playerOnAi ? 0 : 1; i < s->_ncars; i++)
@@ -416,6 +423,10 @@ static void runOneStep(double deltaTimeIncrement)
             }
         sdCarStatusDriveLimit(s->cars[0]);
         pCurrReInfo->_reLastRobTime = s->currentTime;
+    }
+    else if (freshInput && !(playerAutopilot && sdFieldActive()))
+    {
+        drivePlayer(s, RCM_MAX_DT_ROBOTS);
     }
 
     sdWeatherStep(s, deltaTimeIncrement);

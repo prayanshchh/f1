@@ -1101,11 +1101,14 @@ async function main(): Promise<void> {
     stewardSeen = messages.at(-1)?.id ?? stewardSeen;
     hud.updateStewards(messages, steward, engine.stewardFlags(), now);
   };
+  let pitDriving = false;
   const step = (now: number) => {
     controls.pad(pad.pressed());
+    if (!pitDriving) engine.analog(pad.current(now));
     const frame = engine.update(now);
     const steward = engine.stewardCar(0);
     const control = applyPit(frame, now, steward);
+    pitDriving = control.drive !== null;
     watchStewards(steward, now);
     const rc = watchRaceControl();
     scene.updateSafetyCar(engine.safetyCarPose(), rc.safetyCarLights, now);

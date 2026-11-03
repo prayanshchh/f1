@@ -2605,6 +2605,7 @@ kbd,
 }
 
 .pad-panel p {
+  max-width: 300px;
   margin: 0 0 16px;
   color: var(--dim);
 }
@@ -2622,6 +2623,7 @@ kbd,
 
 .pad-codes span {
   color: var(--dim);
+  word-break: break-all;
 }
 
 .pad-qr {

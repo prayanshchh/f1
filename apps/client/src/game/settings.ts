@@ -34,9 +34,13 @@ export const choices = {
     { id: "race", label: "Race" },
     { id: "weekend", label: "Race Weekend" },
   ],
-  qualifyingLength: [
-    { id: "full", label: "Full (18 / 15 / 13 min)" },
-    { id: "short", label: "Short (9 / 7.5 / 6.5 min)" },
+  qualifying: [
+    { id: "run", label: "Q1 Q2 Q3" },
+    { id: "skip", label: "Skip - Start Last" },
+  ],
+  rivalLaps: [
+    { id: "simulate", label: "Simulate - Drive Only Yours" },
+    { id: "watch", label: "Watch On Track" },
   ],
   timeOfDay: [
     { id: "dawn", label: "Dawn" },
@@ -108,7 +112,8 @@ export interface Settings {
   laps: number;
   difficulty: number;
   startSlot: number;
-  qualifyingLength: ChoiceId<"qualifyingLength">;
+  qualifying: ChoiceId<"qualifying">;
+  rivalLaps: ChoiceId<"rivalLaps">;
   fuel: number;
   compound: string;
   tyreWear: ChoiceId<"tyreWear">;
@@ -163,7 +168,8 @@ export const defaults: Settings = {
   laps: 10,
   difficulty: 90,
   startSlot: 10,
-  qualifyingLength: "full",
+  qualifying: "run",
+  rivalLaps: "simulate",
   fuel: 0,
   compound: "medium",
   tyreWear: "real",
@@ -233,6 +239,10 @@ export function loadSettings(params: URLSearchParams): Settings {
       options.find((laps) => laps >= settings.laps) ?? defaults.laps;
   if (!choices.tyreWear.some((c) => c.id === settings.tyreWear))
     settings.tyreWear = defaults.tyreWear;
+  if (!choices.qualifying.some((c) => c.id === settings.qualifying))
+    settings.qualifying = defaults.qualifying;
+  if (!choices.rivalLaps.some((c) => c.id === settings.rivalLaps))
+    settings.rivalLaps = defaults.rivalLaps;
   if (!choices.safetyCar.some((c) => c.id === settings.safetyCar))
     settings.safetyCar = defaults.safetyCar;
   if (!choices.startType.some((c) => c.id === settings.startType))
@@ -252,7 +262,10 @@ export function stageOf(
   weekendStage: Stage | null,
 ): Stage | null {
   if (settings.session === "practice") return null;
-  if (settings.session === "weekend") return weekendStage ?? "qualifying";
+  if (settings.session === "weekend")
+    return (
+      weekendStage ?? (settings.qualifying === "skip" ? "race" : "qualifying")
+    );
   return settings.session;
 }
 

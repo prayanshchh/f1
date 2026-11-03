@@ -231,10 +231,26 @@ static void placeCar(tCarElt *car, double distance, double lateral, double heigh
     car->_speed_x = 0;
 }
 
-void sdCarTeleport(int index, double distance, double lateral)
+static int practiceSlot = -1;
+
+static void placeCarAt(tCarElt *car, double x, double y, double yaw, double height)
+{
+    tTrkLocPos pos;
+    RtTrackGlobal2Local(ReInfo->track->seg->next, (tdble)x, (tdble)y, &pos, TR_LPOS_MAIN);
+    car->_trkPos = pos;
+    car->_pos_X = (tdble)x;
+    car->_pos_Y = (tdble)y;
+    car->_yaw = (tdble)yaw;
+    car->_pos_Z = RtTrackHeightL(&pos) + height;
+    FLOAT_NORM0_2PI(car->_yaw);
+    car->_speed_x = 0;
+    if (RtGetDistFromStart(car) < ReInfo->track->length / 2)
+        car->_laps = 1;
+}
+
+static void syncTeleported(int index)
 {
     tCarElt *elt = ReInfo->s->cars[index];
-    placeCar(elt, distance, lateral, 0.05);
     tCar *car = &SimCarTable[index];
     car->DynGCg.pos.x = elt->_pos_X;
     car->DynGCg.pos.y = elt->_pos_Y;
@@ -254,6 +270,27 @@ void sdCarTeleport(int index, double distance, double lateral)
     ReInfo->_reCarInfo[index].sTime = (tdble)ReInfo->s->currentTime;
     ReInfo->_reCarInfo[index].lapFlag = 0;
     sdCarStatusTeleported(index);
+}
+
+void sdCarTeleport(int index, double distance, double lateral)
+{
+    placeCar(ReInfo->s->cars[index], distance, lateral, 0.05);
+    syncTeleported(index);
+}
+
+int sdCarToGrid(int index, int slot)
+{
+    double x = 0, y = 0, yaw = 0;
+    if (!sdAiGridPose(slot, &x, &y, &yaw))
+        return -1;
+    tCarElt *elt = ReInfo->s->cars[index];
+    int laps = elt->_laps;
+    elt->_laps = 0;
+    placeCarAt(elt, x, y, yaw, 0.05);
+    int startLaps = elt->_laps;
+    elt->_laps = laps;
+    syncTeleported(index);
+    return startLaps;
 }
 
 void sdServiceCar(int index, int compound)
@@ -350,7 +387,7 @@ static void runOneStep(double deltaTimeIncrement)
         s->deltaTime = s->currentTime - pCurrReInfo->_reLastRobTime;
         sdStewardsTick(s, s->deltaTime);
         sdRaceControlTick(s, s->deltaTime);
-        sdSessionTick(s, s->deltaTime);
+        sdSessionTick(s);
         bool playerOnAi = playerAutopilot && sdFieldActive();
         if (!playerOnAi)
             sdInputUpdate(s->cars[0], s->deltaTime);
@@ -674,15 +711,25 @@ EMSCRIPTEN_KEEPALIVE int sdInit(const char *trackCategory, const char *trackName
         for (int i = 0; i < carCount; i++)
         {
             const FieldEntry &entry = i == 0 ? playerEntry : fieldEntries[i - 1];
-            double distance = 0, lateral = 0;
-            sdSessionStartPlace(i, entry.slot, sdFieldBay(entry.teamIndex, entry.seat), &distance, &lateral);
-            placeCar(s->cars[i], distance, lateral, 0.2);
+            double distance = 0, lateral = 0, x = 0, y = 0, yaw = 0;
+            bool grid = sdSessionStartPlace(i, entry.slot, sdFieldBay(entry.teamIndex, entry.seat), &distance, &lateral);
+            if (grid && sdAiGridPose(entry.slot, &x, &y, &yaw))
+                placeCarAt(s->cars[i], x, y, yaw, 0.2);
+            else
+                placeCar(s->cars[i], distance, lateral, 0.2);
             RePhysicsEngine().configureCar(s->cars[i]);
         }
     }
     else
     {
-        sdInitStartingGrid();
+        double x = 0, y = 0, yaw = 0;
+        if (hasModel && sdAiGridPose(practiceSlot, &x, &y, &yaw))
+        {
+            placeCarAt(s->cars[0], x, y, yaw, 0.2);
+            RePhysicsEngine().configureCar(s->cars[0]);
+        }
+        else
+            sdInitStartingGrid();
     }
     startRace();
     for (int i = 0; i < carCount; i++)
@@ -697,6 +744,11 @@ EMSCRIPTEN_KEEPALIVE int sdInit(const char *trackCategory, const char *trackName
     sdCameraReset();
     fillFrame();
     return 0;
+}
+
+EMSCRIPTEN_KEEPALIVE void sdPracticeGridSlot(int slot)
+{
+    practiceSlot = slot;
 }
 
 EMSCRIPTEN_KEEPALIVE void sdKey(int key, int state)

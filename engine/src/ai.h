@@ -49,7 +49,7 @@ bool sdAiInPitLaneAt(double distance, double toMiddle);
 bool sdAiInPitLane(int index);
 bool sdAiPitDone(int index);
 void sdAiSetPaceScale(double scale);
-bool sdAiGridSlot(int slot, double *distance, double *lateral);
+bool sdAiGridPose(int slot, double *x, double *y, double *yaw);
 bool sdAiBoxOf(int bay, double *distance, double *lateral);
 double sdAiWrap(double distance);
 double sdAiLength();

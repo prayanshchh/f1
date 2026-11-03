@@ -115,6 +115,7 @@ struct CarState
     double startProgress = 0;
     double aheadGap = unlimited;
     double aheadSpeed = 0;
+    int gridLaps = 0;
 };
 
 struct Hazard
@@ -428,10 +429,9 @@ void place(tSituation *s, const std::vector<int> &grid)
     for (int slot = 0; slot < (int)grid.size(); slot++)
     {
         int i = grid[slot];
-        double distance = 0, lateral = 0;
-        if (!sdAiGridSlot(slot, &distance, &lateral))
+        cars[i].gridLaps = sdCarToGrid(i, slot);
+        if (cars[i].gridLaps < 0)
             continue;
-        sdCarTeleport(i, distance, lateral);
         sdAiResetRunning(i);
         sdAiSetSpeedCap(i, unlimited);
         cars[i].passes.clear();
@@ -465,13 +465,13 @@ void formationLineup(tSituation *s)
     for (int i : ordered)
     {
         tCarElt *car = s->cars[i];
-        car->_laps = 0;
+        car->_laps = std::max(0, cars[i].gridLaps);
         car->_lastLapTime = 0;
         car->_bestLapTime = 0;
         car->_curLapTime = 0;
         ReInfo->_reCarInfo[i].sTime = (tdble)now;
         ReInfo->_reCarInfo[i].lapFlag = 0;
-        cars[i].laps = 0;
+        cars[i].laps = car->_laps;
     }
     signalTime = 0;
     sdSessionRestartTiming(s);

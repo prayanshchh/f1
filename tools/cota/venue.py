@@ -155,7 +155,7 @@ def tower(plates, core, veil, data):
 
 
 def gantry(track, boards, steel, panel, lamps):
-    row = 0
+    row = int(round(track.data["startLine"] / track.length * track.count)) % track.count
     centre = track.position[row, :2]
     normal = track.normal[row]
     tangent = track.tangent[row]

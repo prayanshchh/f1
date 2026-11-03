@@ -12,6 +12,7 @@ import type { GameSound } from "./sound/game-sound.ts";
 import { penaltyBadge } from "./stewards.ts";
 import { CarLabels } from "./tower.ts";
 import {
+  playerRun,
   saveWeekend,
   segmentNames,
   type Stage,
@@ -43,7 +44,6 @@ export interface WeekendContext {
   trackLabel: string;
   stage: Stage;
   field: WeekendPlan;
-  startFuel: number;
   restart: (autostart: boolean) => void;
 }
 
@@ -60,7 +60,8 @@ export class WeekendFlow {
     this.labels = new CarLabels(ctx.labelsRoot, ctx.field.entrants);
     this.garage = new GarageScreen(ctx.field.entrants, {
       go: (compound) => {
-        this.leaveGarage(compound);
+        ctx.engine.setPitCompound(compound);
+        ctx.engine.queuePlayerRun();
       },
       fast: () => {
         this.setScale(this.scale === 1 ? fastForward : 1);
@@ -70,16 +71,28 @@ export class WeekendFlow {
         this.setScale(1);
         ctx.engine.simulateSession();
       },
+      race:
+        ctx.settings.session === "weekend"
+          ? () => {
+              this.skipToRace();
+            }
+          : null,
     });
   }
 
   start(): void {
-    if (this.ctx.stage === "qualifying") this.enterGarage();
-    else this.ctx.engine.playerInGarage(false);
+    if (this.ctx.stage === "qualifying") this.startSegment();
+  }
+
+  private startSegment(): void {
+    this.enterGarage();
+    if (this.ctx.settings.rivalLaps === "simulate")
+      this.ctx.engine.simulateSession();
   }
 
   update(now: number): void {
     const { engine, scene, canvas, hud } = this.ctx;
+    if (this.ctx.stage === "qualifying") this.followPlayerRun();
     const cars = engine.cars();
     scene.updateField(cars);
     if (!this.garage.open)
@@ -95,7 +108,7 @@ export class WeekendFlow {
     this.timingClock = now;
     this.timing = engine.timing();
     const info = engine.session();
-    hud.updateField(cars, this.timing, info, now, this.penalties());
+    hud.updateField(cars, this.timing, info, this.penalties());
     if (this.garage.open) this.garage.update(this.timing, info);
     if (this.ctx.stage === "qualifying") this.updateQualifying();
     else if (!this.finished && this.playerDone()) this.raceFinished();
@@ -112,15 +125,15 @@ export class WeekendFlow {
     return mine ? mine.finished || mine.retired : false;
   }
 
+  private followPlayerRun(): void {
+    const run = this.ctx.engine.session().playerRun;
+    const onTrack = run === playerRun.outLap || run === playerRun.flying;
+    if (this.garage.open && onTrack) this.leaveGarage();
+    else if (!this.garage.open && run === playerRun.done) this.enterGarage();
+  }
+
   private updateQualifying(): void {
-    const { engine, pit, sound } = this.ctx;
-    const info = engine.session();
-    const running = info.phase === sessionPhase.running;
-    if (pit.atGarage && !this.garage.open && running) {
-      sound.mute(true);
-      engine.playerInGarage(true);
-      this.setGarageOpen(true);
-    }
+    const info = this.ctx.engine.session();
     if (info.phase === sessionPhase.complete && this.ctx.resultsRoot.hidden)
       this.segmentResults();
   }
@@ -139,19 +152,14 @@ export class WeekendFlow {
   }
 
   private enterGarage(): void {
-    const { pit, engine, sound } = this.ctx;
+    const { pit, sound } = this.ctx;
     pit.startInGarage();
-    engine.playerInGarage(true);
-    engine.setPitCompound(0);
     sound.mute(true);
     this.setGarageOpen(true);
   }
 
-  private leaveGarage(compound: number): void {
-    const { engine, pit, sound, startFuel } = this.ctx;
-    engine.setPitCompound(compound);
-    engine.pitService(startFuel, true);
-    engine.playerInGarage(false);
+  private leaveGarage(): void {
+    const { pit, sound } = this.ctx;
     this.setScale(1);
     this.setGarageOpen(false);
     pit.goToTrack();
@@ -161,6 +169,12 @@ export class WeekendFlow {
   private leaveToMenu(): void {
     saveWeekend(null);
     this.ctx.restart(false);
+  }
+
+  private skipToRace(): void {
+    this.setScale(1);
+    saveWeekend({ stage: "race", grid: null });
+    this.ctx.restart(true);
   }
 
   private segmentResults(): void {
@@ -211,7 +225,7 @@ export class WeekendFlow {
       return;
     }
     hideClassification();
-    this.enterGarage();
+    this.startSegment();
   }
 
   private finishQualifying(): void {

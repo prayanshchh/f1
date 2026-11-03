@@ -85,6 +85,7 @@ import {
 } from "./game/settings.ts";
 import {
   difficultyScale,
+  lastSlot,
   loadWeekend,
   planWeekend,
   saveWeekend,
@@ -236,13 +237,30 @@ function drawer(renderer: THREE.WebGPURenderer, scene: Scene): () => void {
   };
 }
 
-function raceControls(engine: Engine, hud: Hud, settings: Settings) {
+function raceControls(
+  engine: Engine,
+  hud: Hud,
+  settings: Settings,
+  race: boolean,
+) {
   let cruise = settings.ersMode === boostMode ? 1 : settings.ersMode;
   let padBoost = 0;
   let padErs = 0;
   let padPage = 0;
   let padWing = 0;
+  let padTyre = 0;
   let wingChoice: boolean | null = null;
+  let tyreChoice: number | null = null;
+  const tyreWanted = () => {
+    const fitted = engine.tyreInfo().compound;
+    return tyreChoice ?? (race ? nextCompound(fitted) : fitted);
+  };
+  const pickTyre = (compound: number) => {
+    tyreChoice = compound;
+  };
+  const cycleTyre = () => {
+    tyreChoice = (tyreWanted() + 1) % pitCompounds;
+  };
   const wingWanted = () => wingRequested(wingChoice, engine.carStatus());
   const flipWing = () => {
     wingChoice = !wingWanted();
@@ -278,6 +296,16 @@ function raceControls(engine: Engine, hud: Hud, settings: Settings) {
       hud.toggleTower();
     },
     n: flipWing,
+    t: cycleTyre,
+    "1": () => {
+      pickTyre(0);
+    },
+    "2": () => {
+      pickTyre(1);
+    },
+    "3": () => {
+      pickTyre(2);
+    },
     x: () => {
       engine.armStraight();
     },
@@ -301,8 +329,10 @@ function raceControls(engine: Engine, hud: Hud, settings: Settings) {
       if (pressed.ers !== padErs) cycleErs();
       if (pressed.page !== padPage) hud.nextMfdPage();
       if (pressed.wing !== padWing) flipWing();
+      if (pressed.tyre !== padTyre) cycleTyre();
       padPage = pressed.page;
       padWing = pressed.wing;
+      padTyre = pressed.tyre;
       padBoost = pressed.boost;
       padErs = pressed.ers;
     },
@@ -310,12 +340,16 @@ function raceControls(engine: Engine, hud: Hud, settings: Settings) {
     wingServed(): void {
       wingChoice = null;
     },
+    tyre: tyreWanted,
+    tyreServed(): void {
+      tyreChoice = null;
+    },
   };
 }
 
 const wearShortestRace = 28;
+const pitCompounds = 3;
 const stewardPeriod = 0.1;
-const shortQualifying = 0.5;
 const fieldReferenceLap = 97.5;
 
 function raceSystems(
@@ -356,7 +390,6 @@ function sessionPlan(
   return {
     kind: stage === "race" ? sessionKinds.race : sessionKinds.qualifying,
     laps: settings.laps,
-    lengthScale: settings.qualifyingLength === "short" ? shortQualifying : 1,
     difficulty: difficultyScale(settings.difficulty),
     seed: Math.floor(Math.random() * 1_000_000),
     reference: fieldReferenceLap,
@@ -375,9 +408,10 @@ function prepareSession(settings: Settings): SessionSetup {
   const weekend = settings.session === "weekend" ? loadWeekend() : null;
   const stage = stageOf(settings, weekend?.stage ?? null);
   if (!stage) return { stage, field: null, plan: null, weekend };
+  const skipped = settings.session === "weekend" && !weekend?.grid;
   const field = planWeekend(
     carOf(settings).id,
-    settings.startSlot,
+    skipped ? lastSlot : settings.startSlot,
     weekend?.grid ?? null,
   );
   return {
@@ -793,7 +827,7 @@ async function main(): Promise<void> {
     });
   };
 
-  const controls = raceControls(engine, hud, settings);
+  const controls = raceControls(engine, hud, settings, stage === "race");
 
   const drive = (down: boolean, event: KeyboardEvent) => {
     if (down && event.code === "Space") pitPressed = true;
@@ -870,6 +904,8 @@ async function main(): Promise<void> {
     const replaceWing = controls.wingChange();
     hud.setWingChoice(replaceWing);
     pit.requestWing(replaceWing);
+    const tyre = controls.tyre();
+    hud.setTyreChoice(tyre);
     const control = pit.update(
       pitInput(frame, engine.pitLaneClear()),
       now,
@@ -882,10 +918,10 @@ async function main(): Promise<void> {
       control.drive !== null,
     );
     if (control.serviceNow) {
-      if (stage === "race")
-        engine.setPitCompound(nextCompound(engine.tyreInfo().compound));
+      engine.setPitCompound(tyre);
       engine.pitService(startFuel, control.wingChange);
       controls.wingServed();
+      controls.tyreServed();
     }
     return control;
   };
@@ -905,7 +941,6 @@ async function main(): Promise<void> {
       trackLabel: track.label,
       stage,
       field,
-      startFuel,
       restart,
     });
     flow.start();

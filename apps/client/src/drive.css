@@ -2770,6 +2770,67 @@ kbd,
   font-size: 28px;
 }
 
+.pit-tyres {
+  left: 50%;
+  top: calc(206px * var(--s));
+  translate: -50% 0;
+  transform-origin: 50% 0;
+  width: 400px;
+  padding-bottom: 10px;
+  background: rgb(10 13 20 / 92%);
+  color: #fff;
+  text-align: center;
+}
+
+.pit-tyres header {
+  padding: 6px;
+  color: #35d6e8;
+  font-size: 18px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.pit-tyres div {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  padding: 4px 12px 8px;
+}
+
+.pit-tyres span {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 0;
+  border: 2px solid transparent;
+  font-size: 16px;
+  opacity: 0.55;
+}
+
+.pit-tyres span.active {
+  border-color: #fff;
+  opacity: 1;
+}
+
+.pit-tyres i {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 4px solid var(--tyre);
+  border-radius: 50%;
+  box-sizing: border-box;
+  color: var(--tyre);
+  font-style: normal;
+  font-weight: 800;
+}
+
+.pit-tyres small {
+  color: #b9c0cf;
+  font-size: 14px;
+}
+
 .pit-turn {
   left: 50%;
   top: 36%;
@@ -2849,44 +2910,6 @@ kbd,
 .car-label i {
   width: 3px;
   height: 1em;
-}
-
-.session-clock {
-  right: calc(52px * var(--s));
-  top: calc(205px * var(--s));
-  transform-origin: 100% 0;
-  display: flex;
-  height: 68px;
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.session-clock[hidden] {
-  display: none;
-}
-
-.session-clock b {
-  display: grid;
-  place-items: center;
-  min-width: 180px;
-  padding: 0 18px;
-  background: var(--red);
-  font-size: 44px;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-}
-
-.session-clock i {
-  display: grid;
-  place-items: center;
-  width: 68px;
-  background: rgb(14 16 24 / 92%);
-}
-
-.session-clock svg {
-  width: 40px;
-  height: 40px;
-  color: #fff;
 }
 
 .tower-rows li .row-name {
@@ -3115,6 +3138,14 @@ kbd,
   font-size: 22px;
   font-weight: 600;
   text-align: left;
+}
+
+.garage-panel > button[hidden] {
+  display: none;
+}
+
+.garage-panel > button:disabled {
+  opacity: 0.45;
 }
 
 .garage-panel > button:hover,

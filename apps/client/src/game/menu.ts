@@ -185,7 +185,9 @@ function stripMode(s: Settings): string {
   if (s.session === "race") return `Race - ${String(s.laps)} Laps`;
   if (s.session === "qualifying") return "Qualifying - Q1 Q2 Q3";
   if (s.session === "weekend")
-    return `Qualifying + Race - ${String(s.laps)} Laps`;
+    return s.qualifying === "skip"
+      ? `Race From The Back - ${String(s.laps)} Laps`
+      : `Qualifying + Race - ${String(s.laps)} Laps`;
   return "Practice";
 }
 
@@ -342,7 +344,8 @@ export class Menu {
             laps: defaults.laps,
             difficulty: defaults.difficulty,
             startSlot: defaults.startSlot,
-            qualifyingLength: defaults.qualifyingLength,
+            qualifying: defaults.qualifying,
+            rivalLaps: defaults.rivalLaps,
             timeOfDay: defaults.timeOfDay,
             clouds: defaults.clouds,
             rain: defaults.rain,
@@ -791,7 +794,7 @@ export class Menu {
       ),
       this.choice(
         "Session Type",
-        "Practice runs an open session alone to set lap times. Qualifying runs Q1, Q2 and Q3 against the full grid. Race goes straight to the grid. Race Weekend runs qualifying and then starts the race from the position you earned.",
+        "Practice runs an open session alone to set lap times. Qualifying runs Q1, Q2 and Q3 against the full grid: an out lap, then one timed lap. Race goes straight to the grid. Race Weekend runs qualifying and then starts the race from the position you earned.",
         choices.session,
         () => s.session,
         (id) => {
@@ -816,15 +819,30 @@ export class Menu {
         format: (v) => String(v),
         range: "Min 40 - 110 Max",
       });
-    if (s.session === "qualifying" || s.session === "weekend")
+    if (s.session === "weekend")
       rows.push(
         this.choice(
-          "Qualifying Format",
-          "Full uses the 2026 session lengths: Q1 18 minutes with six knocked out, Q2 15 minutes with six more out, and a 13 minute Q3 for pole. Short halves every session. You can fast forward or skip the rest of a session from the garage.",
-          choices.qualifyingLength,
-          () => s.qualifyingLength,
+          "Qualifying",
+          "In Q1, Q2 and Q3 every car leaves the pits, does an out lap and then one timed lap. Cars go out one at a time, so there is no traffic, and the slowest six drop out after Q1 and Q2. Skip goes straight to the race and you start from the back of the grid.",
+          choices.qualifying,
+          () => s.qualifying,
           (id) => {
-            s.qualifyingLength = id as Settings["qualifyingLength"];
+            s.qualifying = id as Settings["qualifying"];
+          },
+        ),
+      );
+    if (
+      s.session === "qualifying" ||
+      (s.session === "weekend" && s.qualifying === "run")
+    )
+      rows.push(
+        this.choice(
+          "Rival Laps",
+          "Simulate gives the other 21 drivers their lap times straight away, so you only drive your own laps in Q1, Q2 and Q3. Watch sends them out on track one by one; you can still fast forward or skip from the garage.",
+          choices.rivalLaps,
+          () => s.rivalLaps,
+          (id) => {
+            s.rivalLaps = id as Settings["rivalLaps"];
           },
         ),
       );

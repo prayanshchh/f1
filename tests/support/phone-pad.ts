@@ -595,7 +595,7 @@ export class Game {
         JSON.stringify({ session: "practice" }),
       );
     });
-    await page.goto("/drive.html?autostart&debug");
+    await page.goto("/?autostart&debug");
     await page.waitForFunction(
       () => document.body.dataset["driveStatus"] === "running",
       null,

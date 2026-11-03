@@ -462,6 +462,14 @@ bool racing(int i)
     return sdSessionRacing(i);
 }
 
+bool flagged(int i)
+{
+    for (int k = 0; k < marshalSectors; k++)
+        if (flags[k] > 0 && flagCar[k] == i)
+            return true;
+    return false;
+}
+
 bool inLaneAt(tCarElt *car)
 {
     return sdAiInPitLaneAt(car->_distFromStartLine, car->_trkPos.toMiddle);
@@ -1248,7 +1256,7 @@ void yellowPass(tSituation *s, int i, int o, int k)
     Car &c = cars[i];
     double at = s->cars[i]->_distFromStartLine;
     bool open = c.giveBackTo < 0 && kind == KIND_RACE;
-    if (c.trouble > 0)
+    if (c.trouble > 0 || cars[o].trouble > 0 || flagged(o))
         return;
     if (o == 0)
     {
@@ -1256,8 +1264,6 @@ void yellowPass(tSituation *s, int i, int o, int k)
             orderGiveBack(i, 0, O_YELLOW_OVERTAKE, yellowGiveBack, true, at);
         return;
     }
-    if (cars[o].trouble > 0 || o == flagCar[k] || o == flagCar[c.sector < 0 ? k : c.sector])
-        return;
     if (i == 0 && open)
         orderGiveBack(0, o, O_YELLOW_OVERTAKE, giveBackWindow, false, at);
     else
@@ -1597,7 +1603,7 @@ void yellowCompliance(tSituation *s, int i)
         for (int o = 0; o < s->_ncars && caution > 0 && c.trouble == 0; o++)
         {
             double gap = progress(s->cars[o]) - mine;
-            if (o != i && gap > 0 && gap < passRange && cars[o].trouble == 0 && racing(o))
+            if (o != i && gap > 0 && gap < passRange && cars[o].trouble == 0 && !flagged(o) && racing(o))
                 factor = std::min(factor, holdBehind);
         }
         double behind = c.giveBackTo >= 0 ? mine - progress(s->cars[c.giveBackTo]) : 0;

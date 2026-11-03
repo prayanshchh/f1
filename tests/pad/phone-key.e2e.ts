@@ -37,7 +37,7 @@ if (!softwareGpu) {
     page,
   }) => {
     test.setTimeout(420_000);
-    await page.goto("/drive.html", { waitUntil: "commit" });
+    await page.goto("/", { waitUntil: "commit" });
     await page.evaluate(() => {
       localStorage.setItem(
         "revracers.settings",
@@ -50,7 +50,7 @@ if (!softwareGpu) {
       );
       sessionStorage.setItem("revracers.autostart", "1");
     });
-    await page.goto("/drive.html?debug", { waitUntil: "commit" });
+    await page.goto("/?debug", { waitUntil: "commit" });
     await page.waitForFunction(
       () => document.body.dataset["driveStatus"] === "running",
       null,

@@ -24,7 +24,6 @@ export default defineConfig({
     rollupOptions: {
       input: {
         index: fileURLToPath(new URL("./index.html", import.meta.url)),
-        drive: fileURLToPath(new URL("./drive.html", import.meta.url)),
         pad: fileURLToPath(new URL("./pad.html", import.meta.url)),
       },
     },

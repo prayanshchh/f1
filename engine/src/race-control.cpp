@@ -122,6 +122,7 @@ struct Hazard
 };
 
 int level = LEVEL_STANDARD;
+bool interventionsOn = false;
 bool redFlags = true;
 bool rollingStart = false;
 int kind = 0;
@@ -249,11 +250,11 @@ Hazard scan(tSituation *s, double dt)
             continue;
         if (crashed && h.source < 0)
             h.source = i;
-        h.sc = h.sc || c.crashClock >= crashConfirm;
+        h.sc = h.sc || (interventionsOn && c.crashClock >= crashConfirm);
         h.any = h.any || (involved && near && (stopped || crashed));
         persistent = persistent || (involved && wreck >= redWreckage && c.stopOn > redStranded);
     }
-    h.red = redFlags && persistent;
+    h.red = interventionsOn && redFlags && persistent;
     return h;
 }
 
@@ -858,6 +859,11 @@ EMSCRIPTEN_KEEPALIVE void sdRaceControlConfigure(int safetyCar, int red, int rol
     level = std::max(0, std::min(3, safetyCar));
     redFlags = red != 0;
     rollingStart = rolling != 0;
+}
+
+EMSCRIPTEN_KEEPALIVE void sdRaceControlInterventions(int on)
+{
+    interventionsOn = on != 0;
 }
 
 EMSCRIPTEN_KEEPALIVE int sdRaceControlDeploy(int which)

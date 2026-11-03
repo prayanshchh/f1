@@ -25,3 +25,15 @@ export function prompt(glyph: string, label: string): HTMLElement {
   box.append(el("i", "btn-glyph", glyph), el("span", "", label));
   return box;
 }
+
+export function loading(label = "", className = ""): HTMLElement {
+  const box = el("div", `loading ${className}`.trim());
+  box.setAttribute("role", "status");
+  const bars = document.querySelector("[data-loader]")?.cloneNode(true);
+  if (bars instanceof HTMLElement) {
+    bars.removeAttribute("data-loader");
+    box.append(bars);
+  }
+  if (label) box.append(el("span", "", label));
+  return box;
+}

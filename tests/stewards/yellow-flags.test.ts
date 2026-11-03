@@ -141,27 +141,32 @@ describe.runIf(existsSync(wasm))("yellow flags", () => {
     );
   }, 600_000);
 
-  test("cars that pass the player under the yellow give the place back and wait until the player is past again", async () => {
+  test("cars may pass the player stopped under its own yellow and keep the place", async () => {
     const { m, pilot } = await stopMidRace();
+    const before = timingOf(m, fieldCars).map((row) => row.position);
+    const behind = before.flatMap((position, car) =>
+      position > (before[0] ?? 0) ? [car] : [],
+    );
+    const end = time(m) + 20;
+    while (time(m) < end) {
+      m._sdInputAnalog(1, 0, 0, 1);
+      m._sdStep(5);
+    }
+    const stopped = timingOf(m, fieldCars).map((row) => row.position);
+    const passed = behind.filter(
+      (car) => (stopped[car] ?? 0) < (stopped[0] ?? 0),
+    );
     pilot.scale = 0.95;
-    const end = time(m) + 100;
-    pilot.driveUntil(() => time(m) > end);
-    const told = aboutPlayer(m, stage.instruction).map(
-      (message) => message.car,
-    );
-    const returned = aboutPlayer(m, stage.returned).map(
-      (message) => message.car,
-    );
-    expect(told.length).toBeGreaterThanOrEqual(3);
-    expect(returned.sort()).toEqual([...told].sort());
-    const position = timingOf(m, fieldCars).map((row) => row.position);
-    for (const car of told)
-      expect(position[car]).toBeGreaterThan(position[0] ?? 0);
+    const finish = time(m) + 60;
+    pilot.driveUntil(() => time(m) > finish);
+    expect(behind.length).toBeGreaterThan(1);
+    expect(passed.sort()).toEqual([...behind].sort());
+    const after = timingOf(m, fieldCars).map((row) => row.position);
+    for (const car of passed) expect(after[car]).toBeLessThan(after[0] ?? 0);
+    expect(aboutPlayer(m, stage.instruction)).toEqual([]);
     expect(
       stewardMessages(m).filter(
-        (message) =>
-          message.stage === stage.decision &&
-          message.offence === offence.yellowOvertake,
+        (message) => message.offence === offence.yellowOvertake,
       ),
     ).toEqual([]);
   }, 600_000);

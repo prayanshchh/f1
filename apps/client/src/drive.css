@@ -42,25 +42,6 @@ button {
   cursor: pointer;
 }
 
-.status {
-  position: fixed;
-  inset: 0;
-  z-index: 6;
-  display: grid;
-  place-items: center;
-  margin: 0;
-  background:
-    radial-gradient(ellipse at 15% 110%, rgb(225 6 0 / 28%), transparent 55%),
-    #0d0e15;
-  font-size: 22px;
-  font-weight: 700;
-  font-stretch: 125%;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--dim);
-}
-
-.status[hidden],
 .hud[hidden],
 .menu[hidden],
 .results[hidden],

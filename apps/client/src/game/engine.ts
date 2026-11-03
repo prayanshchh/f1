@@ -63,6 +63,7 @@ interface RaceRules {
   safetyCar: number;
   redFlags: boolean;
   rollingStart: boolean;
+  interventions: boolean;
 }
 
 export interface RaceControlInfo {
@@ -227,6 +228,7 @@ function configureRules(module: SpeedDreamsModule, race: RaceSystems): void {
     race.rules.redFlags ? 1 : 0,
     race.rules.rollingStart ? 1 : 0,
   );
+  module._sdRaceControlInterventions(race.rules.interventions ? 1 : 0);
 }
 
 export class Engine {

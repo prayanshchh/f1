@@ -117,7 +117,7 @@ const tabIntro: Record<string, string> = {
   assists:
     "Contains driver assist settings that allow you to make controlling the car easier or more authentic.",
   rules:
-    "Choose how the International Motor Racing Federation runs the race: safety cars, red flags and the type of start.",
+    "Choose how the International Motor Racing Federation starts the race. A spin, crash or stop you are part of waves local yellow flags.",
   osd: "Contains settings that allow you to customise the way the on-screen display is shown.",
   audio:
     "Music plays in the menus, the pre-race build-up and after a win. There is no music while you drive.",
@@ -209,6 +209,7 @@ export class Menu {
   constructor(
     private readonly source: SetupSource,
     private readonly settings: Settings,
+    private readonly interventions = false,
   ) {
     this.root = this.find("root");
     this.body = this.find("body");
@@ -750,7 +751,7 @@ export class Menu {
 
   private rulesRows(): Row[] {
     const s = this.settings;
-    return [
+    const interventions = [
       this.choice(
         "Safety Car",
         "Only crashes you are part of count. A touch that spins nobody gets no flag; a spin or a stop waves a local yellow. The Safety Car comes out only when your car, or a car you hit, spins or stops with very heavy damage. Reduced needs a wrecked car, Increased steps in at lighter damage, Off never deploys it.",
@@ -768,6 +769,9 @@ export class Menu {
           s.redFlags = v;
         },
       ),
+    ];
+    return [
+      ...(this.interventions ? interventions : []),
       this.choice(
         "Race Start",
         "Standing starts from the grid when the five red lights go out. Rolling starts behind the safety car: it peels into the pit lane after one lap and racing begins at the control line.",

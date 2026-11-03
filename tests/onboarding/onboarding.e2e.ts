@@ -12,7 +12,7 @@ test.describe("driver onboarding", () => {
   test("a new driver signs up, picks a team, and stays signed in after reload", async ({
     page,
   }) => {
-    await page.goto("/drive.html");
+    await page.goto("/");
     const username = page.locator("[data-front=username]");
     await expect(username).toBeVisible({ timeout: 60_000 });
 
@@ -111,7 +111,7 @@ test.describe("driver onboarding", () => {
       },
     });
 
-    await page.goto("/drive.html");
+    await page.goto("/");
     await page.mouse.move(1, 1);
     await expect(page.locator(".front-hub")).toBeVisible({ timeout: 60_000 });
     await page.getByRole("button", { name: /Lap Records/ }).click();
@@ -145,7 +145,7 @@ test.describe("driver onboarding", () => {
         team: "corvus",
       },
     });
-    await page.goto("/drive.html");
+    await page.goto("/");
     await page.mouse.move(1, 1);
     await expect(page.locator(".front-hub")).toBeVisible({ timeout: 60_000 });
     await page.getByRole("button", { name: /Sign Out/ }).click();

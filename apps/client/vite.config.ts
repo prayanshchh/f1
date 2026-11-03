@@ -18,6 +18,7 @@ export default defineConfig({
   assetsInclude: ["**/*.glb"],
   build: {
     target: "es2023",
+    license: { fileName: "third-party-licenses.md" },
     rollupOptions: {
       input: {
         index: fileURLToPath(new URL("./index.html", import.meta.url)),

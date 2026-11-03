@@ -12,6 +12,7 @@
       "onFail": "download"
     }
   },
+  "license": "GPL-3.0-or-later",
   "packageManager": "pnpm@12.14.0",
   "scripts": {
     "prepare": "lefthook install",

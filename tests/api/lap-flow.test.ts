@@ -1,8 +1,8 @@
+import { randomBytes } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import {
   createApi,
   type Db,
-  dummyPasswordHash,
   embeddedDb,
   migrate,
 } from "../../apps/api/src/index.ts";
@@ -42,24 +42,18 @@ function driveLap(trace: LapTrace, lap: number, pace: number) {
 describe("a lap from the game reaches the database and comes back as a delta", () => {
   let db: Db;
   let app: ReturnType<typeof createApi>;
-  let cookie = "";
+  const authorization = `Bearer ${randomBytes(32).toString("base64url")}`;
 
   beforeAll(async () => {
     db = embeddedDb();
     await migrate(db);
-    app = createApi(db, {
-      secureCookies: false,
-      dummyPasswordHash: await dummyPasswordHash(),
-    });
-    const created = await app.request("/api/auth/register", {
+    app = createApi(db);
+    const joined = await app.request("/api/players", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        username: "lap_flow",
-        password: "correct horse battery",
-      }),
+      body: JSON.stringify({ key: authorization.slice("Bearer ".length) }),
     });
-    cookie = (created.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
+    expect(joined.status).toBe(200);
   });
 
   afterAll(() => db.close());
@@ -67,7 +61,7 @@ describe("a lap from the game reaches the database and comes back as a delta", (
   const deliver: Deliver = async (call) => {
     const response = await app.request(call.path, {
       method: call.method,
-      headers: { "content-type": "application/json", cookie },
+      headers: { "content-type": "application/json", authorization },
       body: JSON.stringify(call.body),
     });
     if (response.ok) return "done";
@@ -75,7 +69,7 @@ describe("a lap from the game reaches the database and comes back as a delta", (
   };
 
   const read = async <T>(path: string): Promise<T> => {
-    const response = await app.request(path, { headers: { cookie } });
+    const response = await app.request(path, { headers: { authorization } });
     expect(response.status).toBe(200);
     return (await response.json()) as T;
   };

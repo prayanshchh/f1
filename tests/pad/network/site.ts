@@ -4,11 +4,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
-import {
-  createApi,
-  dummyPasswordHash,
-  embeddedDb,
-} from "../../../apps/api/src/index.ts";
+import { createApi, embeddedDb } from "../../../apps/api/src/index.ts";
 
 const root = fileURLToPath(
   new URL("../../../apps/client/dist", import.meta.url),
@@ -33,10 +29,7 @@ const types: Record<string, string> = {
   ".ktx2": "image/ktx2",
 };
 
-const api = createApi(embeddedDb(), {
-  secureCookies: true,
-  dummyPasswordHash: await dummyPasswordHash(),
-});
+const api = createApi(embeddedDb());
 
 async function callApi(
   request: IncomingMessage,

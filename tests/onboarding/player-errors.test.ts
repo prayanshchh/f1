@@ -19,6 +19,11 @@ async function shown(work: Promise<unknown>): Promise<string> {
 describe("errors shown to the player", () => {
   beforeEach(() => {
     vi.stubGlobal("reportError", vi.fn());
+    const stored = new Map([["revracers.player", "k".repeat(43)]]);
+    vi.stubGlobal("localStorage", {
+      getItem: (name: string) => stored.get(name) ?? null,
+      setItem: (name: string, value: string) => stored.set(name, value),
+    });
   });
 
   afterEach(() => {
@@ -48,15 +53,13 @@ describe("errors shown to the player", () => {
       vi.fn(() =>
         Promise.resolve(
           Response.json(
-            { error: "That name is taken.", field: "username" },
+            { error: "Use up to 24 letters.", field: "firstName" },
             { status: 400 },
           ),
         ),
       ),
     );
-    expect(await shown(api.register("max", "password1"))).toBe(
-      "That name is taken.",
-    );
+    expect(await shown(api.join())).toBe("Use up to 24 letters.");
   });
 
   test("a network failure reads as unreachable, not the browser error", async () => {
@@ -64,11 +67,9 @@ describe("errors shown to the player", () => {
       "fetch",
       vi.fn(() => Promise.reject(new TypeError("Failed to fetch"))),
     );
-    const failure = api.register("max", "password1");
+    const failure = api.join();
     await expect(failure).rejects.toBeInstanceOf(ApiError);
-    expect(await shown(api.register("max", "password1"))).toBe(
-      "The server could not be reached.",
-    );
+    expect(await shown(api.join())).toBe("The server could not be reached.");
   });
 
   test("a server crash page does not leak to the player", async () => {
@@ -85,8 +86,6 @@ describe("errors shown to the player", () => {
         ),
       ),
     );
-    expect(await shown(api.register("max", "password1"))).toBe(
-      "The server could not be reached.",
-    );
+    expect(await shown(api.join())).toBe("The server could not be reached.");
   });
 });

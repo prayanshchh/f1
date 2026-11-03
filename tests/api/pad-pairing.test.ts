@@ -1,10 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
-import {
-  createApi,
-  type Db,
-  dummyPasswordHash,
-  embeddedDb,
-} from "../../apps/api/src/index.ts";
+import { createApi, type Db, embeddedDb } from "../../apps/api/src/index.ts";
 import { PadRooms } from "../../apps/api/src/pad-rooms.ts";
 
 const wait = 400;
@@ -28,8 +23,6 @@ describe("phone pad pairing", () => {
     db = embeddedDb();
     await db.exec("select 1");
     app = createApi(db, {
-      secureCookies: false,
-      dummyPasswordHash: await dummyPasswordHash(),
       padRooms: new PadRooms({ offerLife, maxPending }, () => now),
       padWait: wait,
     });

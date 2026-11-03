@@ -32,7 +32,7 @@ RevRacers is an independent project and is not endorsed by the Speed Dreams team
 - **Damage you can see.** Impact-based wing and suspension damage, punctures, flat spots and pit-stop wing changes.
 - **Flashback and replays.** Rewind a mistake, watch an instant replay, and get a reel of your overtakes when you win.
 - **Your phone as a wheel.** Press <kbd>P</kbd>, scan the QR code and tilt to steer. No app, no install; it connects over WebRTC on your local network with about one frame of delay.
-- **Driver profiles.** Accounts, team choice, personal bests, sector times and lap history.
+- **Driver profiles.** No sign-in: each browser keeps its own driver. Team choice, personal bests, sector times and lap history.
 - **Eleven fictional teams** with their own cars, liveries and drivers, on a full-scale circuit built from OpenStreetMap and USGS lidar.
 
 ## Gallery
@@ -93,7 +93,7 @@ engine/speed-dreams   Speed Dreams sources and data, vendored unmodified
 engine/src            C++ glue: race loop, AI, tyres, energy, weather, stewards
 tools/build-engine.mjs  compiles both to WebAssembly with Emscripten
 apps/client           three.js WebGPU renderer, HUD, menus, sound and music
-apps/api              accounts and lap records (Hono + PostgreSQL / PGlite)
+apps/api              drivers and lap records (Hono + PostgreSQL / PGlite)
 content               cars, track, music and calibration data
 tools                 Blender and Python pipelines that generate cars and the circuit
 tests                 Vitest and Playwright suites

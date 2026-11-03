@@ -8,7 +8,6 @@ import type {
 
 export interface Driver {
   id: string;
-  username: string;
   firstName: string | null;
   lastName: string | null;
   nationality: string | null;
@@ -19,7 +18,6 @@ export interface Driver {
 
 interface DriverRow {
   id: string;
-  username: string;
   first_name: string | null;
   last_name: string | null;
   nationality: string | null;
@@ -28,22 +26,12 @@ interface DriverRow {
   onboarded_at: Date | string | null;
 }
 
-export interface LoginRow extends DriverRow {
-  password_hash: string;
-  locked_until: Date | string | null;
-}
-
 const driverColumns =
-  "id, username, first_name, last_name, nationality, number, team, onboarded_at";
-const maxFailedLogins = 5;
-const lockSeconds = 60;
-const tokenDays = 60;
-const usernameConstraint = "drivers_username_key_key";
+  "id, first_name, last_name, nationality, number, team, onboarded_at";
 
 function toDriver(row: DriverRow): Driver {
   return {
     id: row.id,
-    username: row.username,
     firstName: row.first_name,
     lastName: row.last_name,
     nationality: row.nationality,
@@ -57,84 +45,25 @@ function iso(value: Date | string): string {
   return new Date(value).toISOString();
 }
 
-export function isUsernameTaken(error: unknown): boolean {
-  const known = error as { code?: string; constraint?: string };
-  return known.code === "23505" && known.constraint === usernameConstraint;
-}
-
-export async function createDriver(
-  db: Db,
-  username: string,
-  passwordHash: string,
-): Promise<Driver> {
-  const [row] = await db.query<DriverRow>(
-    `INSERT INTO drivers (username, username_key, password_hash)
-     VALUES ($1, $2, $3) RETURNING ${driverColumns}`,
-    [username, username.toLowerCase(), passwordHash],
-  );
-  if (!row) throw new Error("driver was not created");
-  return toDriver(row);
-}
-
-export async function findLogin(
-  db: Db,
-  username: string,
-): Promise<{ driver: Driver; row: LoginRow } | null> {
-  const [row] = await db.query<LoginRow>(
-    `SELECT ${driverColumns}, password_hash, locked_until
-     FROM drivers WHERE username_key = $1`,
-    [username.toLowerCase()],
-  );
-  return row ? { driver: toDriver(row), row } : null;
-}
-
-export async function recordFailedLogin(db: Db, id: string): Promise<void> {
-  await db.query(
-    `UPDATE drivers SET
-       failed_logins = CASE WHEN failed_logins + 1 >= $2 THEN 0
-                            ELSE failed_logins + 1 END,
-       locked_until = CASE WHEN failed_logins + 1 >= $2
-                           THEN now() + make_interval(secs => $3)
-                           ELSE locked_until END
-     WHERE id = $1`,
-    [id, maxFailedLogins, lockSeconds],
-  );
-}
-
-export async function recordLogin(db: Db, id: string): Promise<void> {
-  await db.query(
-    "UPDATE drivers SET failed_logins = 0, locked_until = NULL WHERE id = $1",
-    [id],
-  );
-}
-
-export async function storeToken(
-  db: Db,
-  hash: string,
-  driverId: string,
-): Promise<void> {
-  await db.query(
-    `INSERT INTO auth_tokens (token_hash, driver_id, expires_at)
-     VALUES ($1, $2, now() + make_interval(days => $3))`,
-    [hash, driverId, tokenDays],
-  );
-}
-
-export async function dropToken(db: Db, hash: string): Promise<void> {
-  await db.query("DELETE FROM auth_tokens WHERE token_hash = $1", [hash]);
-}
-
-export async function driverForToken(
+export async function driverForKey(
   db: Db,
   hash: string,
 ): Promise<Driver | null> {
   const [row] = await db.query<DriverRow>(
-    `SELECT ${driverColumns.replace("id,", "d.id,")}
-     FROM auth_tokens t JOIN drivers d ON d.id = t.driver_id
-     WHERE t.token_hash = $1 AND t.expires_at > now()`,
+    `SELECT ${driverColumns} FROM drivers WHERE key_hash = $1`,
     [hash],
   );
   return row ? toDriver(row) : null;
+}
+
+export async function joinPlayer(db: Db, hash: string): Promise<Driver> {
+  await db.query(
+    "INSERT INTO drivers (key_hash) VALUES ($1) ON CONFLICT (key_hash) DO NOTHING",
+    [hash],
+  );
+  const driver = await driverForKey(db, hash);
+  if (!driver) throw new Error("player was not created");
+  return driver;
 }
 
 export async function updateProfile(

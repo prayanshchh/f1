@@ -66,6 +66,7 @@ import { LapTrace } from "./game/laptrace.ts";
 import { Menu } from "./game/menu.ts";
 import type { CarStatus } from "./game/mfd.ts";
 import { type PadCommands, PadLink } from "./game/pad.ts";
+import { PlayerError, playerMessage } from "./game/player-error.ts";
 import { readyCard } from "./game/ready-card.ts";
 import { Atmosphere } from "./game/atmosphere.ts";
 import { RaceLog } from "./game/race-log.ts";
@@ -822,7 +823,7 @@ async function main(): Promise<void> {
   fitStage();
   window.addEventListener("resize", fitStage);
   if (!("gpu" in navigator))
-    throw new Error("This page needs WebGPU (Chrome 113 or newer).");
+    throw new PlayerError("This page needs WebGPU (Chrome 113 or newer).");
 
   const renderer = await createRenderer(canvas);
 
@@ -1281,5 +1282,7 @@ async function main(): Promise<void> {
 
 main().catch((error: unknown) => {
   document.body.dataset["driveStatus"] = "error";
-  setStatus(error instanceof Error ? error.message : String(error));
+  setStatus(
+    playerMessage(error, "The race could not load. Reload to try again."),
+  );
 });

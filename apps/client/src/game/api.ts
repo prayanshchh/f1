@@ -1,3 +1,4 @@
+import { PlayerError } from "./player-error.ts";
 import { type Deliver, Outbox } from "./race-log.ts";
 
 export interface Driver {
@@ -67,7 +68,7 @@ export interface SessionDetail extends SessionSummary {
   lapTimes: LapRow[];
 }
 
-export class ApiError extends Error {
+export class ApiError extends PlayerError {
   constructor(
     message: string,
     readonly status: number,
@@ -95,7 +96,9 @@ async function request<T>(
           headers: { "content-type": "application/json" },
           body: JSON.stringify(body),
         };
-  const response = await fetch(path, init);
+  const response = await fetch(path, init).catch(() => {
+    throw new ApiError(unreachable, 0, null);
+  });
   const payload = (await response.json().catch(() => null)) as
     (T & { error?: string; field?: string }) | null;
   if (!response.ok || payload === null)

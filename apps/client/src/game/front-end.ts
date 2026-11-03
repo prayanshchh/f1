@@ -8,6 +8,7 @@ import {
 import { CreditsScreen } from "./credits-screen.ts";
 import { button, el, loading, prompt } from "./dom.ts";
 import { countries, countryName, flagUrl, guessCountry } from "./flags.ts";
+import { playerMessage } from "./player-error.ts";
 import { ProfileScreen } from "./profile-screen.ts";
 import { framings, type Studio } from "./studio.ts";
 import { teamLogo } from "./team-logos.ts";
@@ -30,7 +31,7 @@ const driverNumbers = 99;
 type Keys = Record<string, () => void>;
 
 function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : "Something went wrong.";
+  return playerMessage(error, "Something went wrong. Try again.");
 }
 
 function flagImage(code: string | null, className = "flag"): HTMLImageElement {

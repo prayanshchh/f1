@@ -8,6 +8,7 @@ import {
 } from "./api.ts";
 import { button, el, loading, prompt } from "./dom.ts";
 import { lapTime } from "./hud.ts";
+import { playerMessage } from "./player-error.ts";
 import { teamLogo } from "./team-logos.ts";
 import { teamOf } from "./teams.ts";
 import { compounds } from "./tyres.ts";
@@ -225,9 +226,7 @@ export class ProfileScreen {
         el(
           "p",
           "records-note",
-          error instanceof Error
-            ? error.message
-            : "Could not load your records.",
+          playerMessage(error, "Could not load your records."),
         ),
       );
       return null;

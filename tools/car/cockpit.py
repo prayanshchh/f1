@@ -25,6 +25,7 @@ MIRROR_GLASS = 0.125
 MIRROR_TALL = 0.030
 MIRROR_TILT = 0.55
 MIRROR_SLANT = 0.09
+MIRROR_END = 0.5
 HALO_APEX = 0.585
 HALO_APEX_Z = 0.838
 HALO_SLOPE = 0.22
@@ -196,7 +197,7 @@ def headrest():
 def mirror_ring(y, side):
     t = (y - MIRROR_INNER) / (MIRROR_OUTER - MIRROR_INNER)
     housing = np.clip((t - 0.22) / 0.12, 0, 1)
-    tip = max(1 - max(0.0, (t - 0.975) / 0.025) ** 2, 0.02) ** 0.5
+    tip = max(1 - max(0.0, (t - 0.955) / 0.045) ** 2, MIRROR_END) ** 0.5
     tall = (0.0080 + (MIRROR_TALL + 0.0065 - 0.0080) * housing * housing * (3 - 2 * housing)) * tip
     chord = (0.034 + 0.030 * housing) * tip
     rear = MIRROR_X + MIRROR_SLANT * (MIRROR_Y - y) + 0.016 * (1 - housing)
@@ -209,9 +210,28 @@ def mirror_ring(y, side):
     return np.stack([px + MIRROR_TILT * housing * (pz - z), np.full(36, side * y), pz], axis=-1)
 
 
+def mirror_lights(side, name):
+    end = mirror_ring(MIRROR_OUTER, side)
+    cz = (end[:, 2].min() + end[:, 2].max()) / 2
+    flat = end[:, 0] - MIRROR_TILT * (end[:, 2] - cz)
+    cx = (flat.min() + flat.max()) / 2 + 0.004
+    y = side * MIRROR_OUTER
+
+    def pad(label, width, height, power, u, v, near, far, material_name):
+        outline = superellipse(width, height, power, 32)
+        rings = [np.stack([cx + u + outline[:, 0] + MIRROR_TILT * (v + outline[:, 1]), np.full(32, y + side * d), cz + v + outline[:, 1]], axis=-1) for d in (near, far)]
+        loft(f"mirror-{label}.{name}", rings, material_name=material_name, atlas=False, sharp_angle=math.radians(40))
+
+    pad("bezel", 0.026, 0.0125, 4.0, 0.0, 0.0, -0.003, 0.0012, "lens")
+    for row, v in enumerate((0.0058, -0.0058)):
+        pad(f"lens-{row}", 0.022, 0.0047, 2.6, 0.0, v, 0.0, 0.0024, "mirror-lens")
+        for k, u in enumerate((-0.0135, -0.0045, 0.0045, 0.0135)):
+            pad(f"chip-{row}{k}", 0.0015, 0.0026, 6.0, u, v, 0.0015, 0.0031, "mirror-led")
+
+
 def mirrors():
     for side, name in ((1, "l"), (-1, "r")):
-        stations = np.linspace(MIRROR_INNER, MIRROR_OUTER, 64)
+        stations = np.concatenate([np.linspace(MIRROR_INNER, MIRROR_OUTER - 0.024, 56), np.linspace(MIRROR_OUTER - 0.024, MIRROR_OUTER, 13)[1:]])
         loft(f"mirror-housing.{name}", [mirror_ring(y, side) for y in stations], density=2.2)
         centre = side * MIRROR_Y
         glass = superellipse(MIRROR_GLASS, MIRROR_TALL, 9.0, 72)
@@ -252,6 +272,7 @@ def mirrors():
         loft(f"mirror-fin.{name}", np.asarray(rings), density=2.0, sharp_angle=math.radians(50))
         strut = open_curve(np.array([(MIRROR_X + 0.05, side * 0.30, 0.610), (MIRROR_X + 0.05, side * 0.36, 0.645), (MIRROR_X + 0.045, side * 0.42, MIRROR_Z - 0.028)]), 16)
         loft(f"mirror-strut.{name}", sweep(strut, 0.016, 0.0028, 3.2, 12), density=1.0)
+        mirror_lights(side, name)
 
 
 def wheel_body():

@@ -8,7 +8,7 @@ from shapes import lathe, loft, open_curve, superellipse, sweep, tube
 FRONT = {"x": FRONT_AXLE, "y": 0.780, "radius": 0.3525, "width": 0.340, "name": "f"}
 REAR = {"x": REAR_AXLE, "y": 0.750, "radius": 0.355, "width": 0.400, "name": "r"}
 RIM_RADIUS = 0.2286
-SPOKES = 7
+RIBS = 5
 
 
 def tyre_profile(radius, width):
@@ -119,36 +119,37 @@ def wheel(spec, side, corner):
         atlas=False,
         sharp_angle=math.radians(20),
     )
-    for k in range(SPOKES):
-        angle = 2 * math.pi * k / SPOKES
-        rings = []
-        for t in np.linspace(0, 1, 18):
-            radius = 0.048 + (RIM_RADIUS - 0.022 - 0.048) * t
-            spin = angle + 0.20 * t * t
-            width = 0.0205 - 0.008 * math.sin(math.pi * t) + 0.012 * t**4
-            depth = outward * (0.004 + 0.046 * t**1.4)
-            thick = 0.0125 - 0.005 * t
-            cx, cz = math.cos(spin), math.sin(spin)
-            tx, tz = -cz, cx
-            profile = superellipse(1.0, 1.0, 3.0, 16)
-            rings.append(
-                [
-                    (
-                        centre[0] + cx * radius + tx * width * p[0],
-                        face + depth + thick * p[1],
-                        centre[2] + cz * radius + tz * width * p[0],
-                    )
-                    for p in profile
-                ]
-            )
-        loft(f"{name}-spoke-{k}", np.asarray(rings), material_name="rim", group=group, atlas=False)
+    cover = [(0.010, 0.066), (0.016, 0.100), (0.026, 0.150), (0.038, 0.192), (0.046, 0.214), (0.049, 0.224), (0.046, 0.226), (0.043, 0.214), (0.035, 0.192), (0.023, 0.150), (0.013, 0.100), (0.007, 0.066), (0.010, 0.066)]
+    lathe(
+        f"{name}-cover",
+        cover,
+        (centre[0], face, centre[2]),
+        segments=120,
+        sign=outward,
+        material_name="carbon-part",
+        group=group,
+        atlas=False,
+        caps=(False, False),
+        sharp_angle=math.radians(60),
+    )
+    for k in range(RIBS):
+        angle = 2 * math.pi * k / RIBS
+        path = []
+        for t in np.linspace(0, 1, 10):
+            radius = 0.090 + 0.112 * t
+            depth = float(np.interp(radius, [0.066, 0.100, 0.150, 0.192, 0.214], [0.010, 0.016, 0.026, 0.038, 0.046])) + 0.0015
+            spin = angle + 0.35 * t * t
+            path.append((centre[0] + math.cos(spin) * radius, face + outward * depth, centre[2] + math.sin(spin) * radius))
+        tube(f"{name}-rib-{k}", path, 0.0065, 0.0018, power=3.0, samples=14, points=10, material_name="rim", group=group, atlas=False, up=(0, 1, 0))
+    valve = (centre[0] + 0.17 * math.cos(0.4), face + outward * 0.032, centre[2] + 0.17 * math.sin(0.4))
+    tube(f"{name}-valve", [valve, (valve[0], valve[1] + outward * 0.006, valve[2])], 0.0045, samples=4, points=10, material_name="titanium", group=group, atlas=False, up=(1, 0, 0))
     lathe(
         f"{name}-lip",
         [(0.046, RIM_RADIUS + 0.004), (0.054, RIM_RADIUS + 0.008), (0.056, RIM_RADIUS - 0.006), (0.044, RIM_RADIUS - 0.012)],
         (centre[0], face, centre[2]),
         segments=96,
         sign=outward,
-        material_name="rim-dark",
+        material_name="rim",
         group=group,
         atlas=False,
         caps=(False, False),
@@ -235,6 +236,12 @@ def wheel(spec, side, corner):
 
 def arm(name, start, end, chord=0.026, thick=0.0065, density=0.6):
     tube(name, [start, end], chord, thick, power=3.5, samples=8, points=16, density=density)
+    start = np.asarray(start, np.float64)
+    end = np.asarray(end, np.float64)
+    along = (end - start) / np.linalg.norm(end - start)
+    for k, (point, inward) in enumerate(((end, -along), (start, along))):
+        tube(f"{name}-clevis-{k}", [point + inward * 0.034, point + inward * 0.004], 0.0085, samples=4, points=12, material_name="titanium", atlas=False)
+        tube(f"{name}-bolt-{k}", [point + inward * 0.012 + np.array([0, 0, 0.014]), point + inward * 0.012 - np.array([0, 0, 0.014])], 0.0042, samples=3, points=10, material_name="titanium", atlas=False, up=(1, 0, 0))
 
 
 def suspension(spec, side):
@@ -280,6 +287,29 @@ def duct_vanes(spec, side, corner):
         tube(f"duct-vane-{i}.{corner}", path, 0.028, 0.0028, power=3.0, samples=12, points=12, group=name, density=0.9)
 
 
+def wake_fin(spec, side, corner):
+    name = f"wheel-{spec['name']}{corner}"
+    y = spec["y"] - spec["width"] / 2 - 0.016
+    rings = []
+    for angle in np.radians(np.linspace(48, 104, 24)):
+        t = (angle - np.radians(48)) / np.radians(56)
+        inner = RIM_RADIUS + 0.004
+        outer = RIM_RADIUS + 0.040 + 0.012 * math.sin(math.pi * t)
+        c, s_ = math.cos(angle), math.sin(angle)
+        lean = -0.006 * t
+        ring = []
+        for r, dy in ((inner, -0.0018), (outer, -0.0018), (outer, 0.0018), (inner, 0.0018)):
+            ring.append((spec["x"] + c * r, side * (y + lean + dy), spec["radius"] + s_ * r))
+        rings.append(ring)
+    loft(f"wake-fin.{corner}", np.asarray(rings), material_name="carbon-part", group=name, atlas=False, sharp_angle=math.radians(40))
+
+
+def driveshaft(side):
+    tube(f"driveshaft.{side}", [(REAR["x"], side * 0.13, 0.330), (REAR["x"], side * 0.40, 0.350), (REAR["x"], side * 0.56, REAR["radius"])], 0.021, samples=10, points=14, material_name="carbon-part", atlas=False)
+    for y in (0.15, 0.53):
+        tube(f"cv-boot-{y}.{side}", [(REAR["x"], side * (y - 0.025), 0.33 + 0.02 * (y - 0.15)), (REAR["x"], side * (y + 0.025), 0.33 + 0.02 * (y - 0.15))], 0.032, samples=6, points=16, material_name="rim-dark", atlas=False)
+
+
 def build_running():
     for spec in (FRONT, REAR):
         for side, corner in ((1, "l"), (-1, "r")):
@@ -287,3 +317,6 @@ def build_running():
             suspension(spec, side)
             if spec["name"] == "f":
                 duct_vanes(spec, side, corner)
+                wake_fin(spec, side, corner)
+            else:
+                driveshaft(side)

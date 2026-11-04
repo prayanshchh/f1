@@ -6,11 +6,14 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from scipy.ndimage import gaussian_filter
+from scipy.spatial import cKDTree
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from design import linear, use
 
 CONTRAST = 0.22
+FASTENER = 0.0055
+STYLES = {}
 DARK_TEXT = np.array([0.008, 0.008, 0.010])
 LIGHT_TEXT = np.array([0.8, 0.81, 0.82])
 LOD_ALBEDO = 2048
@@ -18,6 +21,7 @@ LOD_ORM = 1024
 FONT = Path("apps/client/node_modules/@fontsource-variable/saira/files/saira-latin-wght-normal.woff2")
 CARBON = np.array([0.018, 0.018, 0.021])
 BLACK = np.array([0.008, 0.008, 0.010])
+LABEL = np.array([0.86, 0.86, 0.84])
 COCKPIT = np.array([0.022, 0.022, 0.025])
 ROUGH_PAINT = 0.30
 ROUGH_CARBON = 0.34
@@ -32,7 +36,36 @@ def font(size, weight=800):
     return face
 
 
+def mark_mask(kind, size):
+    image = Image.new("L", (size, size), 0)
+    draw = ImageDraw.Draw(image)
+    m = size
+    if kind == 0:
+        draw.ellipse((m * 0.06, m * 0.06, m * 0.94, m * 0.94), fill=255)
+        draw.ellipse((m * 0.22, m * 0.22, m * 0.78, m * 0.78), fill=0)
+        draw.ellipse((m * 0.38, m * 0.38, m * 0.62, m * 0.62), fill=255)
+    elif kind == 1:
+        for shift in (0.0, 0.34):
+            draw.polygon([(m * (0.05 + shift), m * 0.08), (m * (0.30 + shift), m * 0.08), (m * (0.62 + shift), m * 0.5), (m * (0.30 + shift), m * 0.92), (m * (0.05 + shift), m * 0.92), (m * (0.37 + shift), m * 0.5)], fill=255)
+    elif kind == 2:
+        hexagon = [(m * (0.5 + 0.46 * np.cos(a)), m * (0.5 + 0.46 * np.sin(a))) for a in np.radians(np.arange(30, 390, 60))]
+        draw.polygon(hexagon, fill=255)
+        inner = [(m * (0.5 + 0.30 * np.cos(a)), m * (0.5 + 0.30 * np.sin(a))) for a in np.radians(np.arange(30, 390, 60))]
+        draw.polygon(inner, fill=0)
+        draw.rectangle((m * 0.18, m * 0.44, m * 0.82, m * 0.56), fill=255)
+    else:
+        for k in range(3):
+            left = m * (0.04 + 0.30 * k)
+            draw.polygon([(left + m * 0.16, m * 0.06), (left + m * 0.36, m * 0.06), (left + m * 0.20, m * 0.94), (left, m * 0.94)], fill=255)
+    return image
+
+
 def text_mask(text, height=256, weight=800, italic=0.18, pad=8):
+    style = STYLES.get(text, {})
+    weight = style.get("weight", weight)
+    italic = style.get("italic", italic)
+    if "mark" in style or style.get("boxed"):
+        return styled_mask(text, height, weight, italic, pad, style)
     face = font(height, weight)
     probe = Image.new("L", (8, 8))
     box = ImageDraw.Draw(probe).textbbox((0, 0), text, font=face)
@@ -43,6 +76,39 @@ def text_mask(text, height=256, weight=800, italic=0.18, pad=8):
     if italic:
         image = image.transform(image.size, Image.AFFINE, (1, italic, -italic * tall, 0, 1, 0), Image.BICUBIC)
     return np.asarray(image, np.float32) / 255.0
+
+
+def styled_mask(text, height, weight, italic, pad, style):
+    plain = dict(STYLES.pop(text))
+    try:
+        words = text_mask(text, height, weight, 0.0, pad)
+    finally:
+        STYLES[text] = plain
+    tall, wide = words.shape
+    gap = int(tall * 0.18)
+    mark = style.get("mark")
+    side = int(tall * 0.92) if mark is not None else 0
+    width = wide + (side + gap if mark is not None else 0)
+    image = np.zeros((tall, width), np.float32)
+    if mark is not None:
+        top = (tall - side) // 2
+        image[top : top + side, :side] = np.asarray(mark_mask(mark, side), np.float32) / 255.0
+    image[:, width - wide :] = np.maximum(image[:, width - wide :], words)
+    if style.get("boxed"):
+        border = int(tall * 0.22)
+        box = Image.new("L", (width + border * 2, tall + border * 2), 0)
+        ImageDraw.Draw(box).rounded_rectangle((0, 0, box.width - 1, box.height - 1), radius=border, fill=255)
+        plate = np.asarray(box, np.float32) / 255.0
+        plate[border : border + tall, border : border + width] *= 1 - image
+        image = plate
+    if italic:
+        shear = Image.fromarray(np.round(image * 255).astype(np.uint8))
+        extra = int(shear.height * italic)
+        wider = Image.new("L", (shear.width + extra, shear.height), 0)
+        wider.paste(shear, (0, 0))
+        wider = wider.transform(wider.size, Image.AFFINE, (1, italic, -italic * wider.height, 0, 1, 0), Image.BICUBIC)
+        image = np.asarray(wider, np.float32) / 255.0
+    return image
 
 
 def sample(mask, u, v):
@@ -78,6 +144,7 @@ class Atlas:
         for index, island in enumerate(self.islands):
             self.part[self.window(island, 1)] = index
         self.names = [i["name"] for i in self.islands]
+        self.regions = {}
 
     def window(self, island, grow=10):
         s = self.size
@@ -91,61 +158,177 @@ class Atlas:
         chosen = np.array([bool(regex.match(n)) for n in self.names] + [False])
         return chosen[self.part]
 
+    def region(self, pattern):
+        if pattern not in self.regions:
+            self.regions[pattern] = Region(self, self.where(pattern))
+        return self.regions[pattern]
 
-def blend(target, colour, alpha):
+
+class Region:
+    def __init__(self, atlas, mask):
+        self.rows, self.cols = np.nonzero(mask)
+        for name in ("x", "y", "z", "nx", "ny", "nz"):
+            setattr(self, name, getattr(atlas, name)[self.rows, self.cols])
+
+
+def surface_points(atlas, mask, spacing):
+    rows, cols = np.nonzero(mask)
+    if len(rows) == 0:
+        return np.zeros((0, 3))
+    points = np.stack([atlas.x[rows, cols], atlas.y[rows, cols], atlas.z[rows, cols]], axis=-1)
+    _, first = np.unique(np.floor(points / spacing).astype(np.int64), axis=0, return_index=True)
+    return points[np.sort(first)]
+
+
+def fasteners(atlas, albedo, height, rough, points, region, radius=FASTENER):
+    if len(points) == 0:
+        return
+    rows, cols = np.nonzero(region)
+    query = np.stack([atlas.x[rows, cols], atlas.y[rows, cols], atlas.z[rows, cols]], axis=-1)
+    distance, index = cKDTree(points).query(query, distance_upper_bound=radius)
+    hit = np.isfinite(distance)
+    rows, cols, distance, index = rows[hit], cols[hit], distance[hit], index[hit]
+    offset = query[hit] - points[index]
+    normal = np.stack([atlas.nx[rows, cols], atlas.ny[rows, cols], atlas.nz[rows, cols]], axis=-1)
+    across = np.cross(normal, np.array([0.0, 0.0, 1.0]))
+    flat = np.linalg.norm(across, axis=-1) < 0.3
+    across[flat] = np.cross(normal[flat], np.array([1.0, 0.0, 0.0]))
+    across /= np.maximum(np.linalg.norm(across, axis=-1, keepdims=True), 1e-9)
+    r = distance / radius
+    slot = (np.abs(np.sum(offset * across, axis=-1)) < radius * 0.14) & (r < 0.62)
+    base = albedo[rows, cols]
+    head = base * 0.5 + np.array([0.11, 0.11, 0.115])
+    shade = np.where(r[:, None] > 0.72, base * 0.22, head)
+    shade[slot] = base[slot] * 0.15
+    albedo[rows, cols] = shade
+    height[rows, cols] = np.where(r > 0.72, 0.18, np.where(slot, 0.3, 0.62))
+    rough[rows, cols] = np.where(r > 0.72, rough[rows, cols], 0.36)
+
+
+def louvres(atlas, albedo, height, rough, mask, rows_x, ys, length=0.15, half=0.0055):
+    absy = np.abs(atlas.y)
+    for start in rows_x:
+        along = (atlas.x <= start) & (atlas.x >= start - length)
+        taper = np.clip((start - atlas.x) / 0.02, 0, 1) * np.clip((atlas.x - start + length) / 0.02, 0, 1)
+        for y in ys:
+            gap = np.abs(absy - y)
+            slot = mask & along & (gap < half * taper)
+            lip = mask & along & (gap >= half * taper) & (gap < half * taper + 0.0028) & (absy > y)
+            albedo[slot] = np.array([0.006, 0.006, 0.007])
+            height[slot] = 0.08
+            rough[slot] = 0.8
+            albedo[lip] = albedo[lip] * 1.25 + 0.02
+            height[lip] = 0.72
+
+
+def icon(atlas, drawing, x, z, size, parts, facing=0.35):
+    image = Image.new("L", (256, 256), 0)
+    drawing(ImageDraw.Draw(image))
+    mask = np.asarray(image, np.float32) / 255.0
+    r = atlas.region(parts)
+    for sign in (1, -1):
+        u = 0.5 - sign * (r.x - x) / size
+        v = 0.5 - (r.z - z) / size
+        yield r, sample(mask, u, v) * (r.ny * sign > facing)
+
+
+def safety_marks(atlas, albedo, x, z, parts):
+    yellow = np.array(linear("#f2c200"))
+    red = np.array(linear("#d81e1e"))
+
+    def triangle(draw):
+        draw.polygon([(128, 18), (240, 226), (16, 226)], fill=255)
+
+    def inner(draw):
+        draw.polygon([(128, 52), (210, 208), (46, 208)], fill=255)
+
+    def bolt(draw):
+        draw.polygon([(140, 70), (96, 150), (126, 150), (110, 206), (162, 120), (130, 120), (150, 70)], fill=255)
+
+    def arrow(draw):
+        draw.polygon([(20, 96), (150, 96), (150, 40), (240, 128), (150, 216), (150, 160), (20, 160)], fill=255)
+
+    def label(draw):
+        draw.rounded_rectangle([(8, 14), (248, 242)], radius=26, fill=255)
+
+    lift = {arrow: 0.005, label: -0.004}
+    for drawing, colour, at, size in ((triangle, BLACK, x, 0.050), (inner, yellow, x, 0.050), (bolt, BLACK, x, 0.050), (label, LABEL, x - 0.075, 0.078), (arrow, red, x - 0.075, 0.055)):
+        for r, alpha in icon(atlas, drawing, at, z + lift.get(drawing, 0.0), size, parts):
+            blend(albedo, r, colour, np.clip(alpha * (1.4 if drawing is triangle else 1.0), 0, 1))
+    rescue = text_mask("RESCUE", weight=800)
+    tall = 0.06 * rescue.shape[0] / rescue.shape[1]
+    r = atlas.region(parts)
+    for sign in (1, -1):
+        u = 0.5 - sign * (r.x - (x - 0.075)) / 0.06
+        v = 0.5 - (r.z - (z - 0.030)) / tall
+        blend(albedo, r, red, sample(rescue, u, v) * (r.ny * sign > 0.35))
+
+
+def blend(target, region, colour, alpha):
+    keep = alpha > 1e-4
+    if not keep.any():
+        return None
+    rows, cols, alpha = region.rows[keep], region.cols[keep], alpha[keep].astype(np.float32)
+    pixels = target[rows, cols]
     if colour is None:
-        bright = target @ np.array([0.2126, 0.7152, 0.0722]) > CONTRAST
-        colour = np.where(bright[..., None], DARK_TEXT, LIGHT_TEXT)
-    target += (np.asarray(colour) - target) * alpha[..., None]
+        bright = pixels @ np.array([0.2126, 0.7152, 0.0722], np.float32) > CONTRAST
+        colour = np.where(bright[:, None], DARK_TEXT, LIGHT_TEXT)
+    target[rows, cols] = pixels + (np.asarray(colour, np.float32) - pixels) * alpha[:, None]
+    return rows, cols, alpha
 
 
 def side_decal(atlas, albedo, height, text, x, z, length, colour, parts, side=None, weight=800, flat=0.25):
     mask = text_mask(text, weight=weight)
     tall = length * mask.shape[0] / mask.shape[1]
+    r = atlas.region(parts)
     for sign in (1, -1) if side is None else (side,):
         direction = -sign
-        u = 0.5 + direction * (atlas.x - x) / length
-        v = 0.5 - (atlas.z - z) / tall
-        alpha = sample(mask, u, v) * (atlas.ny * sign > flat) * atlas.where(parts)
-        blend(albedo, colour, alpha)
-        height -= alpha * 0.15
+        u = 0.5 + direction * (r.x - x) / length
+        v = 0.5 - (r.z - z) / tall
+        done = blend(albedo, r, colour, sample(mask, u, v) * (r.ny * sign > flat))
+        if done:
+            height[done[0], done[1]] -= done[2] * 0.15
 
 
 def top_decal(atlas, albedo, height, text, x, length, colour, parts, y=0.0, read_from_front=False, up=0.3, weight=800, angle=0.0):
     mask = text_mask(text, weight=weight)
     tall = length * mask.shape[0] / mask.shape[1]
     sign = -1 if read_from_front else 1
-    dx = atlas.x - x
-    dy = atlas.y - y
+    r = atlas.region(parts)
+    dx = r.x - x
+    dy = r.y - y
     across = dy * np.cos(angle) - dx * np.sin(angle)
     along = dy * np.sin(angle) + dx * np.cos(angle)
     u = 0.5 - sign * across / length
     v = 0.5 - sign * along / tall
-    blend(albedo, colour, sample(mask, u, v) * (atlas.nz > up) * atlas.where(parts))
+    blend(albedo, r, colour, sample(mask, u, v) * (r.nz > up))
 
 
 def rear_decal(atlas, albedo, text, y, z, length, colour, parts, weight=800, facing=0.2):
     mask = text_mask(text, weight=weight)
     tall = length * mask.shape[0] / mask.shape[1]
-    u = 0.5 - (atlas.y - y) / length
-    v = 0.5 - (atlas.z - z) / tall
-    blend(albedo, colour, sample(mask, u, v) * (atlas.nx < -facing) * atlas.where(parts))
+    r = atlas.region(parts)
+    u = 0.5 - (r.y - y) / length
+    v = 0.5 - (r.z - z) / tall
+    blend(albedo, r, colour, sample(mask, u, v) * (r.nx < -facing))
 
 
 def upper_decal(atlas, albedo, text, y, x, length, colour, parts, weight=800, up=0.3):
     mask = text_mask(text, weight=weight)
     tall = length * mask.shape[0] / mask.shape[1]
-    u = 0.5 + (atlas.y - y) / length
-    v = 0.5 + (atlas.x - x) / tall
-    blend(albedo, colour, sample(mask, u, v) * (atlas.nz > up) * atlas.where(parts))
+    r = atlas.region(parts)
+    u = 0.5 + (r.y - y) / length
+    v = 0.5 + (r.x - x) / tall
+    blend(albedo, r, colour, sample(mask, u, v) * (r.nz > up))
 
 
 def along_decal(atlas, albedo, text, y, x, length, colour, parts, sign, weight=800):
     mask = text_mask(text, weight=weight)
     tall = length * mask.shape[0] / mask.shape[1]
-    u = 0.5 - sign * (atlas.x - x) / length
-    v = 0.5 + sign * (atlas.y - y) / tall
-    blend(albedo, colour, sample(mask, u, v) * (atlas.nz > 0.25) * atlas.where(parts))
+    r = atlas.region(parts)
+    u = 0.5 - sign * (r.x - x) / length
+    v = 0.5 + sign * (r.y - y) / tall
+    blend(albedo, r, colour, sample(mask, u, v) * (r.nz > 0.25))
 
 
 def strip_decal(atlas, albedo, island_name, text, along, around, length, weight=800):
@@ -188,6 +371,10 @@ def scheme(team, atlas, body, wings_colour):
     return body & (line < 0), body & (np.abs(line) < width)
 
 
+def param_sweep(team):
+    return team.get("design", {}).get("wingSweep", 0.30)
+
+
 def paint(atlas, team):
     global LIGHT_TEXT, DARK_TEXT
     EMBER = np.array(linear(team["colours"]["primary"]))
@@ -195,6 +382,12 @@ def paint(atlas, team):
     PEARL = np.array(linear(team["colours"]["secondary"]))
     GOLD = np.array(linear(team["colours"]["accent"]))
     TITLE, PARTNER, SUPPLIER, ASSOCIATE = team["sponsors"]
+    turn = sum(map(ord, team["id"])) % 4
+    STYLES.clear()
+    STYLES[TITLE] = {"mark": turn, "weight": 860, "italic": 0.18}
+    STYLES[PARTNER] = {"mark": (turn + 1) % 4, "weight": 640, "italic": 0.0}
+    STYLES[SUPPLIER] = {"weight": 900, "italic": 0.06}
+    STYLES[ASSOCIATE] = {"weight": 600, "italic": 0.0, "boxed": True}
     TEAM = team["name"].upper()
     NUMBER = team["number"]
     x, y, z = atlas.x, atlas.y, atlas.z
@@ -295,7 +488,7 @@ def paint(atlas, team):
     albedo[mirror] = CARBON
     carbon[mirror] = 1.0
     rough[mirror] = ROUGH_CARBON
-    mirror_top = mirror & (atlas.nz > 0.05)
+    mirror_top = mirror & ((atlas.nz > 0.05) | ((np.abs(atlas.ny) > 0.8) & (absy > 0.6)))
     albedo[mirror_top] = EMBER
     carbon[mirror_top] = 0.0
     rough[mirror_top] = ROUGH_PAINT
@@ -324,9 +517,34 @@ def paint(atlas, team):
     pod_joint = pods & (np.abs(z - (0.46 - 0.15 * np.clip((0.3 - x) / 2.0, 0, 1))) < 0.002)
     albedo[pod_joint] *= 0.35
     height[pod_joint] = 0.2
-    fasteners = (chassis | pods) & (np.abs(np.mod(y + 0.03, 0.06) - 0.03) < 0.0035) & (np.abs(x - 0.92) < 0.012) & (np.abs(x - 0.92) > 0.0055)
-    albedo[fasteners] = albedo[fasteners] * 0.45 + 0.08
-    height[fasteners] = 0.35
+    cover = chassis & (atlas.nz > 0.3) & (x < -0.62) & (x > -1.45) & (z > 0.30)
+    spine = cover & (np.abs(absy - 0.095) < 0.0018)
+    albedo[spine] *= 0.3
+    height[spine] = 0.12
+    shell = chassis | pods
+    seams = [
+        (chassis & (np.abs(x - 1.405) < 0.0015), chassis & (np.abs(x - 1.405) < FASTENER * 1.2), 0.055),
+        (chassis & (np.abs(x - 0.905) < 0.0015) & (z > 0.22), chassis & (np.abs(x - 0.905) < FASTENER * 1.2), 0.06),
+        (shell & (np.abs(x + 0.605) < 0.0015) & (z > 0.25), shell & (np.abs(x + 0.605) < FASTENER * 1.2), 0.055),
+        (cover & (np.abs(absy - 0.11) < 0.0015), cover & (np.abs(absy - 0.11) < FASTENER * 1.2), 0.07),
+    ]
+    pod_line = 0.46 - 0.15 * np.clip((0.3 - x) / 2.0, 0, 1)
+    seams.append((pods & (np.abs(z - pod_line + 0.012) < 0.0015) & (x < 0.25) & (x > -1.2), pods & (np.abs(z - pod_line + 0.012) < FASTENER * 1.2), 0.065))
+    for line, region, spacing in seams:
+        fasteners(atlas, albedo, height, rough, surface_points(atlas, line, spacing), region)
+    louvres(atlas, albedo, height, rough, pods & (atlas.nz > 0.55) & (z > 0.33), (-0.47, -0.66), np.linspace(0.30, 0.45, 7))
+    louvres(atlas, albedo, height, rough, chassis & (atlas.nz > 0.35) & (absy > 0.13) & (z > 0.40), (-0.98,), np.linspace(0.150, 0.215, 4), length=0.18, half=0.0045)
+    slot = atlas.where(r"^nose-tip") & (atlas.nx > 0.25) & (absy < 0.024) & (np.abs(z - 0.139) < 0.0075)
+    albedo[slot] = np.array([0.004, 0.004, 0.005])
+    height[slot] = 0.05
+    rough[slot] = 0.9
+    edge = atlas.where(r"^fw-main") & (atlas.nz > -0.2) & (np.abs(x - (2.914 - param_sweep(team) * absy / 0.85)) < 0.010)
+    albedo[edge] = GOLD
+    carbon[edge] = 0.0
+    rough[edge] = ROUGH_PAINT
+    plate_edge = atlas.where(r"^rw-endplate") & (x < -2.40) & (z > 0.80)
+    albedo[plate_edge] = GOLD
+    carbon[plate_edge] = 0.0
 
     LIGHT_TEXT = np.array(linear(team.get("text", "#e7e8e9")))
     white = None
@@ -337,7 +555,10 @@ def paint(atlas, team):
     side_decal(atlas, albedo, height, NUMBER, 0.28, 0.585, 0.17, white, r"^monocoque", weight=900)
     side_decal(atlas, albedo, height, NUMBER, -0.95, 0.53, 0.20, None, r"^monocoque", weight=900)
     side_decal(atlas, albedo, height, TEAM, -2.14, 0.845, 0.28, white, r"^rw-endplate\.", weight=900)
-    side_decal(atlas, albedo, height, ASSOCIATE, -2.08, 0.63, 0.20, white, r"^rw-endplate\.")
+    side_decal(atlas, albedo, height, ASSOCIATE, -2.17, 0.715, 0.20, white, r"^rw-endplate\.")
+    side_decal(atlas, albedo, height, team["chassis"], -1.10, 0.555, 0.11, white, r"^engine-fin", weight=900)
+    side_decal(atlas, albedo, height, team["powerUnit"].upper(), -1.38, 0.47, 0.13, white, r"^engine-fin", weight=800)
+    safety_marks(atlas, albedo, 0.70, 0.515, r"^monocoque")
     side_decal(atlas, albedo, height, TITLE, 2.36, 0.19, 0.30, white, r"^fw-endplate")
     side_decal(atlas, albedo, height, TEAM, 0.15, 0.10, 0.5, white, r"^inwash-1", weight=900)
 
@@ -357,7 +578,7 @@ def paint(atlas, team):
 
     upper_decal(atlas, albedo, TITLE, 0.0, -2.03, 0.54, white, r"^rw-main")
     for sign in (1, -1):
-        upper_decal(atlas, albedo, TEAM, sign * 0.33, -2.30, 0.17, white, r"^rw-flap", weight=900)
+        upper_decal(atlas, albedo, TEAM, sign * 0.33, -2.235, 0.17, white, r"^rw-flap\.", weight=900)
     for sign in (1, -1):
         top_decal(atlas, albedo, height, TITLE, 1.70, 0.215, white, r"^susp-upper-a", y=sign * 0.36, angle=sign * 0.26, up=-1)
         top_decal(atlas, albedo, height, PARTNER, 1.70, 0.20, white, r"^susp-lower-a", y=sign * 0.37, up=-1)
@@ -401,32 +622,39 @@ def save_rgb(path, array, quality=92, gamma=True, size=None):
 
 def tyre_texture(out):
     width, height = 4096, 512
-    image = Image.new("RGB", (width, height), (21, 21, 23))
-    draw = ImageDraw.Draw(image)
-    face = font(30, 800)
-    small = font(15, 600)
-    rows = height
-    for sidewall, flip in ((0.20, False), (0.80, True)):
-        y = int(rows * sidewall)
-        for k in range(2):
-            x = width * (k / 2 + 0.05)
-            layer = Image.new("RGBA", (900, 90), (0, 0, 0, 0))
-            layer_draw = ImageDraw.Draw(layer)
-            layer_draw.text((10, 4), "KESTREL", font=face, fill=(208, 208, 208, 255))
-            layer_draw.text((330, 16), "P RACE 18", font=small, fill=(208, 208, 208, 255))
+    rng = np.random.default_rng(26)
+    v = (np.arange(height, dtype=np.float32) + 0.5) / height
+    base = np.full((height, width), 0.072, np.float32)
+    base += gaussian_filter(rng.normal(0, 0.012, (height, width)).astype(np.float32), 0.7)
+    tread = (v > 0.335) & (v < 0.665)
+    scrub = gaussian_filter(rng.normal(0, 1, (height, width)).astype(np.float32), (0.6, 5.0))
+    marbles = gaussian_filter((rng.random((height, width)) > 0.9965).astype(np.float32), 1.1) * 3.0
+    base[tread] = 0.052 + 0.010 * scrub[tread] + 0.030 * np.clip(marbles[tread], 0, 1)
+    shoulder = np.exp(-(((np.abs(v - 0.5) - 0.165) / 0.012) ** 2))
+    base += 0.018 * shoulder[:, None]
+    for centre in (0.085, 0.115, 0.285, 0.715, 0.885, 0.915):
+        base += 0.022 * np.exp(-(((v - centre) / 0.0035) ** 2))[:, None]
+    for centre in (0.300, 0.322, 0.678, 0.700):
+        base *= 1 - 0.35 * np.exp(-(((v - centre) / 0.003) ** 2))[:, None]
+    image = Image.fromarray(np.round(np.clip(base, 0, 1) * 255).astype(np.uint8)).convert("RGB")
+    big = font(46, 900)
+    mid = font(22, 700)
+    small = font(13, 600)
+    for sidewall, flip in ((0.112, False), (0.888, True)):
+        y = int(height * sidewall)
+        for k in range(3):
+            layer = Image.new("RGBA", (1100, 96), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(layer)
+            draw.text((8, 22), "KESTREL", font=big, fill=(226, 226, 222, 255))
+            draw.text((268, 26), "P RACE", font=mid, fill=(226, 226, 222, 255))
+            draw.text((268, 52), "SLICK  R18", font=small, fill=(170, 170, 168, 255))
+            draw.polygon([(470, 50), (482, 43), (482, 57)], fill=(150, 150, 148, 255))
+            draw.text((488, 40), "ROTATION", font=small, fill=(150, 150, 148, 255))
+            draw.text((640, 40), "RACE USE ONLY", font=small, fill=(130, 130, 128, 255))
             if flip:
                 layer = layer.transpose(Image.FLIP_TOP_BOTTOM).transpose(Image.FLIP_LEFT_RIGHT)
-            image.paste(layer, (int(x), y - 45), layer)
-    array = np.asarray(image, np.float32) / 255.0
-    rough = np.full(array.shape[:2], 0.82, np.float32)
-    v = (np.arange(height, dtype=np.float32) + 0.5) / height
-    tread = (v > 0.34) & (v < 0.66)
-    array = array.copy()
-    array[tread] *= 0.72
-    rough[tread] = 0.62
-    for centre in (0.30, 0.325, 0.675, 0.70):
-        array[np.abs(v - centre) < 0.0035] *= 0.6
-    Image.fromarray(np.round(array * 255).astype(np.uint8)).save(out / "shared" / "tyre.jpg", quality=90, subsampling=0)
+            image.paste(layer, (int(width * (k / 3 + 0.03)), y - 48), layer)
+    image.save(out / "shared" / "tyre.jpg", quality=92, subsampling=0)
 
 
 def main():

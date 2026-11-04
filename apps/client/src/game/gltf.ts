@@ -1,6 +1,6 @@
 import * as THREE from "three/webgpu";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { float, smoothstep, uv, vec3 } from "three/tsl";
+import { float, smoothstep, uniform, uv, vec3 } from "three/tsl";
 import { carMaterials, carTextures, mirrorLayout } from "./carpaint.ts";
 import {
   damageable,
@@ -18,7 +18,6 @@ import type {
 } from "./carpaint.ts";
 import { frameIndex } from "./engine.ts";
 import { mergedMesh, placedCopy } from "./merge.ts";
-import { unlitMaterial } from "./materials.ts";
 import { setTyreShadows, shadowOnlyLayer } from "./road.ts";
 import { carFile } from "./teams.ts";
 import { compounds } from "./tyres.ts";
@@ -140,6 +139,11 @@ export function contactShadow(wheels: THREE.Vector3[]): THREE.Mesh {
 }
 
 const flatSquash = 0.22;
+const bandInner = 0.855;
+const bandOuter = 0.915;
+const bandLift = 0.0015;
+const bandRoughness = 0.62;
+const bandGlow = 0.12;
 
 function tyreSquash(leak: number): number {
   return 1 - flatSquash * leak;
@@ -333,17 +337,31 @@ export class GltfCar {
   }
 
   private addSidewalls(): void {
-    const material = unlitMaterial(this.compoundColour);
+    const material = new THREE.MeshStandardNodeMaterial({
+      side: THREE.DoubleSide,
+      roughness: bandRoughness,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -4,
+    });
+    const colour = uniform(this.compoundColour);
+    material.colorNode = colour;
+    material.emissiveNode = colour.mul(bandGlow);
     const size = new THREE.Vector3();
     for (const wheel of this.wheels) {
       new THREE.Box3().setFromObject(wheel.spin).getSize(size);
       const radius = Math.max(size.y, size.z) / 2;
       this.radii.push(radius);
-      const geometry = new THREE.TorusGeometry(radius * 0.86, 0.011, 6, 48);
+      const geometry = new THREE.RingGeometry(
+        radius * bandInner,
+        radius * bandOuter,
+        96,
+      );
       geometry.rotateY(Math.PI / 2);
       for (const side of [-1, 1]) {
         const ring = new THREE.Mesh(geometry, material);
-        ring.position.set((side * size.x) / 2, 0, 0);
+        ring.position.set((side * size.x) / 2 + side * bandLift, 0, 0);
+        ring.receiveShadow = true;
         wheel.pivot.add(ring);
       }
     }

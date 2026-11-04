@@ -10,3 +10,5 @@ build/
 plans/
 .venv/
 __pycache__/
+apps/worker/worker-configuration.d.ts
+.wrangler/

@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "lib": ["ES2023"],
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*.ts", "worker-configuration.d.ts"]
+}

@@ -1,6 +1,6 @@
-import type { Context, Env, Hono } from "hono";
+import { type Context, type Env, Hono } from "hono";
 import type { PadRooms } from "./pad-rooms.ts";
-import { checkId, checkInteger, Invalid } from "./validate.ts";
+import { checkId, checkInteger, Invalid, invalidAnswer } from "./validate.ts";
 
 const roomPattern = /^[A-Za-z0-9_-]{22}$/;
 const maxSdp = 20_000;
@@ -71,4 +71,11 @@ export function padRoutes<E extends Env>(
     if (answer === undefined) return c.json({ error: "Not found." }, 404);
     return answer === null ? c.body(null, 204) : c.json({ sdp: answer });
   });
+}
+
+export function padApp(rooms: PadRooms, wait: number): Hono {
+  const app = new Hono();
+  app.onError(invalidAnswer);
+  padRoutes(app, rooms, wait);
+  return app;
 }

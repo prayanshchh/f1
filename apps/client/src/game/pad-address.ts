@@ -11,7 +11,7 @@ export function padAddress(
   room: string,
 ): string | null {
   const origin = site ? site.origin : pageOrigin;
-  return origin ? `${origin}/pad.html#${room}` : null;
+  return origin ? `${origin}/phonepad#${room}` : null;
 }
 
 export async function phoneSite(): Promise<PhoneSite | null> {

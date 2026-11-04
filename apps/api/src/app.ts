@@ -1,7 +1,7 @@
 import { type Context, Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import { keyHash } from "./auth.ts";
-import type { Db } from "./db.ts";
+import type { Db } from "./server-db.ts";
 import { padRoutes } from "./pad.ts";
 import { PadRooms, RoomsFull } from "./pad-rooms.ts";
 import {
@@ -30,6 +30,7 @@ import {
   checkSession,
   checkSlug,
   Invalid,
+  invalidAnswer,
 } from "./validate.ts";
 
 const bearer = /^Bearer ([A-Za-z0-9_-]{43})$/;
@@ -66,11 +67,9 @@ export function createApi(db: Db, options: ApiOptions = {}): Hono<Env> {
   const app = new Hono<Env>();
 
   app.onError((error, c) => {
-    if (error instanceof Invalid)
-      return c.json({ error: error.message, field: error.field }, 400);
     if (error instanceof RoomsFull)
       return c.json({ error: "Too many games are pairing." }, 503);
-    throw error;
+    return invalidAnswer(error, c);
   });
 
   padRoutes(app, options.padRooms ?? new PadRooms(), options.padWait ?? 20_000);

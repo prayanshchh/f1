@@ -6,9 +6,11 @@ onlyBuiltDependencies:
   - esbuild
   - "@ast-grep/cli"
   - lefthook
+  - workerd
 allowBuilds:
   esbuild: true
   "@ast-grep/cli": true
   lefthook: true
+  workerd: true
 patchedDependencies:
   three@0.186.1: patches/three@0.186.1.patch

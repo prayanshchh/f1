@@ -28,13 +28,13 @@ describe("the phone code on the game screen", () => {
       problem: null,
     };
     expect(padAddress("http://localhost:5173", ready, room)).toBe(
-      `https://quiet-river.trycloudflare.com/pad.html#${room}`,
+      `https://quiet-river.trycloudflare.com/phonepad#${room}`,
     );
   });
 
   test("a deployed game links phones to its own site", () => {
     expect(padAddress("https://play.example.com", null, room)).toBe(
-      `https://play.example.com/pad.html#${room}`,
+      `https://play.example.com/phonepad#${room}`,
     );
   });
 });
@@ -117,7 +117,7 @@ describe.runIf(hasTunnel)("the dev server's phone link", () => {
 
   test("opens the pad and the pairing service from outside this computer", async () => {
     const origin = site.origin ?? "";
-    expect(await overInternet(`${origin}/pad.html`, "GET")).toBe(200);
+    expect(await overInternet(`${origin}/phonepad`, "GET")).toBe(200);
     expect(await overInternet(`${origin}/api/pad/${room}/offers`, "POST")).toBe(
       201,
     );

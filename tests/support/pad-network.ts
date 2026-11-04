@@ -167,7 +167,7 @@ export class Lab {
     );
     await poll(
       async () =>
-        (await reachable(`https://127.0.0.1:${String(port)}/pad.html`)) || null,
+        (await reachable(`https://127.0.0.1:${String(port)}/phonepad`)) || null,
       "the site",
     );
     this.origin = `https://host.docker.internal:${String(port)}`;

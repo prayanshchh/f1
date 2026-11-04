@@ -1,0 +1,52 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "revracers",
+  "main": "apps/worker/src/index.ts",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat", "enable_request_signal"],
+  "workers_dev": false,
+  "routes": [
+    {
+      "pattern": "revracers.com",
+      "custom_domain": true,
+    },
+    {
+      "pattern": "www.revracers.com",
+      "custom_domain": true,
+    },
+  ],
+  "assets": {
+    "directory": "apps/client/dist",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "none",
+  },
+  "r2_buckets": [
+    {
+      "binding": "BIG_FILES",
+      "bucket_name": "revracers-assets",
+    },
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "PAD_ROOMS",
+        "class_name": "PadRoom",
+      },
+    ],
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["PadRoom"],
+    },
+  ],
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "46e92eb1f09b4f7c99b8a29775655a71",
+    },
+  ],
+  "observability": {
+    "enabled": true,
+  },
+}

@@ -18,13 +18,15 @@
     "prepare": "lefthook install",
     "dev": "pnpm --filter ./apps/client run dev",
     "format:check": "prettier --check . --ignore-path .gitignore --ignore-path .prettierignore",
-    "lint": "ast-grep scan --no-ignore hidden && eslint --max-warnings 0 .",
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p apps/client/tsconfig.json && tsc --noEmit -p apps/api/tsconfig.json",
+    "lint": "pnpm run worker:types && ast-grep scan --no-ignore hidden && eslint --max-warnings 0 .",
+    "worker:types": "wrangler types apps/worker/worker-configuration.d.ts > /dev/null",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p apps/client/tsconfig.json && tsc --noEmit -p apps/api/tsconfig.json && pnpm run worker:types && tsc --noEmit -p apps/worker/tsconfig.json",
     "unused": "knip",
     "duplicates": "jscpd .",
     "check": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run unused && pnpm run duplicates",
     "build": "pnpm run build:engine && pnpm --filter ./apps/client run build",
     "build:engine": "node tools/build-engine.mjs",
+    "deploy": "node tools/deploy.mjs",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "verify": "pnpm run check && pnpm run build && pnpm run test && pnpm run test:e2e",
@@ -59,6 +61,7 @@
     "typescript-eslint": "8.71.2",
     "vite": "8.3.4",
     "vitest": "5.0.5",
+    "wrangler": "^4.157.0",
     "yaml": "2.9.1"
   }
 }

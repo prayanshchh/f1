@@ -21,6 +21,7 @@ export interface PadRoomLimits {
   roomLife: number;
   maxPending: number;
   maxRooms: number;
+  firstSeq: number;
 }
 
 const defaultLimits: PadRoomLimits = {
@@ -28,6 +29,7 @@ const defaultLimits: PadRoomLimits = {
   roomLife: 600_000,
   maxPending: 8,
   maxRooms: 10_000,
+  firstSeq: 0,
 };
 
 export class RoomsFull extends Error {}
@@ -117,7 +119,7 @@ export class PadRooms {
     if (found) return found;
     if (this.rooms.size >= this.limits.maxRooms) throw new RoomsFull();
     const room: Room = {
-      seq: 0,
+      seq: this.limits.firstSeq,
       pending: [],
       touched: this.now(),
       wake: new Set(),

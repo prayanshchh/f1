@@ -1,2 +1,3 @@
 export { createApi } from "./app.ts";
-export { embeddedDb, migrate, openDatabase, serverDb, type Db } from "./db.ts";
+export { embeddedDb, openDatabase } from "./db.ts";
+export { migrate, serverDb, type Db } from "./server-db.ts";

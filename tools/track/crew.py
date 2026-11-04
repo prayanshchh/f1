@@ -27,6 +27,8 @@ STATIC_CLOTH_RATIO = 0.14
 STATIC_SKIN_RATIO = 0.22
 STATIC_HAIR_RATIO = 0.35
 STATIC_FACE_RATIO = 0.3
+STATIC_OVERLAP = 0.015
+STATIC_GAP = 0.005
 FPS = 24
 
 UAL_CLIPS = {
@@ -439,10 +441,10 @@ def static_figures(source, gender, hair_name):
     arm, body = parts["arm"], parts["body"]
     cloth = copy_object(body, "static cloth")
     tailor(cloth, arm)
-    keep_vertices(cloth, lambda co: abs(co.x) < SLEEVE_END and co.z < NECK_LINE)
+    keep_vertices(cloth, lambda co: abs(co.x) < SLEEVE_END + STATIC_OVERLAP and co.z < NECK_LINE + STATIC_OVERLAP)
     project_uvs(cloth.data)
     skin = copy_object(body, "static skin")
-    keep_vertices(skin, lambda co: co.z > NECK_LINE - 0.03 or abs(co.x) > SLEEVE_END - 0.03)
+    keep_vertices(skin, lambda co: co.z > NECK_LINE + STATIC_GAP or abs(co.x) > SLEEVE_END + STATIC_GAP)
     hair = hair_for(source, hair_name, arm)
     decimate(cloth, STATIC_CLOTH_RATIO)
     decimate(skin, STATIC_SKIN_RATIO)

@@ -1,3 +1,4 @@
+import json
 import sys
 from pathlib import Path
 
@@ -5,7 +6,8 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 import brands
-from palette import PALETTE, PALETTE_CELLS
+from palette import PALETTE, PALETTE_CELLS, TEAMS, shade
+from pitlane import TEAM_BAYS, bay_count
 
 GRASS_HUE = 0.25
 GRASS_SATURATION = 1.5
@@ -19,11 +21,10 @@ CHAINLINK_WIRE = 14
 CHAINLINK_COLOUR = (165, 168, 172)
 DISTANCES = ("300", "200", "100")
 PALETTE_SIZE = 256
-TEAMS = ["ATLAS", "CINDER", "HALCYON", "MERIDIAN", "NOVARA", "ORIEL", "QUILL", "RAVENNA", "SOLACE", "TEMPESTA"]
-DRIVERS = ["A. VANCE", "L. MORO", "T. HALE", "J. SATO", "R. BEKK", "M. ORTIZ", "D. KANE", "S. ILIC", "C. WEBB", "N. ARNO", "E. LUND", "P. ROSSI", "K. DARA", "H. FINN", "B. OKAFOR", "G. MARSH", "I. NOVAK", "F. TERZI", "O. BRANDT", "V. KIRAN"]
 FASCIA_GRID = (4, 7)
 FASCIA_TILE = (512, 96)
 GARAGE_BACK = (1024, 512)
+GARAGE_GRID = (4, 3)
 PIT_DECAL = (1024, 1024)
 PIT_TEXT = ("80", "PIT")
 DISTANCE_BOARD = 512
@@ -139,48 +140,72 @@ def palette():
     return image
 
 
-def fascia():
+def fascia(bays):
     columns, rows = FASCIA_GRID
     width, height = FASCIA_TILE
-    atlas = Image.new("RGB", (width * columns, height * rows), "#141a26")
+    atlas = Image.new("RGB", (width * columns, height * rows), "#10141c")
     draw = ImageDraw.Draw(atlas)
-    count = columns * rows
-    first = (count - 2 * len(TEAMS)) // 2
-    number = font(62, 800)
-    label = font(34, 700)
-    small = font(24, 500)
-    colours = list(PALETTE.values())
-    for index in range(count):
+    first = (bays - TEAM_BAYS * len(TEAMS)) // 2
+    number = font(66, 800)
+    label = font(36, 760)
+    small = font(23, 560)
+    for index in range(columns * rows):
         x, y = index % columns * width, index // columns * height
-        draw.rectangle([x, y, x + width - 1, y + height - 1], fill="#141a26", outline="#2b3346")
-        draw.text((x + width - 90, y + 14), str(index + 1), font=number, fill="#d7dbe4")
-        team = (index - first) // 2
-        if 0 <= team < len(TEAMS):
-            draw.rectangle([x + 12, y + 12, x + 26, y + height - 12], fill=colours[team])
-            draw.text((x + 40, y + 12), TEAMS[team], font=label, fill="#ffffff")
-            draw.text((x + 40, y + 54), DRIVERS[index - first], font=small, fill="#b9c0cf")
+        draw.rectangle([x, y, x + width - 1, y + height - 1], fill="#10141c")
+        draw.rectangle([x, y + height - 6, x + width - 1, y + height - 1], fill="#1f2633")
+        team = (index - first) // TEAM_BAYS
+        if not 0 <= team < len(TEAMS) or index >= bays:
+            continue
+        data = TEAMS[team]
+        driver = data["drivers"][(index - first) % TEAM_BAYS]
+        draw.rectangle([x, y, x + 150, y + height - 1], fill=data["colours"]["primary"])
+        draw.polygon([(x + 150, y), (x + 196, y), (x + 150, y + height - 1)], fill=data["colours"]["primary"])
+        draw.rectangle([x, y + height - 8, x + width - 1, y + height - 1], fill=data["brand"])
+        box = draw.textbbox((0, 0), str(driver["number"]), font=number)
+        draw.text((x + 75 - (box[2] + box[0]) / 2, y + 44 - (box[3] + box[1]) / 2), str(driver["number"]), font=number, fill="#ffffff")
+        draw.text((x + 214, y + 12), data["name"].upper(), font=label, fill="#ffffff")
+        draw.text((x + 214, y + 56), f"{driver['first'][0]}. {driver['last'].upper()}", font=small, fill="#c3cad6")
     return atlas
 
 
-def garage_back():
+def garage_panel(team):
     width, height = GARAGE_BACK
-    image = Image.new("RGB", GARAGE_BACK, "#c9ccd2")
+    deep = team["colours"]["primary"] if team else "#1b2230"
+    brand = team["brand"] if team else "#3a4252"
+    image = Image.new("RGB", GARAGE_BACK, "#d3d6db")
     draw = ImageDraw.Draw(image)
     for x in range(0, width, 128):
-        draw.line([x, 0, x, height], fill="#aeb2b9", width=3)
-    draw.rectangle([0, 0, width, 70], fill="#1b2230")
-    draw.rectangle([0, height - 44, width, height], fill="#3a3f49")
-    for index, x in enumerate(range(40, width - 200, 220)):
-        draw.rectangle([x, 260, x + 190, height - 44], fill="#23272f")
-        for y in range(278, height - 60, 46):
-            draw.rectangle([x + 10, y, x + 180, y + 34], fill="#40464f")
-            draw.rectangle([x + 70, y + 14, x + 120, y + 20], fill="#a9adb4")
-        draw.rectangle([x + 10, 120, x + 180, 230], fill="#0d1520")
-        draw.rectangle([x + 20, 130, x + 170, 220], fill=("#1a4d74", "#20603f", "#6a3f19", "#3f2a6e")[index % 4])
-        for line in range(4):
-            y = 145 + line * 18
-            draw.line([x + 28, y, x + 150 - line * 18, y], fill="#d6e6f2", width=4)
+        draw.line([x, 0, x, height], fill="#b4b8bf", width=3)
+    draw.rectangle([0, 0, width, 96], fill=deep)
+    draw.rectangle([0, 96, width, 104], fill=brand)
+    if team:
+        title = font(46, 780)
+        text = team["fullName"].upper()
+        box = draw.textbbox((0, 0), text, font=title)
+        draw.text(((width - box[2] - box[0]) / 2, 48 - (box[3] + box[1]) / 2), text, font=title, fill="#ffffff")
+    draw.rectangle([0, 236, width, 246], fill=brand)
+    draw.rectangle([0, height - 40, width, height], fill="#2e333c")
+    for index, x in enumerate(range(28, width - 180, 200)):
+        draw.rectangle([x, 270, x + 180, height - 40], fill="#1d2027")
+        for y in range(284, height - 56, 38):
+            draw.rectangle([x + 8, y, x + 172, y + 30], fill=deep if index % 2 else "#3a3f48")
+            draw.rectangle([x + 60, y + 12, x + 120, y + 17], fill="#b3b8bf")
+        draw.rectangle([x + 8, 122, x + 172, 222], fill="#0b0f15")
+        draw.rectangle([x + 16, 130, x + 164, 214], fill=("#0f2638", "#10301f", "#2c1d0c", "#1d1536")[index % 4])
+        for line in range(5):
+            y = 140 + line * 14
+            draw.line([x + 24, y, x + 150 - (line * 23) % 70, y], fill=("#d6e6f2", brand)[line % 2], width=4)
     return image
+
+
+def garage_back():
+    columns, rows = GARAGE_GRID
+    width, height = GARAGE_BACK
+    atlas = Image.new("RGB", (width * columns, height * rows))
+    for index in range(columns * rows):
+        team = TEAMS[index] if index < len(TEAMS) else None
+        atlas.paste(garage_panel(team), (index % columns * width, index // columns * height))
+    return atlas
 
 
 def pit_signs():
@@ -200,17 +225,30 @@ def pit_signs():
 CREW_ATLAS = (2048, 1408)
 CREW_WIDTH = 2.0
 CREW_HEIGHT = 2.2
-CREW_SUIT = "#1b4fa8"
-CREW_DARK = "#0d2a66"
-CREW_TRIM = "#f28a12"
-CREW_WHITE = "#eef0f2"
-CREW_BLACK = "#0c0d10"
+CREW_KIT = {"suit": "#1b4fa8", "dark": "#0d2a66", "trim": "#f28a12", "white": "#eef0f2", "black": "#0c0d10", "back": "STEALTH", "chest": "NORTHWIND", "legs": "VOLTARA"}
+CREW_DARKEN = 0.55
+CREW_LIGHT_SUIT = 0.55
 
 
-def crew_suit():
+def crew_kit(team):
+    primary = team["colours"]["primary"]
+    light = np.dot([int(primary[i : i + 2], 16) / 255 for i in (1, 3, 5)], [0.2126, 0.7152, 0.0722]) > CREW_LIGHT_SUIT
+    return {
+        "suit": primary,
+        "dark": shade(primary, CREW_DARKEN),
+        "trim": team["brand"],
+        "white": "#15171b" if light else "#eef0f2",
+        "black": "#0c0d10",
+        "back": team["name"].upper(),
+        "chest": team["sponsors"][0],
+        "legs": team["sponsors"][1],
+    }
+
+
+def crew_suit(kit=CREW_KIT):
     width, height = CREW_ATLAS
     half = width // 2
-    image = Image.new("RGB", CREW_ATLAS, CREW_SUIT)
+    image = Image.new("RGB", CREW_ATLAS, kit["suit"])
     draw = ImageDraw.Draw(image)
 
     def to(side, x, z):
@@ -227,33 +265,33 @@ def crew_suit():
         draw.text((cx - (box[2] + box[0]) / 2, cy - (box[3] + box[1]) / 2), text, font=face, fill=colour)
 
     for side in (0, 1):
-        band(side, -1.0, 1.0, 0.0, 0.14, CREW_BLACK)
-        band(side, -1.0, 1.0, 0.14, 0.165, CREW_DARK)
+        band(side, -1.0, 1.0, 0.0, 0.14, kit["black"])
+        band(side, -1.0, 1.0, 0.14, 0.165, kit["dark"])
         for sign in (1, -1):
-            band(side, sign * 0.69, sign * 1.0, 1.2, 1.7, CREW_BLACK)
-            band(side, sign * 0.65, sign * 0.69, 1.2, 1.7, CREW_DARK)
-            band(side, sign * 0.46, sign * 0.5, 1.2, 1.7, CREW_WHITE)
-            band(side, sign * 0.27, sign * 0.33, 1.2, 1.7, CREW_DARK)
-            band(side, sign * 0.03, sign * 0.21, 0.46, 0.6, CREW_DARK)
-            band(side, sign * 0.03, sign * 0.21, 0.595, 0.605, CREW_WHITE)
-        band(side, -0.22, 0.22, 0.98, 1.03, CREW_BLACK)
-        band(side, -0.028, 0.028, 0.98, 1.03, CREW_WHITE)
-        band(side, -0.11, 0.11, 1.5, 1.62, CREW_DARK)
+            band(side, sign * 0.69, sign * 1.0, 1.2, 1.7, kit["black"])
+            band(side, sign * 0.65, sign * 0.69, 1.2, 1.7, kit["dark"])
+            band(side, sign * 0.46, sign * 0.5, 1.2, 1.7, kit["white"])
+            band(side, sign * 0.27, sign * 0.33, 1.2, 1.7, kit["dark"])
+            band(side, sign * 0.03, sign * 0.21, 0.46, 0.6, kit["dark"])
+            band(side, sign * 0.03, sign * 0.21, 0.595, 0.605, kit["white"])
+        band(side, -0.22, 0.22, 0.98, 1.03, kit["black"])
+        band(side, -0.028, 0.028, 0.98, 1.03, kit["white"])
+        band(side, -0.11, 0.11, 1.5, 1.62, kit["dark"])
         for sign in (1, -1):
-            band(side, sign * 0.15, sign * 0.165, 1.03, 1.42, CREW_DARK)
-    label(0, 0, 1.35, "NORTHWIND", 26, CREW_WHITE)
+            band(side, sign * 0.15, sign * 0.165, 1.03, 1.42, kit["dark"])
+    label(0, 0, 1.35, kit["chest"], 26, kit["white"])
     for z in (1.22, 1.15):
-        draw.polygon([to(0, -0.1, z + 0.04), to(0, 0, z - 0.02), to(0, 0.1, z + 0.04), to(0, 0.1, z + 0.012), to(0, 0, z - 0.048), to(0, -0.1, z + 0.012)], fill=CREW_TRIM)
+        draw.polygon([to(0, -0.1, z + 0.04), to(0, 0, z - 0.02), to(0, 0.1, z + 0.04), to(0, 0.1, z + 0.012), to(0, 0, z - 0.048), to(0, -0.1, z + 0.012)], fill=kit["trim"])
     for z in (1.38, 1.3, 1.22):
-        draw.polygon([to(1, -0.12, z + 0.05), to(1, 0, z - 0.02), to(1, 0.12, z + 0.05), to(1, 0.12, z + 0.015), to(1, 0, z - 0.055), to(1, -0.12, z + 0.015)], fill=CREW_TRIM)
-    label(1, 0, 1.11, "STEALTH", 34, CREW_WHITE)
+        draw.polygon([to(1, -0.12, z + 0.05), to(1, 0, z - 0.02), to(1, 0.12, z + 0.05), to(1, 0.12, z + 0.015), to(1, 0, z - 0.055), to(1, -0.12, z + 0.015)], fill=kit["trim"])
+    label(1, 0, 1.11, kit["back"], 34, kit["white"])
     for sign in (1, -1):
-        label(0, sign * 0.12, 0.76, "VOLTARA", 13, CREW_WHITE)
+        label(0, sign * 0.12, 0.76, kit["legs"], 13, kit["white"])
     top = round(height * 0.14)
-    draw.rectangle([0, 0, width, top], fill=CREW_WHITE)
-    draw.rectangle([0, top * 0.42, width, top], fill=CREW_SUIT)
-    draw.rectangle([0, top * 0.42, width, top * 0.47], fill=CREW_DARK)
-    draw.rectangle([0, top * 0.82, width, top * 0.9], fill=CREW_TRIM)
+    draw.rectangle([0, 0, width, top], fill=kit["white"])
+    draw.rectangle([0, top * 0.42, width, top], fill=kit["suit"])
+    draw.rectangle([0, top * 0.42, width, top * 0.47], fill=kit["dark"])
+    draw.rectangle([0, top * 0.82, width, top * 0.9], fill=kit["trim"])
     return image
 
 
@@ -261,10 +299,10 @@ STATIC_TILE = (512, 352)
 STATIC_GRID = (4, 3)
 
 
-def crew_polo(team_colour, overalls=False):
+def crew_polo(team_colour, trim=None, overalls=False):
     width, height = CREW_ATLAS
     half = width // 2
-    shirt = team_colour if overalls else "#f1f1ee"
+    shirt = team_colour
     trousers = team_colour if overalls else "#17191f"
     image = Image.new("RGB", CREW_ATLAS, trousers)
     draw = ImageDraw.Draw(image)
@@ -282,8 +320,8 @@ def crew_polo(team_colour, overalls=False):
             box(side, -0.08, 0.08, 1.42, 1.56, "#17191f")
             box(side, -0.24, 0.24, 0.98, 1.03, "#0c0d10")
             for sign in (1, -1):
-                box(side, sign * 0.3, sign * 0.46, 1.2, 1.7, team_colour)
-                box(side, sign * 0.13, sign * 0.17, 1.03, 1.4, team_colour)
+                box(side, sign * 0.3, sign * 0.46, 1.2, 1.7, trim)
+                box(side, sign * 0.13, sign * 0.17, 1.03, 1.4, trim)
         else:
             for sign in (1, -1):
                 box(side, sign * 0.03, sign * 0.21, 0.72, 0.76, "#d9dcde")
@@ -295,8 +333,7 @@ def crew_static_atlas():
     tile_w, tile_h = STATIC_TILE
     columns, rows = STATIC_GRID
     atlas = Image.new("RGB", (tile_w * columns, tile_h * rows))
-    teams = list(PALETTE.values())[:10]
-    tiles = [crew_polo(colour) for colour in teams] + [crew_polo("#e8701a", overalls=True)]
+    tiles = [crew_polo(team["colours"]["primary"], team["brand"]) for team in TEAMS] + [crew_polo("#e8701a", overalls=True)]
     for index, tile in enumerate(tiles):
         atlas.paste(tile.resize(STATIC_TILE), (index % columns * tile_w, index // columns * tile_h))
     return atlas
@@ -395,10 +432,13 @@ def main():
     save(facade(), out / "facade_base_color.png")
     pit_decals().save(out / "pit_decals_base_color.png")
     palette().save(out / "palette_base_color.png")
-    fascia().save(out / "fascia_base_color.png")
+    track = json.loads((root / "track.json").read_text())
+    fascia(bay_count(track["pitLane"], track["length"])).save(out / "fascia_base_color.png")
     garage_back().save(out / "garage_back_base_color.png")
     pit_signs().save(out / "pit_signs_base_color.png")
     crew_suit().save(out / "crew_suit_base_color.png")
+    for team in TEAMS:
+        crew_suit(crew_kit(team)).save(root.parent.parent / "cars" / team["id"] / "crew.jpg", quality=88)
     crew_normal().save(out / "crew_suit_normal.png")
     track_marks().save(out / "track_marks_base_color.png")
     crew_static_atlas().save(out / "crew_static_base_color.png")

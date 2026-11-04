@@ -10,6 +10,7 @@ from scipy.spatial import cKDTree
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from design import linear, use
+from helmet import paint_helmet
 
 CONTRAST = 0.22
 FASTENER = 0.0055
@@ -499,13 +500,10 @@ def paint(atlas, team):
     carbon[fin_accent] = 0.0
     rough[fin_accent] = ROUGH_PAINT
 
-    helmet = atlas.where(r"^helmet")
-    albedo[helmet] = np.array(linear(team.get("helmet", "#e7e8e9")))
-    albedo[helmet & (np.abs(z - 0.768) < 0.03)] = EMBER
-    albedo[helmet & (np.abs(y) < 0.018)] = EMBER
-    albedo[helmet & (z > 0.813)] = GOLD
+    helmet, colour, gloss = paint_helmet(atlas, team, text_mask, sample)
+    albedo[helmet] = colour
     carbon[helmet] = 0.0
-    rough[helmet] = 0.2
+    rough[helmet] = gloss
 
     for joint in (1.42, 0.92):
         line = chassis & (np.abs(x - joint) < 0.0022)
@@ -620,43 +618,6 @@ def save_rgb(path, array, quality=92, gamma=True, size=None):
     image.save(path, quality=quality, subsampling=0)
 
 
-def tyre_texture(out):
-    width, height = 4096, 512
-    rng = np.random.default_rng(26)
-    v = (np.arange(height, dtype=np.float32) + 0.5) / height
-    base = np.full((height, width), 0.072, np.float32)
-    base += gaussian_filter(rng.normal(0, 0.012, (height, width)).astype(np.float32), 0.7)
-    tread = (v > 0.335) & (v < 0.665)
-    scrub = gaussian_filter(rng.normal(0, 1, (height, width)).astype(np.float32), (0.6, 5.0))
-    marbles = gaussian_filter((rng.random((height, width)) > 0.9965).astype(np.float32), 1.1) * 3.0
-    base[tread] = 0.052 + 0.010 * scrub[tread] + 0.030 * np.clip(marbles[tread], 0, 1)
-    shoulder = np.exp(-(((np.abs(v - 0.5) - 0.165) / 0.012) ** 2))
-    base += 0.018 * shoulder[:, None]
-    for centre in (0.085, 0.115, 0.285, 0.715, 0.885, 0.915):
-        base += 0.022 * np.exp(-(((v - centre) / 0.0035) ** 2))[:, None]
-    for centre in (0.300, 0.322, 0.678, 0.700):
-        base *= 1 - 0.35 * np.exp(-(((v - centre) / 0.003) ** 2))[:, None]
-    image = Image.fromarray(np.round(np.clip(base, 0, 1) * 255).astype(np.uint8)).convert("RGB")
-    big = font(46, 900)
-    mid = font(22, 700)
-    small = font(13, 600)
-    for sidewall, flip in ((0.112, False), (0.888, True)):
-        y = int(height * sidewall)
-        for k in range(3):
-            layer = Image.new("RGBA", (1100, 96), (0, 0, 0, 0))
-            draw = ImageDraw.Draw(layer)
-            draw.text((8, 22), "KESTREL", font=big, fill=(226, 226, 222, 255))
-            draw.text((268, 26), "P RACE", font=mid, fill=(226, 226, 222, 255))
-            draw.text((268, 52), "SLICK  R18", font=small, fill=(170, 170, 168, 255))
-            draw.polygon([(470, 50), (482, 43), (482, 57)], fill=(150, 150, 148, 255))
-            draw.text((488, 40), "ROTATION", font=small, fill=(150, 150, 148, 255))
-            draw.text((640, 40), "RACE USE ONLY", font=small, fill=(130, 130, 128, 255))
-            if flip:
-                layer = layer.transpose(Image.FLIP_TOP_BOTTOM).transpose(Image.FLIP_LEFT_RIGHT)
-            image.paste(layer, (int(width * (k / 3 + 0.03)), y - 48), layer)
-    image.save(out / "shared" / "tyre.jpg", quality=92, subsampling=0)
-
-
 def main():
     team = use(sys.argv[1] if len(sys.argv) > 1 else "velza")
     work = Path(sys.argv[2] if len(sys.argv) > 2 else f"build/car/{team['id']}")
@@ -670,7 +631,6 @@ def main():
     save_rgb(out / "orm.jpg", orm, gamma=False, size=4096)
     save_rgb(out / "orm-lod.jpg", orm, gamma=False, size=LOD_ORM)
     save_rgb(out / "bump.jpg", np.stack([height, height, height], axis=-1), gamma=False, size=4096, quality=88)
-    tyre_texture(root)
     print(f"livery: {team['id']} {atlas.size}px")
 
 

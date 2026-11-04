@@ -1,8 +1,22 @@
+import json
+from pathlib import Path
+
+FLOOR_SHADE = 0.4
+
+
+def shade(colour, amount):
+    return "#" + "".join(f"{round(int(colour[i : i + 2], 16) * amount):02x}" for i in (1, 3, 5))
+
+
+TEAMS = json.loads((Path(__file__).resolve().parents[2] / "content" / "cars" / "teams.json").read_text())
 PALETTE = {
-    "team 0": "#e8e8ec", "team 1": "#d01c28", "team 2": "#1b4fa8", "team 3": "#f28a12", "team 4": "#117a4a",
-    "team 5": "#6a2fb0", "team 6": "#10a5b8", "team 7": "#222a3a", "team 8": "#e6c21a", "team 9": "#d84f8c",
+    **{f"team {i}": team["brand"] for i, team in enumerate(TEAMS)},
+    **{f"team deep {i}": team["colours"]["primary"] for i, team in enumerate(TEAMS)},
+    **{f"team floor {i}": shade(team["colours"]["primary"], FLOOR_SHADE) for i, team in enumerate(TEAMS)},
     "skin light": "#d9a784", "skin mid": "#a8744f", "skin dark": "#5f3d2a", "hair": "#1e1712", "black": "#0b0b0d",
     "dark": "#1a1c22", "white": "#e9e7e2", "grey": "#7d8088", "marshal": "#e8701a", "hi vis": "#c9d62a",
+    "soft": "#d8232a", "medium": "#f2c418", "hard": "#ecebe6", "blanket": "#25272c", "chair": "#121317",
+    "monitor": "#07090c", "rubber": "#101012", "jack": "#b9bdc4", "go": "#22c55e",
 }
 PALETTE_CELLS = 8
 BRAND_ROWS = 12

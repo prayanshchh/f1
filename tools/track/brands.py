@@ -124,6 +124,26 @@ BRANDS = [
     ("MAISON", "#111113", "#f2f2f2", maison),
     ("HALDEN", "#de5410", "#ffe2cc", halden),
 ]
+STYLES = {
+    "NORTHWIND": ("waves", "CLEAN ENERGY FOR EVERY MILE"),
+    "VOLTARA": ("chevrons", "CHARGED FOR SPEED"),
+    "AURENNE": ("guilloche", "CRAFTED TIME SINCE 1884"),
+    "KESTREL": ("slashes", "OFFICIAL TYRE PARTNER"),
+    "MARLOWE": ("contours", "BUILT FOR THE WILD"),
+    "TORQUA": ("chevrons", "FUEL YOUR LAP"),
+    "CORDAVE": ("rails", "CONNECTING CITIES COAST TO COAST"),
+    "VERDALE": ("dots", "FRESH FROM THE FIELD"),
+    "ALBAREN": ("slashes", "FLY FURTHER, ARRIVE FASTER"),
+    "NIMBARA": ("grid", "DATA AT RACE PACE"),
+    "MAISON": ("guilloche", "PARFUMS DE LUMIERE"),
+    "HALDEN": ("rails", "DELIVERING SINCE 1962"),
+}
+LOCKUP_CENTRES = (1024, 3072)
+LOCKUP_HEIGHT = 290
+LOCKUP_WIDTH = 1650
+PATTERN_GAIN = 0.07
+GLOSS = 0.06
+EYELET_SPACING = 256
 
 
 def weather(panel, rng):
@@ -139,16 +159,82 @@ def weather(panel, rng):
     return np.clip(image, 0, 1)
 
 
+def rgb(colour):
+    return np.array([int(colour[i : i + 2], 16) for i in (1, 3, 5)], np.float32) / 255.0
+
+
+def pattern(style):
+    width, height = TILE
+    y, x = np.mgrid[0:height, 0:width].astype(np.float32)
+    if style == "waves":
+        field = np.sin(x / 90 + 2.2 * np.sin(y / 70)) > 0.92
+    elif style == "chevrons":
+        field = ((np.abs((y - height / 2)) * 0.9 + x) % 180) < 26
+    elif style == "guilloche":
+        field = np.abs(np.sin(x / 38 + 3 * np.sin(y / 45)) * np.sin(y / 23 + 2 * np.cos(x / 61))) > 0.9
+    elif style == "slashes":
+        field = ((x + y * 0.7) % 140) < 16
+    elif style == "contours":
+        field = (np.sin(np.hypot(x % 900 - 450, y - 600) / 22) > 0.93)
+    elif style == "rails":
+        field = ((y % 64) < 5) & ((x % 1024) > 120)
+    elif style == "dots":
+        field = np.hypot((x % 64) - 32, (y % 64) - 32) < 7
+    else:
+        field = ((x % 96) < 3) | ((y % 96) < 3)
+    return field.astype(np.float32)
+
+
+def lockup(art, fonts):
+    layer = Image.new("RGBA", TILE, (0, 0, 0, 0))
+    art(ImageDraw.Draw(layer), fonts)
+    crop = layer.crop(layer.getbbox())
+    scale = min(LOCKUP_HEIGHT / crop.height, LOCKUP_WIDTH / crop.width)
+    return crop.resize((int(crop.width * scale), int(crop.height * scale)), Image.LANCZOS)
+
+
+def compose(name, background, accent, art, fonts):
+    width, height = TILE
+    style, tagline = STYLES[name]
+    base = rgb(background)
+    shade = np.linspace(1.08, 0.9, height, dtype=np.float32)[:, None, None]
+    luminance = base @ np.array([0.2126, 0.7152, 0.0722], np.float32)
+    ink = np.ones(3, np.float32) if luminance < 0.5 else np.zeros(3, np.float32)
+    image = base[None, None, :] * shade
+    image = image + (ink - image) * pattern(style)[..., None] * PATTERN_GAIN
+    panel = Image.fromarray(np.uint8(np.clip(image, 0, 1) * 255), "RGB")
+    mark = lockup(art, fonts)
+    for centre in LOCKUP_CENTRES:
+        panel.paste(mark, (centre - mark.width // 2, (height - mark.height) // 2 - 18), mark)
+    draw = ImageDraw.Draw(panel)
+    small = font(fonts, "montserrat", 34, 600)
+    tone = tuple(int(c * 255) for c in (ink * 0.85 + base * 0.15))
+    for centre in LOCKUP_CENTRES:
+        text_at(draw, tagline, small, tone, (centre, height - 70), 6)
+        divider = centre + 1024
+        if divider < width:
+            draw.rectangle([divider - 3, 70, divider + 3, height - 70], fill=accent)
+    draw.rectangle([0, 0, width, 16], fill=accent)
+    draw.rectangle([0, height - 16, width, height], fill=accent)
+    draw.rectangle([0, 16, width, 22], fill="#0b0b0c")
+    draw.rectangle([0, height - 22, width, height - 16], fill="#0b0b0c")
+    for x in range(EYELET_SPACING // 2, width, EYELET_SPACING):
+        for y in (34, height - 34):
+            draw.ellipse([x - 7, y - 7, x + 7, y + 7], fill="#c8ccd2", outline="#2a2b2e", width=3)
+    return panel.filter(ImageFilter.GaussianBlur(0.6))
+
+
+def gloss(image):
+    height = image.shape[0]
+    sheen = np.exp(-(((np.arange(height) / height) - 0.28) / 0.12) ** 2)[:, None, None]
+    return np.clip(image + sheen * GLOSS, 0, 1)
+
+
 def boards(fonts):
     rng = np.random.default_rng(SEED)
     width, height = TILE
     atlas = np.empty((height * len(BRANDS), width, 3), np.float32)
-    for index, (_, background, accent, art) in enumerate(BRANDS):
-        panel = Image.new("RGB", TILE, background)
-        draw = ImageDraw.Draw(panel)
-        art(draw, fonts)
-        draw.rectangle([0, 0, width, 16], fill=accent)
-        draw.rectangle([0, height - 16, width, height], fill=accent)
-        panel = panel.filter(ImageFilter.GaussianBlur(0.7))
-        atlas[index * height : (index + 1) * height] = weather(panel, rng)
+    for index, (name, background, accent, art) in enumerate(BRANDS):
+        panel = compose(name, background, accent, art, fonts)
+        atlas[index * height : (index + 1) * height] = gloss(weather(panel, rng))
     return atlas

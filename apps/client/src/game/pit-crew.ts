@@ -1,15 +1,45 @@
 import * as THREE from "three/webgpu";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { clone as cloneRig } from "three/examples/jsm/utils/SkeletonUtils.js";
+import type { CarEnvironment } from "./carpaint.ts";
 import { gltfToSdWorld } from "./gltf.ts";
 import { mergedMesh, placedCopy } from "./merge.ts";
+import { releaseOnceUploaded } from "./preload.ts";
 import { surface } from "./road.ts";
+import { carFile } from "./teams.ts";
+import {
+  type TyreLook,
+  tyreAttribute,
+  tyreLook,
+  tyreMaterial,
+} from "./tyre-paint.ts";
+import { compounds } from "./tyres.ts";
 
 const dark = 0x14161c;
 const steel = 0x8d9199;
-const rimRed = 0xc01818;
+const rimDark = 0x1b1c20;
 const tyreRadius = 0.36;
-const tyreWidth = 0.34;
+const tyreHalf = 0.17;
+const rimRadius = 0.232;
+const tyreSegments = 72;
+const tyreProfile = [
+  [0.232, -0.148],
+  [0.27, -0.163],
+  [0.31, -0.168],
+  [0.338, -0.165],
+  [0.352, -0.155],
+  [0.359, -0.138],
+  [0.361, -0.11],
+  [0.361, 0.11],
+  [0.359, 0.138],
+  [0.352, 0.155],
+  [0.338, 0.165],
+  [0.31, 0.168],
+  [0.27, 0.163],
+  [0.232, 0.148],
+] as const;
+const usedWear = 0.6;
+const kitMaterials = new Set(["crew suit", "crew shell"]);
 const wheelX = [1.49, 1.49, -2.01, -2.01];
 const wheelY = [-0.74, 0.74, -0.74, 0.74];
 const reachIn = 0.1;
@@ -96,25 +126,40 @@ function memberBounds(mesh: THREE.Mesh): THREE.Sphere {
   );
 }
 
-function makeTyre(): THREE.Group {
-  const tyre = new THREE.Group();
-  const rubber = new THREE.Mesh(
-    new THREE.CylinderGeometry(tyreRadius, tyreRadius, tyreWidth, 24),
-    flat(dark, 0.85),
+function tyreGeometry(): THREE.BufferGeometry {
+  const geometry = new THREE.LatheGeometry(
+    tyreProfile.map(([radius, axial]) => new THREE.Vector2(radius, axial)),
+    tyreSegments,
   );
+  const position = geometry.getAttribute("position");
+  const local = new Float32Array(position.count * 4);
+  for (let i = 0; i < position.count; i++) {
+    local[i * 4] = position.getY(i);
+    local[i * 4 + 1] = position.getX(i);
+    local[i * 4 + 2] = position.getZ(i);
+    local[i * 4 + 3] = tyreHalf;
+  }
+  geometry.setAttribute(tyreAttribute, new THREE.BufferAttribute(local, 4));
+  return geometry;
+}
+
+function makeTyre(
+  geometry: THREE.BufferGeometry,
+  material: THREE.Material,
+  look: TyreLook,
+): THREE.Group {
+  const tyre = new THREE.Group();
+  const rubber = new THREE.Mesh(geometry, material);
+  tyre.userData = rubber.userData = { tyre: look };
   const rim = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.22, 0.22, tyreWidth + 0.01, 18),
+    new THREE.CylinderGeometry(rimRadius, rimRadius, tyreHalf * 1.8, 32),
+    flat(rimDark, 0.35),
+  );
+  const hub = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.05, 0.05, tyreHalf * 2.1, 12),
     flat(steel, 0.35),
   );
-  const stripe = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.31, 0.31, tyreWidth + 0.005, 24),
-    flat(rimRed, 0.5),
-  );
-  const cover = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.29, 0.29, tyreWidth + 0.008, 24),
-    flat(dark, 0.8),
-  );
-  tyre.add(rubber, stripe, cover, rim);
+  tyre.add(rubber, rim, hub);
   tyre.traverse((object) => {
     if (object instanceof THREE.Mesh) object.castShadow = true;
   });
@@ -136,6 +181,8 @@ export class PitCrew {
   }[] = [];
   private readonly levers: { member: Member; end: Spot; mesh: THREE.Mesh }[] =
     [];
+  private readonly fitted = tyreLook();
+  private readonly fresh = tyreLook();
   private lastTime = 0;
   private pending: { progress: number; active: boolean } | null = null;
   private readonly anchor = new THREE.Matrix4();
@@ -144,24 +191,42 @@ export class PitCrew {
   private readonly right = new THREE.Vector3();
   private readonly inverse = new THREE.Matrix4();
 
-  static async load(url: string, anisotropy: number): Promise<PitCrew> {
-    const gltf = await new GLTFLoader().loadAsync(url);
+  static async load(
+    url: string,
+    anisotropy: number,
+    env: CarEnvironment,
+    team: string,
+  ): Promise<PitCrew> {
+    const [gltf, kit] = await Promise.all([
+      new GLTFLoader().loadAsync(url),
+      new THREE.TextureLoader().loadAsync(carFile(team, "crew.jpg")),
+    ]);
+    kit.flipY = false;
+    kit.colorSpace = THREE.SRGBColorSpace;
+    kit.anisotropy = anisotropy;
+    releaseOnceUploaded(kit);
     gltf.scene.traverse((object) => {
       if (!(object instanceof THREE.Mesh)) return;
-      object.material = surface(
-        object.material as THREE.MeshStandardMaterial,
-        anisotropy,
-      );
+      const source = object.material as THREE.MeshStandardMaterial;
+      if (kitMaterials.has(source.name)) source.map = kit;
+      object.material = surface(source, anisotropy);
     });
-    return new PitCrew(gltf.scene, gltf.animations);
+    return new PitCrew(
+      gltf.scene,
+      gltf.animations,
+      tyreMaterial(env, anisotropy),
+    );
   }
 
   private constructor(
     private readonly model: THREE.Object3D,
     private readonly clips: THREE.AnimationClip[],
+    rubber: THREE.Material,
   ) {
     this.root.matrixAutoUpdate = false;
     this.root.add(this.live, this.far);
+    this.fitted.wear = usedWear;
+    const tyreShape = tyreGeometry();
     wheelX.forEach((x, i) => {
       const y = wheelY[i] ?? 0;
       const side = Math.sign(y);
@@ -179,8 +244,8 @@ export class PitCrew {
         rest: { x: x - 0.9, y: y + side * 2.1 },
         active: { x: x - 0.12, y: y + side * 0.92 },
       });
-      const old = makeTyre();
-      const fresh = makeTyre();
+      const old = makeTyre(tyreShape, rubber, this.fitted);
+      const fresh = makeTyre(tyreShape, rubber, this.fresh);
       old.visible = fresh.visible = false;
       this.live.add(old, fresh);
       this.wheels.push({ x, y: y + side * 0.04, old, fresh, off, on });
@@ -301,6 +366,11 @@ export class PitCrew {
     mesh.castShadow = true;
     this.live.add(mesh);
     this.levers.push({ member, end, mesh });
+  }
+
+  setCompounds(fitted: number, fresh: number): void {
+    this.fitted.compound.set((compounds[fitted] ?? compounds[1]).colour);
+    this.fresh.compound.set((compounds[fresh] ?? compounds[1]).colour);
   }
 
   setAnchor(x: number, y: number, z: number, heading: number): void {
@@ -450,7 +520,8 @@ export class PitCrew {
     this.live.updateMatrixWorld(true);
     const groups = new Map<THREE.Material, THREE.BufferGeometry[]>();
     const add = (object: THREE.Object3D) => {
-      if (!object.visible) return;
+      if (!object.visible || (object.userData as { tyre?: TyreLook }).tyre)
+        return;
       if (object instanceof THREE.SkinnedMesh) object.skeleton.update();
       if (object instanceof THREE.Mesh) {
         const material = object.material as THREE.Material;

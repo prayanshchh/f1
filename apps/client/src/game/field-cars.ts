@@ -1,5 +1,4 @@
 import * as THREE from "three/webgpu";
-import { uniform } from "three/tsl";
 import type { CarEnvironment } from "./carpaint.ts";
 import { carField, carStride } from "./engine.ts";
 import { carWheel } from "./frame-layout.ts";
@@ -12,13 +11,14 @@ import {
 import { type DamageLook, newLook } from "./car-damage.ts";
 import { teamModel } from "./grid.ts";
 import { compounds } from "./tyres.ts";
+import { spinBlur, type TyreLook, tyreLook } from "./tyre-paint.ts";
 
 const wheelCount = 4;
 const drawDistance = 900;
 const wheelDistance = 220;
 const shadowDistance = 90;
-const sidewallRadius = 0.86;
-const sidewallTube = 0.011;
+const shortestFrame = 1 / 240;
+const longestFrame = 1 / 20;
 const wheelParts = new Set(["tyre", "rim"]);
 
 function matrix(): THREE.Group {
@@ -50,7 +50,8 @@ interface FieldCar {
   root: THREE.Group;
   model: THREE.Group;
   wheels: WheelNode[];
-  rings: THREE.Mesh[];
+  look: TyreLook;
+  radius: number;
   casters: THREE.Mesh[];
   shadowOn: boolean;
   compound: number;
@@ -61,18 +62,6 @@ interface FieldCar {
 }
 
 const scratch = new THREE.Matrix4();
-
-function ringMaterial(): THREE.MeshBasicNodeMaterial {
-  const material = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide });
-  const colour = uniform(new THREE.Color());
-  colour.onObjectUpdate(({ object }) => {
-    const own = (object?.userData as { ringColour?: THREE.Color } | undefined)
-      ?.ringColour;
-    if (own) colour.value.copy(own);
-  });
-  material.colorNode = colour;
-  return material;
-}
 
 function wheelOf(x: number, y: number): number {
   return (x > 0 ? 0 : 2) + (y > 0 ? 1 : 0);
@@ -177,11 +166,11 @@ async function loadTemplate(
 export class FieldCars {
   readonly root = new THREE.Group();
   private readonly cars: FieldCar[] = [];
-  private readonly ringColours = compounds.map(
+  private readonly compoundColours = compounds.map(
     (compound) => new THREE.Color(compound.colour),
   );
-  private readonly ringMaterial = ringMaterial();
   private readonly eye = new THREE.Vector3();
+  private updatedAt = 0;
 
   static async load(teams: string[], env: CarEnvironment): Promise<FieldCars> {
     const field = new FieldCars();
@@ -215,15 +204,14 @@ export class FieldCars {
     });
     model.add(body, contact);
     root.add(model);
-    const rings: THREE.Mesh[] = [];
+    const look = tyreLook();
     const wheels = template.wheels.map((shape) =>
-      this.buildWheel(shape, root, rings),
+      this.buildWheel(shape, root, look),
     );
     const casters: THREE.Mesh[] = [];
     root.traverse((object) => {
       const mesh = object as THREE.Mesh;
-      if (object.type === "Mesh" && mesh !== contact && !rings.includes(mesh))
-        casters.push(mesh);
+      if (object.type === "Mesh" && mesh !== contact) casters.push(mesh);
     });
     for (const mesh of casters) mesh.castShadow = true;
     this.root.add(root);
@@ -231,7 +219,10 @@ export class FieldCars {
       root,
       model,
       wheels,
-      rings,
+      look,
+      radius:
+        template.wheels.reduce((sum, shape) => sum + shape.radius, 0) /
+        template.wheels.length,
       casters,
       shadowOn: true,
       compound: -1,
@@ -245,27 +236,18 @@ export class FieldCars {
   private buildWheel(
     shape: WheelShape,
     root: THREE.Group,
-    rings: THREE.Mesh[],
+    look: TyreLook,
   ): WheelNode {
     const spin = matrix();
-    for (const mesh of shape.meshes) spin.add(mesh.clone());
+    for (const mesh of shape.meshes) {
+      const copy = mesh.clone();
+      if ((mesh.material as THREE.Material).name === "tyre")
+        copy.userData = { tyre: look };
+      spin.add(copy);
+    }
     const pivot = matrix();
     pivot.matrix.makeTranslation(shape.centre);
     pivot.add(spin);
-    const ring = new THREE.TorusGeometry(
-      shape.radius * sidewallRadius,
-      sidewallTube,
-      6,
-      48,
-    );
-    ring.rotateX(Math.PI / 2);
-    for (const side of [-1, 1]) {
-      const mesh = new THREE.Mesh(ring, this.ringMaterial);
-      mesh.userData = { ringColour: new THREE.Color(compounds[1].colour) };
-      mesh.position.set(0, (side * shape.width) / 2, 0);
-      pivot.add(mesh);
-      rings.push(mesh);
-    }
     root.add(pivot);
     return { pivot, spin };
   }
@@ -279,7 +261,16 @@ export class FieldCars {
     car.placed = true;
   }
 
-  private updateWheels(car: FieldCar, data: Float64Array, at: number): void {
+  private updateWheels(
+    car: FieldCar,
+    data: Float64Array,
+    at: number,
+    seconds: number,
+  ): void {
+    car.look.blur = spinBlur(
+      (data[at + carField.speed] ?? 0) / car.radius,
+      seconds,
+    );
     car.wheels.forEach((wheel, i) => {
       const w = (k: number) =>
         data[at + carWheel.from + i * carWheel.stride + k] ?? 0;
@@ -294,10 +285,8 @@ export class FieldCars {
   private setCompound(car: FieldCar, compound: number): void {
     if (compound === car.compound) return;
     car.compound = compound;
-    const colour = this.ringColours[compound] ?? this.ringColours[1];
-    if (!colour) return;
-    for (const ring of car.rings)
-      (ring.userData as { ringColour: THREE.Color }).ringColour.copy(colour);
+    const colour = this.compoundColours[compound] ?? this.compoundColours[1];
+    if (colour) car.look.compound.copy(colour);
   }
 
   private setShadow(car: FieldCar, on: boolean): void {
@@ -316,6 +305,13 @@ export class FieldCars {
 
   update(data: Float64Array, camera: THREE.Camera): void {
     this.eye.setFromMatrixPosition(camera.matrixWorld);
+    const now = performance.now();
+    const seconds = THREE.MathUtils.clamp(
+      (now - this.updatedAt) / 1000,
+      shortestFrame,
+      longestFrame,
+    );
+    this.updatedAt = now;
     this.cars.forEach((car, i) => {
       const at = (i + 1) * carStride;
       const visible = (data[at + carField.visible] ?? 0) !== 0;
@@ -335,7 +331,7 @@ export class FieldCars {
       car.root.matrixWorldNeedsUpdate = true;
       this.setShadow(car, distance < shadowDistance);
       this.setCompound(car, data[at + carField.compound] ?? 1);
-      if (distance < wheelDistance) this.updateWheels(car, data, at);
+      if (distance < wheelDistance) this.updateWheels(car, data, at, seconds);
     });
   }
 }

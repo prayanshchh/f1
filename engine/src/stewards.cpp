@@ -96,6 +96,7 @@ const double flagLinger = 2.0;
 const double playerContactWindow = 10.0;
 const double spinMemory = 3.0;
 const double yellowGiveBack = 90.0;
+const double recoverWindow = 15.0;
 const double receiverGone = 20.0;
 const double receiverPitting = 2.0;
 const double waitClose = 25.0;
@@ -261,6 +262,7 @@ struct Car
     double giveBackLane = 0;
     int cause = CAUSE_NONE;
     double troubleSince = -100;
+    double shakenAt = -100;
     double onset = -100;
     int with = -1;
     double slowClock = 0;
@@ -468,6 +470,12 @@ bool flagged(int i)
         if (flags[k] > 0 && flagCar[k] == i)
             return true;
     return false;
+}
+
+bool fairGame(int i)
+{
+    const Car &c = cars[i];
+    return c.trouble > 0 || c.ex.active || now - c.shakenAt < recoverWindow || flagged(i);
 }
 
 bool inLaneAt(tCarElt *car)
@@ -1256,7 +1264,7 @@ void yellowPass(tSituation *s, int i, int o, int k)
     Car &c = cars[i];
     double at = s->cars[i]->_distFromStartLine;
     bool open = c.giveBackTo < 0 && kind == KIND_RACE;
-    if (c.trouble > 0 || cars[o].trouble > 0 || flagged(o))
+    if (c.trouble > 0 || fairGame(o))
         return;
     if (o == 0)
     {
@@ -1540,7 +1548,10 @@ void updateFlags(tSituation *s, double dt)
         noteTrouble(i, was);
         int k = sectorOf(s->cars[i]->_distFromStartLine);
         if (c.trouble > 0)
+        {
+            c.shakenAt = now;
             raise(seen, k, c.trouble);
+        }
         if (!c.playerTrouble)
             continue;
         if (cars[i].trouble > level[k])

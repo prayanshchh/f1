@@ -1,6 +1,6 @@
 import * as THREE from "three/webgpu";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { float, smoothstep, uniform, uv, vec3 } from "three/tsl";
+import { float, smoothstep, uv, vec3 } from "three/tsl";
 import { carMaterials, carTextures, mirrorLayout } from "./carpaint.ts";
 import {
   damageable,
@@ -21,6 +21,13 @@ import { mergedMesh, placedCopy } from "./merge.ts";
 import { setTyreShadows, shadowOnlyLayer } from "./road.ts";
 import { carFile } from "./teams.ts";
 import { compounds } from "./tyres.ts";
+import {
+  markTyres,
+  spinBlur,
+  type TyreLook,
+  tyreLook,
+  tyreMaterial,
+} from "./tyre-paint.ts";
 
 export const gltfToSdWorld = new THREE.Matrix4().set(
   1,
@@ -72,6 +79,8 @@ export const wheelRest = [
   new THREE.Vector3(0.75, 0, -1.7),
   new THREE.Vector3(-0.75, 0, -1.7),
 ];
+const shortestFrame = 1 / 240;
+const longestFrame = 1 / 20;
 const contactMargin = 0.5;
 const contactDarkness = 0.55;
 const contactLift = 0.02;
@@ -106,6 +115,7 @@ interface Wheel {
   spin: THREE.Object3D;
   rest: THREE.Vector3;
   restZ: number | null;
+  look: TyreLook;
 }
 
 export function contactShadow(wheels: THREE.Vector3[]): THREE.Mesh {
@@ -139,11 +149,6 @@ export function contactShadow(wheels: THREE.Vector3[]): THREE.Mesh {
 }
 
 const flatSquash = 0.22;
-const bandInner = 0.855;
-const bandOuter = 0.915;
-const bandLift = 0.0015;
-const bandRoughness = 0.62;
-const bandGlow = 0.12;
 
 function tyreSquash(leak: number): number {
   return 1 - flatSquash * leak;
@@ -216,7 +221,8 @@ export class GltfCar {
   private readonly rollMatrix = new THREE.Matrix4();
   private readonly basisY = new THREE.Vector3();
   private readonly basisZ = new THREE.Vector3();
-  private readonly compoundColour = new THREE.Color();
+  private readonly compoundColour = new THREE.Color(compounds[1].colour);
+  private sharedTyres: THREE.Material | null = null;
   private compoundShown = -1;
   private readonly radii: number[] = [];
   private materials: CarMaterials | null = null;
@@ -265,6 +271,7 @@ export class GltfCar {
     return target.texture;
   }
   private deflation: number[] = [];
+  private posedAt = 0;
 
   static async load(
     team: string,
@@ -284,13 +291,20 @@ export class GltfCar {
       "mirror-r": car.addMirror("mirror-r"),
     });
     car.materials = materials;
+    const tyres = tyreMaterial(env, anisotropy);
+    car.sharedTyres = tyres;
     gltf.scene.traverse((object) => {
       if (!(object instanceof THREE.Mesh)) return;
       const source = object.material as THREE.MeshStandardMaterial;
+      object.receiveShadow = true;
+      if (source.name === "tyre") {
+        markTyres(object.geometry as THREE.BufferGeometry, false);
+        object.material = tyres;
+        return;
+      }
       if (source.name.startsWith("mirror-")) car.glass.push(object);
       if (cockpitOnly.test(source.name)) car.cockpitParts.push(object);
       object.material = materials.build(source);
-      object.receiveShadow = true;
     });
     makeDamageable(gltf.scene, car.damage, withinChassis);
     const axes = new THREE.Group();
@@ -304,14 +318,20 @@ export class GltfCar {
       const pivot = gltf.scene.getObjectByName(name);
       const spin = gltf.scene.getObjectByName(`${name}-spin`);
       if (!pivot || !spin) throw new Error(`car model has no ${name}`);
+      const look = { ...tyreLook(), compound: car.compoundColour };
+      spin.traverse((part) => {
+        if ((part as THREE.Mesh).material === tyres)
+          part.userData = { ...part.userData, tyre: look };
+      });
       car.wheels.push({
         pivot,
         spin,
         rest: pivot.position.clone(),
         restZ: null,
+        look,
       });
     }
-    car.addSidewalls();
+    car.measureWheels();
     car.steeringWheel = gltf.scene.getObjectByName("steering-wheel") ?? null;
     car.driverHead = gltf.scene.getObjectByName("driver-head") ?? null;
     car.visualAxleMid =
@@ -329,41 +349,19 @@ export class GltfCar {
     this.root.traverse((object) => {
       if (!(object instanceof THREE.Mesh)) return;
       (object.geometry as THREE.BufferGeometry).dispose();
-      (object.material as THREE.Material).dispose();
+      if (object.material !== this.sharedTyres)
+        (object.material as THREE.Material).dispose();
     });
     for (const map of Object.values(this.textures ?? {}))
       (map as THREE.Texture).dispose();
     for (const mirror of this.mirrors.values()) mirror.target.dispose();
   }
 
-  private addSidewalls(): void {
-    const material = new THREE.MeshStandardNodeMaterial({
-      side: THREE.DoubleSide,
-      roughness: bandRoughness,
-      polygonOffset: true,
-      polygonOffsetFactor: -2,
-      polygonOffsetUnits: -4,
-    });
-    const colour = uniform(this.compoundColour);
-    material.colorNode = colour;
-    material.emissiveNode = colour.mul(bandGlow);
+  private measureWheels(): void {
     const size = new THREE.Vector3();
     for (const wheel of this.wheels) {
       new THREE.Box3().setFromObject(wheel.spin).getSize(size);
-      const radius = Math.max(size.y, size.z) / 2;
-      this.radii.push(radius);
-      const geometry = new THREE.RingGeometry(
-        radius * bandInner,
-        radius * bandOuter,
-        96,
-      );
-      geometry.rotateY(Math.PI / 2);
-      for (const side of [-1, 1]) {
-        const ring = new THREE.Mesh(geometry, material);
-        ring.position.set((side * size.x) / 2 + side * bandLift, 0, 0);
-        ring.receiveShadow = true;
-        wheel.pivot.add(ring);
-      }
+      this.radii.push(Math.max(size.y, size.z) / 2);
     }
   }
 
@@ -476,6 +474,12 @@ export class GltfCar {
     this.deflation = leaks;
   }
 
+  setWear(wear: number[]): void {
+    this.wheels.forEach((wheel, i) => {
+      wheel.look.wear = THREE.MathUtils.clamp(wear[i] ?? 0, 0, 1);
+    });
+  }
+
   update(frame: Float64Array): void {
     this.pose(frame);
     this.updateDash(frame);
@@ -492,6 +496,13 @@ export class GltfCar {
     this.root.matrixWorldNeedsUpdate = true;
     const wheel = (i: number, k: number) =>
       frame[frameIndex.wheels + i * 7 + k] ?? 0;
+    const now = performance.now();
+    const seconds = THREE.MathUtils.clamp(
+      (now - this.posedAt) / 1000,
+      shortestFrame,
+      longestFrame,
+    );
+    this.posedAt = now;
     if (!this.offsetReady) {
       this.model.position.x =
         (wheel(0, 0) + wheel(1, 0) + wheel(2, 0) + wheel(3, 0)) / 4 -
@@ -516,6 +527,7 @@ export class GltfCar {
       w.pivot.rotateY(wheel(i, 5));
       w.pivot.rotateZ(wheel(i, 3));
       w.spin.rotation.set(wheel(i, 4), 0, 0);
+      w.look.blur = spinBlur(wheel(i, 6), seconds);
       w.spin.visible = !this.wheelsOff;
     });
     this.updateTyreShadows();

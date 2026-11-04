@@ -43,13 +43,52 @@ async function api(
   }
 }
 
-async function bigFile(pathname: string, env: Env): Promise<Response> {
-  const object = await env.BIG_FILES.get(pathname.slice(1));
-  if (!object) return new Response("Not found.", { status: 404 });
-  const headers = new Headers({ "cache-control": immutable });
-  object.writeHttpMetadata(headers);
-  headers.set("etag", object.httpEtag);
-  return new Response(object.body, { headers });
+const contentTypes: Record<string, string> = {
+  glb: "model/gltf-binary",
+  hdr: "image/vnd.radiance",
+};
+
+async function streamParts(
+  bucket: R2Bucket,
+  keys: string[],
+  writable: WritableStream,
+): Promise<void> {
+  try {
+    for (const key of keys) {
+      const part = await bucket.get(key);
+      if (!part) throw new Error(`missing part ${key}`);
+      await part.body.pipeTo(writable, { preventClose: true });
+    }
+    await writable.close();
+  } catch (error) {
+    await writable.abort(error);
+  }
+}
+
+async function bigFile(
+  pathname: string,
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<Response> {
+  const key = pathname.slice(1);
+  const { objects } = await env.BIG_FILES.list({ prefix: `${key}/` });
+  if (objects.length === 0) return new Response("Not found.", { status: 404 });
+  const size = objects.reduce((total, part) => total + part.size, 0);
+  const { readable, writable } = new FixedLengthStream(size);
+  ctx.waitUntil(
+    streamParts(
+      env.BIG_FILES,
+      objects.map((part) => part.key),
+      writable,
+    ),
+  );
+  return new Response(readable, {
+    headers: {
+      "cache-control": immutable,
+      "content-type":
+        contentTypes[key.split(".").pop() ?? ""] ?? "application/octet-stream",
+    },
+  });
 }
 
 export default {
@@ -59,6 +98,6 @@ export default {
     if (room)
       return env.PAD_ROOMS.get(env.PAD_ROOMS.idFromName(room)).fetch(request);
     if (pathname.startsWith("/api/")) return api(request, env, ctx);
-    return bigFile(pathname, env);
+    return bigFile(pathname, env, ctx);
   },
 } satisfies ExportedHandler<Env>;

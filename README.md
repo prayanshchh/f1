@@ -67,7 +67,7 @@ git lfs install
 git clone https://github.com/prayanshchh/revracers.git
 cd revracers
 pnpm install
-pnpm --filter ./apps/client exec vite
+pnpm dev
 ```
 
 Then open <http://localhost:5173/>. The first start compiles Speed Dreams to WebAssembly, which takes a few minutes; later starts reuse the build.

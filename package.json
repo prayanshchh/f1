@@ -16,6 +16,7 @@
   "packageManager": "pnpm@12.14.0",
   "scripts": {
     "prepare": "lefthook install",
+    "dev": "pnpm --filter ./apps/client run dev",
     "format:check": "prettier --check . --ignore-path .gitignore --ignore-path .prettierignore",
     "lint": "ast-grep scan --no-ignore hidden && eslint --max-warnings 0 .",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p apps/client/tsconfig.json && tsc --noEmit -p apps/api/tsconfig.json",

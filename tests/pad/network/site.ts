@@ -61,6 +61,13 @@ async function callApi(
   response.end(Buffer.from(await reply.arrayBuffer()));
 }
 
+function withHtml(file: string): string {
+  const page = `${file}.html`;
+  return path.extname(file) === "" && statSync(page, { throwIfNoEntry: false })
+    ? page
+    : file;
+}
+
 function serveFile(request: IncomingMessage, response: ServerResponse): void {
   const pathname = decodeURIComponent(
     new URL(request.url ?? "/", "https://site").pathname,
@@ -69,7 +76,7 @@ function serveFile(request: IncomingMessage, response: ServerResponse): void {
   const local = pathname.startsWith("/harness/")
     ? pathname.slice("/harness".length)
     : pathname;
-  const file = path.join(base, local === "/" ? "index.html" : local);
+  const file = withHtml(path.join(base, local === "/" ? "index.html" : local));
   const found =
     base !== "" &&
     file.startsWith(base) &&

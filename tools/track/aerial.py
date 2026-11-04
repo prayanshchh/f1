@@ -3,7 +3,7 @@ import json
 import numpy as np
 from PIL import Image
 from pyproj import Transformer
-from scipy.ndimage import gaussian_filter, gaussian_filter1d, map_coordinates
+from scipy.ndimage import distance_transform_edt, gaussian_filter, gaussian_filter1d, map_coordinates, median_filter
 
 from geo import DEM_ORIGIN, Osm
 
@@ -39,10 +39,12 @@ class Aerial:
 
 LATERAL_REACH = 60.0
 LATERAL_STEP = 0.3
-ALONG_SIGMA = 2.0
 MASK_ROWS = 16384
-MASK_ALONG_SIGMA = 1.0
-ACROSS_SIGMA = 0.45
+SHAPE_SIGMA = (1.6, 0.7)
+CONCRETE_VALUE = 0.7
+CONCRETE_SATURATION = 0.06
+FIELD_REACH = 1.2
+FIELD_SMOOTHING = 0.8
 EDGE_FILL = 1.6
 KERB_BAND = (0.3, 1.2)
 KERB_FINE = 0.6
@@ -76,7 +78,7 @@ def classes(rgb):
     white = (value > 0.8) & (saturation < 0.14)
     grey = saturation < 0.125
     asphalt = (value < 0.645) & grey & ~teal & ~blue
-    concrete = (value >= 0.645) & grey & ~white
+    concrete = (value >= CONCRETE_VALUE) & (saturation < CONCRETE_SATURATION) & ~white
     return {"red": red, "teal": teal, "blue": blue, "white": white, "asphalt": asphalt, "concrete": concrete}
 
 
@@ -84,10 +86,6 @@ def road_space(air, points, normal):
     lateral = np.arange(-LATERAL_REACH, LATERAL_REACH + 1e-3, LATERAL_STEP)
     grid = points[:, None, :] + normal[:, None, :] * lateral[None, :, None]
     return lateral, air.sample(grid)
-
-
-def soft(mask, along=ALONG_SIGMA):
-    return gaussian_filter(mask.astype(np.float32), (along, ACROSS_SIGMA), mode=("wrap", "nearest"))
 
 
 def resample(points, normal, half, rows):
@@ -164,12 +162,22 @@ def fill_to_edge(found, lateral, half):
                     break
 
 
-def write_masks(rgb, lateral, half, directory):
+def shape_field(mask, row_metres):
+    clean = median_filter(mask.astype(np.uint8), size=3, mode="nearest").astype(np.float32)
+    shape = gaussian_filter(clean, SHAPE_SIGMA, mode=("wrap", "nearest")) > 0.5
+    sampling = (row_metres, LATERAL_STEP)
+    distance = distance_transform_edt(shape, sampling=sampling) - distance_transform_edt(~shape, sampling=sampling)
+    field = gaussian_filter(distance.astype(np.float32), FIELD_SMOOTHING, mode=("wrap", "nearest"))
+    return np.clip(0.5 + field / (2 * FIELD_REACH), 0, 1)
+
+
+def write_masks(rgb, lateral, half, row_metres, directory):
     found = classes(rgb)
     fill_to_edge(found, lateral, half)
     luminance = stretch(rgb @ np.array([0.2126, 0.7152, 0.0722], np.float32))
-    first = np.stack([soft(found[name], MASK_ALONG_SIGMA) for name in ("red", "teal", "blue", "white")], -1)
-    second = np.stack([soft(found["concrete"], MASK_ALONG_SIGMA), soft(found["asphalt"], MASK_ALONG_SIGMA), gaussian_filter1d(luminance, 1.0, axis=0, mode="wrap"), np.ones(luminance.shape, np.float32)], -1)
+    field = lambda name: shape_field(found[name], row_metres)
+    first = np.stack([field(name) for name in ("red", "teal", "blue", "white")], -1)
+    second = np.stack([field("concrete"), field("asphalt"), gaussian_filter1d(luminance, 1.0, axis=0, mode="wrap"), np.ones(luminance.shape, np.float32)], -1)
     for name, data in (("apron_a.png", first), ("apron_b.png", second)):
         Image.fromarray(np.round(data * 255).astype(np.uint8), "RGBA").save(directory / name)
 
@@ -204,7 +212,7 @@ def bake(source, points, normal, half, step, blocked, textures, build):
     build.mkdir(parents=True, exist_ok=True)
     fine_points, fine_normal, fine_half = resample(points, normal, half, MASK_ROWS)
     fine_lateral, fine_rgb = road_space(air, fine_points, fine_normal)
-    write_masks(fine_rgb, fine_lateral, fine_half, textures)
+    write_masks(fine_rgb, fine_lateral, fine_half, step * len(points) / MASK_ROWS, textures)
     write_terrain(air, textures)
     (build / "aerial.json").write_text(json.dumps({**fit_affine(air), "reach": LATERAL_REACH}))
     return spans

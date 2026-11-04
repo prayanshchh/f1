@@ -1,7 +1,7 @@
 import teamData from "../../../../content/cars/teams.json";
 
 const files = import.meta.glob<string>(
-  "../../../../content/cars/*/*.{glb,jpg}",
+  "../../../../content/cars/*/*.{glb,jpg,png}",
   { eager: true, query: "?url", import: "default" },
 );
 

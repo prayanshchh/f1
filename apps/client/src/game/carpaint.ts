@@ -57,7 +57,6 @@ const shadedReflection: Record<string, number> = {
   brake: 0.15,
   rim: 0.45,
   "rim-dark": 0.45,
-  tyre: 0.25,
   glove: 0.3,
   suit: 0.3,
   grip: 0.3,
@@ -159,7 +158,6 @@ export interface CarTextures {
   albedo: THREE.Texture;
   orm: THREE.Texture;
   bump: THREE.Texture;
-  tyre: THREE.Texture;
   wheelFace: THREE.Texture;
   glove: THREE.Texture;
 }
@@ -177,7 +175,6 @@ export function carTextures(team: string, anisotropy: number): CarTextures {
     albedo: loaded(carFile(team, "albedo.jpg"), true, anisotropy),
     orm: loaded(carFile(team, "orm.jpg"), false, anisotropy),
     bump: loaded(carFile(team, "bump.jpg"), false, anisotropy),
-    tyre: loaded(carFile("shared", "tyre.jpg"), true, anisotropy),
     wheelFace: loaded(carFile(team, "wheel-face.jpg"), true, anisotropy),
     glove: loaded(carFile(team, "glove.jpg"), true, anisotropy),
   };
@@ -479,10 +476,6 @@ function partMaterial(
   const name = source.name;
   physical.envMapIntensity *= shadedReflection[name] ?? 1;
   if (name === "brake") brakeGlow(physical);
-  if (name === "tyre") {
-    physical.map = textures.tyre;
-    physical.color.set(1, 1, 1);
-  }
   texturedPart(physical, textures);
   if (carbonMaterials.has(name))
     physical.colorNode = color(physical.color).mul(weave().mul(1.6));

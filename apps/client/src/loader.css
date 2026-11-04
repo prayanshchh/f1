@@ -99,6 +99,24 @@
   font-family: "Saira Variable", "Saira", system-ui, sans-serif;
 }
 
+.load-bar {
+  width: 120px;
+  height: 4px;
+  overflow: hidden;
+  background: rgb(255 255 255 / 12%);
+  transform: skewX(-11.3deg);
+}
+
+.load-bar i {
+  display: block;
+  height: 100%;
+  background: var(--team, #ff2e2e);
+  box-shadow: 0 0 8px var(--team, #ff2e2e);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.2s ease-out;
+}
+
 .status[hidden] {
   display: none;
 }
@@ -109,8 +127,13 @@
   fill: #f4f5f8;
 }
 
-.status .loader {
+.status .loader,
+.status .load-bar {
   width: 300px;
+}
+
+.status .load-bar {
+  margin-top: -14px;
 }
 
 .status p {
@@ -124,6 +147,10 @@
 
 body[data-drive-status="error"] .status .loader i {
   animation: none;
+}
+
+body[data-drive-status="error"] .status .load-bar {
+  visibility: hidden;
 }
 
 body[data-drive-status="error"] .status p {

@@ -18,6 +18,53 @@ DefaultLoadingManager.itemEnd = (url: string) => {
   waiting = [];
 };
 
+const sizes = JSON.parse(
+  document.querySelector("[data-asset-sizes]")?.textContent ?? "{}",
+) as Record<string, number>;
+let expectedBytes = 0;
+let receivedBytes = 0;
+const plainFetch = globalThis.fetch.bind(globalThis);
+
+function requestUrl(input: RequestInfo | URL): URL {
+  if (input instanceof Request) return new URL(input.url);
+  return new URL(input, location.href);
+}
+
+function expectedSize(url: URL, response: Response): number {
+  const known = sizes[url.pathname];
+  if (known !== undefined) return known;
+  if (response.headers.has("content-encoding")) return 0;
+  return Number(response.headers.get("content-length") ?? 0);
+}
+
+globalThis.fetch = async (input, init) => {
+  const response = await plainFetch(input, init);
+  const url = requestUrl(input);
+  const size = url.origin === location.origin ? expectedSize(url, response) : 0;
+  if (!response.ok || !response.body || size <= 0) return response;
+  expectedBytes += size;
+  const counted = new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      receivedBytes += chunk.byteLength;
+      controller.enqueue(chunk);
+    },
+  });
+  return new Response(response.body.pipeThrough(counted), {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+};
+
+export function downloadsFromNow(): () => number {
+  const expected = expectedBytes;
+  const received = receivedBytes;
+  return () =>
+    expectedBytes > expected
+      ? (receivedBytes - received) / (expectedBytes - expected)
+      : 0;
+}
+
 export function loaded(): Promise<void> {
   if (loading <= 0) return Promise.resolve();
   return new Promise((resolve) => waiting.push(resolve));

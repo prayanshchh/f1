@@ -34,6 +34,7 @@ import {
   setupSource,
 } from "./game/engine.ts";
 import {
+  cachedDriver,
   currentDriver,
   type Driver,
   driverOutbox,
@@ -133,6 +134,7 @@ import {
   type WeekendState,
 } from "./game/weekend.ts";
 import { WeekendFlow } from "./game/weekend-flow.ts";
+import { LoadBar, paintTeam } from "./game/load-bar.ts";
 import { showActions } from "./game/weekend-ui.ts";
 
 const canvas = document.querySelector<HTMLCanvasElement>(
@@ -142,6 +144,9 @@ const status = document.querySelector<HTMLElement>(
   "[data-testid=drive-status]",
 );
 const statusText = document.querySelector<HTMLElement>("[data-status-text]");
+const statusBar = new LoadBar(
+  document.querySelector<HTMLElement>("[data-status-bar]") ?? undefined,
+);
 const hudRoot = document.querySelector<HTMLElement>("[data-testid=hud]");
 const autostartKey = "revracers.autostart";
 
@@ -156,6 +161,8 @@ function padLink(): PadLink {
 }
 
 function setStatus(text: string): void {
+  if (text === "") statusBar.set(1);
+  else if (status?.hidden === true) statusBar.reset();
   if (status) status.hidden = text === "";
   if (statusText && text) statusText.textContent = text;
 }
@@ -675,6 +682,7 @@ async function runBuildUp(context: BuildUpContext): Promise<void> {
     context;
   const { field, music } = context;
   setStatus("Preparing the grid…");
+  statusBar.followDownloads(0, 0.95);
   const opening = engine.update(performance.now() / 1000);
   scene.updateTyres(opening, engine.tyreInfo());
   scene.update(opening);
@@ -803,10 +811,12 @@ async function enterGame(
       driver = await front.onboard(driver);
     }
     rememberDriver(driver);
+    paintTeam(driver.team ?? settings.car);
     const choice = await front.hub(driver);
     driver = choice.driver;
     rememberDriver(driver);
     settings.car = driver.team ?? settings.car;
+    paintTeam(settings.car);
     if (choice.action === "tutorial") return leave(true);
     front.close();
     music.play("menu");
@@ -905,6 +915,17 @@ function debugHooks(
     Object.assign(window, { f1Debug: { engine, scene, renderer } });
 }
 
+async function bootEngine(
+  settings: Settings,
+): ReturnType<typeof loadSpeedDreams> {
+  paintTeam(cachedDriver()?.team ?? settings.car);
+  setStatus("Loading");
+  statusBar.followDownloads(0, 0.95);
+  const module = await loadSpeedDreams();
+  statusBar.set(1);
+  return module;
+}
+
 async function main(): Promise<void> {
   if (!canvas || !hudRoot) throw new Error("drive page markup is missing");
   fitStage();
@@ -915,9 +936,8 @@ async function main(): Promise<void> {
   const renderer = await createRenderer(canvas);
 
   const params = new URLSearchParams(location.search);
-  setStatus("Loading Speed Dreams…");
-  const module = await loadSpeedDreams();
   const settings = loadSettings(params);
+  const module = await bootEngine(settings);
   const source = setupSource(module);
   const interventions = params.has("interventions");
   const menu = new Menu(source, settings, interventions);
@@ -938,7 +958,10 @@ async function main(): Promise<void> {
   const car = carOf(settings);
   const seat = playerSeat(driver, car.id);
   applySettings(source, settings, stage);
+  paintTeam(settings.car);
   setStatus(`Loading ${track.label}…`);
+  statusBar.reset();
+  statusBar.followDownloads(0, 0.85);
   const engine = Engine.start(
     module,
     track.category,
@@ -1101,6 +1124,7 @@ async function main(): Promise<void> {
   scene.setWeather(engine.weather());
   scene.update(engine.update(performance.now() / 1000));
   setStatus("Preparing circuit…");
+  statusBar.followDownloads(0.85, 0.99);
   await scene.warmUp(renderer, draw);
   setStatus("");
   replay = new InstantReplay({
@@ -1446,6 +1470,7 @@ async function main(): Promise<void> {
 
 main().catch((error: unknown) => {
   document.body.dataset["driveStatus"] = "error";
+  statusBar.reset();
   setStatus(
     playerMessage(error, "The race could not load. Reload to try again."),
   );

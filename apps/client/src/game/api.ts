@@ -188,7 +188,7 @@ const retrySeconds = 30;
 
 const driverKey = "revracers.driver";
 
-function cachedDriver(): Driver | null {
+export function cachedDriver(): Driver | null {
   try {
     return JSON.parse(
       localStorage.getItem(driverKey) ?? "null",

@@ -23,7 +23,7 @@ function answers(host: string, address: string): Promise<boolean> {
         host: address,
         servername: host,
         headers: { host },
-        path: "/pad.html",
+        path: "/phonepad",
         timeout: checkPause * 3,
       },
       (response) => {

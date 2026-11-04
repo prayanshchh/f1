@@ -1,3 +1,5 @@
+import type { Context } from "hono";
+
 export class Invalid extends Error {
   constructor(
     message: string,
@@ -5,6 +7,12 @@ export class Invalid extends Error {
   ) {
     super(message);
   }
+}
+
+export function invalidAnswer(error: Error, c: Context): Response {
+  if (error instanceof Invalid)
+    return c.json({ error: error.message, field: error.field }, 400);
+  throw error;
 }
 
 export type Body = Record<string, unknown>;

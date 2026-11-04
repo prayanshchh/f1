@@ -16,7 +16,8 @@
         "*.mjs",
         "tools/*.mjs",
         "tools/ai/*.mjs"
-      ]
+      ],
+      "ignoreDependencies": ["cloudflare"]
     },
     "apps/client": {
       "entry": ["api-server.ts", "engine-build.ts", "phone-tunnel.ts"],

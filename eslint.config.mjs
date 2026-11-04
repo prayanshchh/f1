@@ -10,6 +10,8 @@ export default tseslint.config(
       ".context/**",
       "**/dist/**",
       "apps/client/wasm/**",
+      "apps/worker/worker-configuration.d.ts",
+      ".wrangler/**",
       "test-results/**",
       "playwright-report/**",
     ],

@@ -24,7 +24,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         index: fileURLToPath(new URL("./index.html", import.meta.url)),
-        pad: fileURLToPath(new URL("./pad.html", import.meta.url)),
+        phonepad: fileURLToPath(new URL("./phonepad.html", import.meta.url)),
       },
     },
   },

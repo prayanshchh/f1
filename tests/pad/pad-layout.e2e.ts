@@ -33,7 +33,7 @@ const buttons = [
 test.use({ hasTouch: true, isMobile: true });
 
 async function startPad(page: Page): Promise<void> {
-  await page.goto(`/pad.html#${room}`);
+  await page.goto(`/phonepad#${room}`);
   await page.locator("[data-pad=go]").click();
   await expect(page.locator("[data-pad=start]")).toBeHidden();
 }

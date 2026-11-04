@@ -644,14 +644,12 @@ export class FrontEnd {
         Enter: () => {
           items[focus]?.run();
         },
-        c: credits,
-        C: credits,
       },
       card,
       nav,
       this.footer(
         ["↵", "Select", () => items[focus]?.run()],
-        ["C", "Credits", credits],
+        ["", "Credits", credits],
       ),
     );
     paint();

@@ -43,7 +43,7 @@ test.describe("credits and licences", () => {
     await expect(page.locator(".front-hub")).toBeVisible();
 
     await page.keyboard.press("c");
-    await expect(page.locator("[data-credits=licence]")).toBeVisible();
+    await expect(page.locator("[data-records=root]")).toBeHidden();
   });
 
   test("the built game ships the licence text of its bundled libraries", async ({

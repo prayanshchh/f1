@@ -567,7 +567,7 @@ export class FrontEnd {
       },
       {
         label: "Driving School",
-        detail: "Controls, braking, the racing line and the HUD",
+        detail: "Learn the basics in one lap",
         run: () => {
           done({ action: "tutorial", driver });
         },
@@ -605,18 +605,14 @@ export class FrontEnd {
           void this.onboard(driver).then(reopen);
         },
       },
-      {
-        label: "Credits",
-        detail: "Speed Dreams, open source and licences",
-        run: () => {
-          void new CreditsScreen().run().then(() => {
-            reopen(driver);
-          });
-          this.keys = {};
-        },
-      },
     ];
     const list = this.pickList(items);
+    const credits = () => {
+      void new CreditsScreen().run().then(() => {
+        reopen(driver);
+      });
+      this.keys = {};
+    };
     const card = el("section", "front-hub-driver");
     card.style.setProperty("--brand", team.brand);
     const names = el("div", "front-driver-name");
@@ -636,7 +632,7 @@ export class FrontEnd {
       list.keys,
       card,
       list.nav,
-      this.footer(["↵", "Select", list.choose]),
+      this.footer(["↵", "Select", list.choose], ["", "Credits", credits]),
     );
   }
 
@@ -694,8 +690,7 @@ export class FrontEnd {
       const list = this.pickList([
         {
           label: "Driving School",
-          detail:
-            "Learn on track, step by step: controls, braking, the racing line, the screens and your settings. About 7 minutes.",
+          detail: "Learn the basics in one lap.",
           tag: "Recommended",
           run: () => {
             resolve("tutorial");
@@ -703,7 +698,7 @@ export class FrontEnd {
         },
         {
           label: "Skip Tutorial",
-          detail: "I know how to race. Take me to my driver profile.",
+          detail: "I know how to race.",
           run: () => {
             resolve("skip");
           },
@@ -720,7 +715,7 @@ export class FrontEnd {
         heading(
           "Welcome to RevRacers",
           "New to the cockpit?",
-          "Driving School puts you on track with an instructor who talks you through every corner. You can leave at any time.",
+          "One quick lap to learn the basics. You can leave any time.",
         ),
         list.nav,
         this.footer(

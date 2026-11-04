@@ -37,8 +37,7 @@ for (const team of teams) {
     { stdio: "inherit" },
   );
 }
-execFileSync(
-  "uv",
-  ["run", "--project", "tools/track", "python", "tools/car/art.py"],
-  { stdio: "inherit" },
-);
+for (const script of ["tools/car/art.py", "tools/car/tyre.py"])
+  execFileSync("uv", ["run", "--project", "tools/track", "python", script], {
+    stdio: "inherit",
+  });

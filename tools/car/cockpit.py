@@ -4,14 +4,13 @@ import bpy
 import numpy as np
 
 from body import rim_height
-from shapes import PARTS, both, box, closed_curve, loft, open_curve, plate, superellipse, sweep, to_blender, tube
+from design import HEAD, HEAD_RADIUS
+from shapes import PARTS, both, box, closed_curve, lathe, loft, open_curve, plate, superellipse, sweep, to_blender, tube, wing
 
 WHEEL_X = 0.535
 WHEEL_Z = 0.600
 WHEEL_SCALE = 0.88
 WHEEL_TILT = math.radians(14)
-HEAD = (0.09, 0.0, 0.71)
-HEAD_RADIUS = 0.128
 FACE_WIDTH = 0.17
 FACE_HEIGHT = 0.115
 VOXEL = 0.002
@@ -25,6 +24,7 @@ MIRROR_GLASS = 0.125
 MIRROR_TALL = 0.030
 MIRROR_TILT = 0.55
 MIRROR_SLANT = 0.09
+MIRROR_END = 0.5
 HALO_APEX = 0.585
 HALO_APEX_Z = 0.838
 HALO_SLOPE = 0.22
@@ -196,7 +196,7 @@ def headrest():
 def mirror_ring(y, side):
     t = (y - MIRROR_INNER) / (MIRROR_OUTER - MIRROR_INNER)
     housing = np.clip((t - 0.22) / 0.12, 0, 1)
-    tip = max(1 - max(0.0, (t - 0.975) / 0.025) ** 2, 0.02) ** 0.5
+    tip = max(1 - max(0.0, (t - 0.955) / 0.045) ** 2, MIRROR_END) ** 0.5
     tall = (0.0080 + (MIRROR_TALL + 0.0065 - 0.0080) * housing * housing * (3 - 2 * housing)) * tip
     chord = (0.034 + 0.030 * housing) * tip
     rear = MIRROR_X + MIRROR_SLANT * (MIRROR_Y - y) + 0.016 * (1 - housing)
@@ -209,9 +209,28 @@ def mirror_ring(y, side):
     return np.stack([px + MIRROR_TILT * housing * (pz - z), np.full(36, side * y), pz], axis=-1)
 
 
+def mirror_lights(side, name):
+    end = mirror_ring(MIRROR_OUTER, side)
+    cz = (end[:, 2].min() + end[:, 2].max()) / 2
+    flat = end[:, 0] - MIRROR_TILT * (end[:, 2] - cz)
+    cx = (flat.min() + flat.max()) / 2 + 0.004
+    y = side * MIRROR_OUTER
+
+    def pad(label, width, height, power, u, v, near, far, material_name):
+        outline = superellipse(width, height, power, 32)
+        rings = [np.stack([cx + u + outline[:, 0] + MIRROR_TILT * (v + outline[:, 1]), np.full(32, y + side * d), cz + v + outline[:, 1]], axis=-1) for d in (near, far)]
+        loft(f"mirror-{label}.{name}", rings, material_name=material_name, atlas=False, sharp_angle=math.radians(40))
+
+    pad("bezel", 0.026, 0.0125, 4.0, 0.0, 0.0, -0.003, 0.0012, "lens")
+    for row, v in enumerate((0.0058, -0.0058)):
+        pad(f"lens-{row}", 0.022, 0.0047, 2.6, 0.0, v, 0.0, 0.0024, "mirror-lens")
+        for k, u in enumerate((-0.0135, -0.0045, 0.0045, 0.0135)):
+            pad(f"chip-{row}{k}", 0.0015, 0.0026, 6.0, u, v, 0.0015, 0.0031, "mirror-led")
+
+
 def mirrors():
     for side, name in ((1, "l"), (-1, "r")):
-        stations = np.linspace(MIRROR_INNER, MIRROR_OUTER, 64)
+        stations = np.concatenate([np.linspace(MIRROR_INNER, MIRROR_OUTER - 0.024, 56), np.linspace(MIRROR_OUTER - 0.024, MIRROR_OUTER, 13)[1:]])
         loft(f"mirror-housing.{name}", [mirror_ring(y, side) for y in stations], density=2.2)
         centre = side * MIRROR_Y
         glass = superellipse(MIRROR_GLASS, MIRROR_TALL, 9.0, 72)
@@ -252,6 +271,7 @@ def mirrors():
         loft(f"mirror-fin.{name}", np.asarray(rings), density=2.0, sharp_angle=math.radians(50))
         strut = open_curve(np.array([(MIRROR_X + 0.05, side * 0.30, 0.610), (MIRROR_X + 0.05, side * 0.36, 0.645), (MIRROR_X + 0.045, side * 0.42, MIRROR_Z - 0.028)]), 16)
         loft(f"mirror-strut.{name}", sweep(strut, 0.016, 0.0028, 3.2, 12), density=1.0)
+        mirror_lights(side, name)
 
 
 def wheel_body():
@@ -505,20 +525,64 @@ def hand(side):
     tube(f"forearm.{name}", [wrist, (wrist + elbow) / 2, elbow], 0.032, 0.030, samples=12, points=18, group="steering-wheel", material_name="suit", atlas=False)
 
 
+def helmet_reach(v):
+    sphere = math.sqrt(max(1 - v * v, 0.0))
+    lower = min(v, -0.45)
+    s = sphere if v >= -0.45 else 0.893 + (lower + 0.45) * 0.08
+    chin = max(math.sin(math.pi * (v + 0.95) / 0.6), 0.0) if -0.95 <= v <= -0.35 else 0.0
+    flare = max(-0.85 - v, 0.0) / 0.15
+    front = HEAD_RADIUS * (1.06 * s + 0.1 * chin)
+    back = HEAD_RADIUS * (1.12 * s + 0.06 * flare)
+    width = HEAD_RADIUS * (1.0 * s + 0.02 * flare)
+    power = 2.0 + 0.4 * max(-v, 0.0)
+    return front, back, width, power
+
+
+def helmet_point(v, angle, lift=0.0):
+    front, back, width, power = helmet_reach(v)
+    c, s = math.cos(angle), math.sin(angle)
+    reach = front if c > 0 else back
+    x = HEAD[0] + math.copysign(abs(c) ** (2 / power), c) * (reach + lift)
+    y = math.copysign(abs(s) ** (2 / power), s) * (width + lift)
+    return np.array([x, y, HEAD[2] + v * HEAD_RADIUS * 1.04])
+
+
+def helmet_ring(v, angles, lift=0.0):
+    return np.array([helmet_point(v, a, lift) for a in angles])
+
+
 def driver():
-    centre = np.array(HEAD)
-    rings = []
-    for v in np.sin(np.linspace(-1.02, math.pi / 2, 72)):
-        ring_radius = math.sqrt(max(1 - v * v, 1e-6)) * HEAD_RADIUS
-        ring = superellipse(ring_radius * 1.02, ring_radius, 2.0, 56)
-        rings.append(np.stack([centre[0] + ring[:, 1], ring[:, 0], np.full(56, centre[2] + v * HEAD_RADIUS * 1.04)], axis=-1))
-    loft("helmet", rings, group="driver-head", material_name="helmet", atlas=True, caps=(True, False), sharp_angle=math.radians(179))
+    around = np.linspace(0, 2 * math.pi, 72, endpoint=False)
+    shell = [helmet_ring(v, around) for v in np.sin(np.linspace(-math.pi / 2, math.pi / 2 - 0.06, 84))]
+    loft("helmet", shell, group="driver-head", material_name="helmet", atlas=True, caps=(True, True), sharp_angle=math.radians(179), density=4.0)
     visor = []
-    for v, chord in ((-0.12, 0.70), (0.05, 0.77), (0.25, 0.77), (0.38, 0.68)):
-        radius = math.sqrt(1 - v * v) * HEAD_RADIUS * 1.018
-        angles = np.linspace(-chord, chord, 28)
-        visor.append(np.stack([centre[0] + radius * np.cos(angles), radius * np.sin(angles), np.full(28, centre[2] + v * HEAD_RADIUS * 1.04)], axis=-1))
+    for v, chord in ((-0.36, 1.05), (-0.33, 1.18), (-0.2, 1.24), (0.0, 1.25), (0.1, 1.22), (0.15, 1.12)):
+        visor.append(helmet_ring(v, np.linspace(-chord, chord, 40), 0.0045))
     loft("visor", visor, group="driver-head", material_name="visor", atlas=False, closed=False, caps=(False, False))
+    seal = [helmet_point(0.165, a, 0.006) for a in np.linspace(-1.16, 1.16, 24)]
+    tube("visor-seal", seal, 0.0045, 0.0035, samples=48, points=10, group="driver-head", material_name="carbon-part", atlas=False)
+    for side in (1, -1):
+        pivot = helmet_point(-0.06, side * (math.pi / 2 - 0.06), 0.002)
+        lathe(
+            f"visor-pivot.{'l' if side > 0 else 'r'}",
+            [(0.0, 0.0), (0.0, 0.021), (0.004, 0.02), (0.007, 0.013), (0.007, 0.0)],
+            tuple(pivot),
+            segments=32,
+            sign=side,
+            material_name="carbon-part",
+            group="driver-head",
+            atlas=False,
+            caps=(False, False),
+        )
+    stations = []
+    for y in (-0.062, -0.04, 0.0, 0.04, 0.062):
+        v = 0.56
+        front, back, width, power = helmet_reach(v)
+        across = min(abs(y) / width, 0.99)
+        edge = HEAD[0] - back * (1 - across ** power) ** (1 / power) + 0.012
+        taper = 1 - 0.45 * (abs(y) / 0.062) ** 2
+        stations.append((y, edge, HEAD[2] + v * HEAD_RADIUS * 1.04 - 0.004, 0.05 * taper, -16))
+    wing("helmet-spoiler", stations, samples=24, thickness=0.12, camber=0.04, points=24, sides=False, group="driver-head", material_name="helmet", atlas=True)
     tube("shoulders", [(-0.015, -0.21, 0.56), (-0.005, 0.0, 0.585), (-0.015, 0.21, 0.56)], 0.085, 0.06, samples=20, points=20, group="driver-head", material_name="suit", atlas=False, up=(1, 0, 0))
     tube("neck", [(0.055, 0.0, 0.56), (0.075, 0.0, 0.64)], 0.07, samples=6, points=18, group="driver-head", material_name="suit", atlas=False, up=(1, 0, 0))
 

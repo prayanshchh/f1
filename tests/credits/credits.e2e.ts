@@ -13,7 +13,10 @@ test.describe("credits and licences", () => {
     await page.goto("/");
     await page.mouse.move(1, 1);
     await expect(page.locator(".front-hub")).toBeVisible({ timeout: 60_000 });
-    await page.getByRole("button", { name: /Credits/ }).click();
+    await expect(
+      page.locator(".front-hub").getByRole("button", { name: /Credits/ }),
+    ).toHaveCount(0);
+    await page.locator(".front-foot").getByText("Credits").click();
 
     const hero = page.locator("[data-credits=speed-dreams]");
     await expect(hero).toContainText("Speed Dreams");
@@ -38,6 +41,9 @@ test.describe("credits and licences", () => {
     await page.keyboard.press("Escape");
     await expect(page.locator("[data-records=root]")).toBeHidden();
     await expect(page.locator(".front-hub")).toBeVisible();
+
+    await page.keyboard.press("c");
+    await expect(page.locator("[data-records=root]")).toBeHidden();
   });
 
   test("the built game ships the licence text of its bundled libraries", async ({

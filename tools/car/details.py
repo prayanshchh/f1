@@ -1,6 +1,6 @@
 import numpy as np
 
-from shapes import both, loft, open_curve, plate, superellipse, sweep, tube
+from shapes import both, loft, open_curve, plate, superellipse, sweep, tube, wing
 
 
 def blade(name, control, chord, thick=0.0035, up=(0, 0, 1), samples=18, density=0.9):
@@ -71,28 +71,37 @@ def airbox_ears():
 
 
 def rear_wing_details():
-    for i, z in enumerate((0.84, 0.81, 0.78)):
-        blade(
-            f"rw-strake-{i}",
-            [(-2.34, 0.565, z), (-2.23, 0.567, z + 0.004), (-2.11, 0.565, z + 0.002)],
-            0.0025,
-            0.008,
-            samples=8,
-            density=0.7,
-        )
+    dip = lambda y: 0.024 * (1 - (y / 0.55) ** 2)
     both(
         "rw-gurney",
         sweep(
-            open_curve(np.array([(-2.335, 0.0, 0.905), (-2.335, 0.28, 0.912), (-2.335, 0.54, 0.930)]), 16),
-            0.0035,
-            0.007,
+            open_curve(np.array([(-2.362, y, 0.966 - 0.4 * dip(y)) for y in (0.0, 0.18, 0.36, 0.54)]), 20),
+            0.0030,
+            0.0060,
             3.0,
             8,
             up=(1, 0, 0),
         ),
         density=0.6,
     )
-    tube("rw-rod", [(-1.99, 0.0, 0.62), (-2.19, 0.0, 0.73)], 0.007, samples=6, points=10, material_name="titanium", atlas=False)
+
+
+def floor_boards():
+    for k, (y, top) in enumerate(((0.792, 0.300), (0.748, 0.262), (0.705, 0.224))):
+        outline = [(1.052, 0.072), (1.050, top), (0.985, top + 0.010), (0.80, top - 0.035), (0.66, 0.140), (0.62, 0.072)]
+        plate(f"floor-board-{k}", outline, y, 0.004, samples=40, density=0.8, lean=lambda x, z: -0.12 * (1.05 - x))
+
+
+def halo_wing():
+    wing("halo-wing", [(0.0, 0.640, 0.872, 0.060, 7), (0.07, 0.636, 0.871, 0.058, 7), (0.125, 0.628, 0.868, 0.050, 6)], samples=16, thickness=0.09, camber=0.06, points=24, density=1.4)
+    for side in (1, -1):
+        tube(f"halo-wing-strut.{side}", [(0.598, side * 0.075, 0.846), (0.606, side * 0.075, 0.872)], 0.010, 0.0022, samples=4, points=10, up=(0, 1, 0), density=1.0)
+
+
+def harness():
+    for side in (1, -1):
+        tube(f"belt-shoulder.{side}", [(-0.05, side * 0.07, 0.585), (0.05, side * 0.065, 0.575), (0.20, side * 0.055, 0.50)], 0.022, 0.003, samples=12, points=10, material_name="headrest", atlas=False, up=(0, 0, 1))
+        tube(f"belt-buckle.{side}", [(0.205, side * 0.052, 0.498), (0.235, side * 0.048, 0.486)], 0.016, 0.006, samples=3, points=10, material_name="titanium", atlas=False, up=(0, 0, 1))
 
 
 def rear_brake_winglets():
@@ -138,3 +147,6 @@ def build_details():
     rear_wing_details()
     rear_brake_winglets()
     diffuser_details()
+    floor_boards()
+    halo_wing()
+    harness()

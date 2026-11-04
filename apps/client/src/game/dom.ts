@@ -22,7 +22,8 @@ export function button(
 
 export function prompt(glyph: string, label: string): HTMLElement {
   const box = el("span", "prompt");
-  box.append(el("i", "btn-glyph", glyph), el("span", "", label));
+  if (glyph) box.append(el("i", "btn-glyph", glyph));
+  box.append(el("span", "", label));
   return box;
 }
 

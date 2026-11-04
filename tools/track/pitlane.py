@@ -1,6 +1,6 @@
 import numpy as np
 
-from palette import BRAND_ROWS, palette_uv
+from palette import BRAND_ROWS, TEAMS, palette_uv
 from trackside import UNIT, Batch
 
 BAY_SPACING = 14.0
@@ -33,17 +33,13 @@ BOOM_HEIGHT = 4.8
 BOOM_SIZE = 0.17
 BOOM_STEPS = 8
 BOOM_OFFSET = 3.2
-TEAM_COUNT = 10
+TEAM_COUNT = len(TEAMS)
 TEAM_BAYS = 2
 STATION_LENGTH = 7.0
-STATION_DEPTH = 1.5
-STATION_HEIGHT = 2.5
-STATION_ROOF = 0.14
 RAIL_HEIGHT = 1.05
 RAIL_POST_SPACING = 3.0
 RAIL_SIZE = 0.05
 STEP_COUNT = 5
-TYRE_RADIUS = 0.34
 TYRE_WIDTH = 0.36
 BOTTLE_RADIUS = 0.13
 BOTTLE_HEIGHT = 1.7
@@ -59,7 +55,15 @@ TOWER_LEVEL = 1.8
 TOWER_POST = 0.11
 TOWER_BRACE = 0.05
 SEED = 25
-
+GARAGE_GRID = (4, 3)
+BLANKET_RADIUS = 0.37
+BAND_HEIGHT = 0.07
+COMPOUNDS = ("soft", "medium", "hard")
+MONITORS = 7
+CHAIRS = 6
+STAND_ROOF = 3.55
+STAND_DECK = 1.0
+MAST_HEIGHT = 2.4
 
 
 class Frame:
@@ -104,7 +108,7 @@ def flat(colour):
     return [palette_uv(colour)] * 4
 
 
-def cylinder(batch, centre, axis, radius, length, uv, segments=10):
+def cylinder(batch, centre, axis, radius, length, uv, segments=10, caps=True):
     axis = np.asarray(axis, float) / np.linalg.norm(axis)
     helper = np.array([0.0, 0.0, 1.0]) if abs(axis[2]) < 0.9 else np.array([1.0, 0.0, 0.0])
     u = np.cross(axis, helper)
@@ -114,8 +118,9 @@ def cylinder(batch, centre, axis, radius, length, uv, segments=10):
     top = centre + axis * length
     for a, b in zip(ring, ring[1:] + ring[:1]):
         batch.add([centre + a * radius, centre + b * radius, top + b * radius, top + a * radius], uv)
-    batch.add([top + a * radius for a in ring], [uv[0]] * segments)
-    batch.add([centre + a * radius for a in ring], [uv[0]] * segments)
+    if caps:
+        batch.add([top + a * radius for a in ring], [uv[0]] * segments)
+        batch.add([centre + a * radius for a in ring], [uv[0]] * segments)
 
 
 def limb(batch, start, end, r0, r1, uv, segments=8):
@@ -160,13 +165,17 @@ class Figures:
 
 
 POSES = ("ready", "talking", "interact", "arms_folded", "hands_hips")
-MARSHAL_TILE = 10
+MARSHAL_TILE = len(TEAMS)
+
+
+def bay_count(pit, length):
+    return int(((pit["garageEnd"] - pit["garageStart"]) % length) // BAY_SPACING)
 
 
 def bays(track):
     pit = track.pit
     span = (pit["garageEnd"] - pit["garageStart"]) % track.length
-    count = int(span // BAY_SPACING)
+    count = bay_count(pit, track.length)
     spacing = span / count
     return [(pit["garageStart"] + index * spacing, spacing) for index in range(count)]
 
@@ -175,6 +184,53 @@ def team_of(index, count):
     first = (count - TEAM_COUNT * TEAM_BAYS) // 2
     team = (index - first) // TEAM_BAYS
     return team if 0 <= team < TEAM_COUNT else None
+
+
+def garage_cell(team):
+    columns, rows = GARAGE_GRID
+    index = team if team is not None else columns * rows - 1
+    u0, u1 = index % columns / columns, (index % columns + 1) / columns
+    v0, v1 = 1 - (index // columns + 1) / rows, 1 - index // columns / rows
+    return [(u0, v0), (u1, v0), (u1, v1), (u0, v1)]
+
+
+def tyre_stack(batch, base, count, compound):
+    cylinder(batch, base, (0, 0, 1), BLANKET_RADIUS, count * TYRE_WIDTH - 0.015, flat("blanket"), 14)
+    for layer in range(count):
+        band = base + np.array([0, 0, layer * TYRE_WIDTH + (TYRE_WIDTH - BAND_HEIGHT) / 2])
+        cylinder(batch, band, (0, 0, 1), BLANKET_RADIUS + 0.006, BAND_HEIGHT, flat(compound), 14, caps=False)
+
+
+def garage_interior(frame, pit, parts, team, s0, s1):
+    front = pit["garageFront"]
+    deep = front + INTERIOR_DEPTH
+    team_parts, tyres, steel, screens = parts["team"], parts["tyres"], parts["steel"], parts["screens"]
+    brand, base = flat(f"team {team}"), flat(f"team deep {team}")
+    box(team_parts, frame, s0 + 1.2, s1 - 1.2, front + 0.6, deep - 1.6, 0.0, 0.035, flat(f"team floor {team}"))
+    box(team_parts, frame, s0 + 1.25, s1 - 1.25, front + 0.6, front + 0.75, 0.0, 0.04, brand)
+    for lateral in (front + 2.6, front + 6.2):
+        box(team_parts, frame, s0, s1, lateral, lateral + 0.3, OPENING_HEIGHT - 0.55, OPENING_HEIGHT - 0.3, base)
+        box(team_parts, frame, s0, s1, lateral - 0.01, lateral + 0.31, OPENING_HEIGHT - 0.6, OPENING_HEIGHT - 0.55, brand)
+    for edge, inward in ((s0 + 0.55, 1), (s1 - 0.55, -1)):
+        for k, lateral in enumerate((front + 4.4, front + 5.3, front + 6.2, front + 7.1)):
+            tyre_stack(tyres, frame.at(edge, lateral, 0.02), 4, COMPOUNDS[(k + (inward > 0)) % len(COMPOUNDS)])
+        a, b = edge - 0.45, edge + 0.45
+        for lateral in (front + 3.9, front + 7.6):
+            for level in (0.0, 1.5):
+                limb(steel, frame.at(a, lateral, level), frame.at(b, lateral, level), 0.025, 0.025, UNIT, 4)
+            limb(steel, frame.at(a, lateral, 0.0), frame.at(a, lateral, 1.5), 0.025, 0.025, UNIT, 4)
+            limb(steel, frame.at(b, lateral, 0.0), frame.at(b, lateral, 1.5), 0.025, 0.025, UNIT, 4)
+    bench = deep - 1.15
+    for k, start in enumerate(np.linspace(s0 + 1.6, s1 - 2.6, 4)):
+        box(team_parts, frame, start, start + 0.95, bench, bench + 0.6, 0.12, 0.98, flat("dark"))
+        box(team_parts, frame, start - 0.01, start + 0.96, bench - 0.01, bench + 0.61, 0.98, 1.02, brand if k % 2 else base)
+    desk = deep - 2.8
+    middle = (s0 + s1) / 2
+    box(team_parts, frame, middle - 1.4, middle + 1.4, desk, desk + 0.7, 0.0, 0.92, flat("dark"))
+    for k in range(3):
+        a = middle - 1.3 + k * 0.88
+        box(team_parts, frame, a, a + 0.8, desk + 0.3, desk + 0.36, 0.95, 1.45, flat("monitor"))
+        screens.add([frame.at(a + 0.03, desk + 0.29, 0.98), frame.at(a + 0.77, desk + 0.29, 0.98), frame.at(a + 0.77, desk + 0.29, 1.42), frame.at(a + 0.03, desk + 0.29, 1.42)], UNIT)
 
 
 def garage_front(frame, pit, parts):
@@ -187,11 +243,17 @@ def garage_front(frame, pit, parts):
         s0, s1 = s + BAY_PIER / 2, s + spacing - BAY_PIER / 2
         for a, b in ((s, s0), (s1, s + spacing)):
             panels.add([frame.at(a, front, -0.5), frame.at(b, front, -0.5), frame.at(b, front, OPENING_HEIGHT), frame.at(a, front, OPENING_HEIGHT)], UNIT)
+        team = team_of(index, len(all_bays))
+        cell = garage_cell(team)
+        if team is not None:
+            for edge in (s0, s1):
+                box(parts["team"], frame, edge - 0.12, edge + 0.12, front - 0.06, front - 0.01, 0.0, OPENING_HEIGHT, flat(f"team {team}"))
+            garage_interior(frame, pit, parts, team, s0, s1)
         deep = front + INTERIOR_DEPTH
         floor.add([frame.at(s0, front, 0.02), frame.at(s1, front, 0.02), frame.at(s1, deep, 0.02), frame.at(s0, deep, 0.02)], [(0, 0), (spacing / 3, 0), (spacing / 3, 3), (0, 3)])
-        back.add([frame.at(s0, deep, 0), frame.at(s1, deep, 0), frame.at(s1, deep, OPENING_HEIGHT), frame.at(s0, deep, OPENING_HEIGHT)], [(0, 0), (1, 0), (1, 1), (0, 1)])
+        back.add([frame.at(s0, deep, 0), frame.at(s1, deep, 0), frame.at(s1, deep, OPENING_HEIGHT), frame.at(s0, deep, OPENING_HEIGHT)], cell)
         for edge in (s0, s1):
-            back.add([frame.at(edge, deep, 0), frame.at(edge, front, 0), frame.at(edge, front, OPENING_HEIGHT), frame.at(edge, deep, OPENING_HEIGHT)], [(0, 0), (1, 0), (1, 1), (0, 1)])
+            back.add([frame.at(edge, deep, 0), frame.at(edge, front, 0), frame.at(edge, front, OPENING_HEIGHT), frame.at(edge, deep, OPENING_HEIGHT)], cell)
         inner.add([frame.at(s0, front, OPENING_HEIGHT), frame.at(s1, front, OPENING_HEIGHT), frame.at(s1, deep, OPENING_HEIGHT), frame.at(s0, deep, OPENING_HEIGHT)], UNIT)
         for strip in (0.3, 0.65):
             light_lat = front + INTERIOR_DEPTH * strip
@@ -261,28 +323,53 @@ def boom(batch, frame, s, front, colour):
     limb(batch, tip, tip - np.array([0, 0, 0.45]), 0.03, 0.03, flat("black"), 6)
 
 
+def jack(batch, frame, s, lateral, length, colour):
+    limb(batch, frame.at(s, lateral, 0.12), frame.at(s + length, lateral, 0.95), 0.03, 0.03, flat("jack"), 8)
+    box(batch, frame, s - 0.25, s + 0.25, lateral - 0.22, lateral + 0.22, 0.06, 0.2, flat(colour))
+    for side in (-0.2, 0.2):
+        cylinder(batch, frame.at(s - 0.2, lateral + side, 0.06), frame.at(s - 0.2, lateral + side + 0.04, 0.06) - frame.at(s - 0.2, lateral + side, 0.06), 0.06, 0.04, flat("rubber"), 10)
+    limb(batch, frame.at(s + length - 0.25, lateral, 0.95), frame.at(s + length + 0.15, lateral, 0.98), 0.035, 0.035, flat("dark"), 8)
+
+
+def gun_cart(batch, frame, s, lateral, colour):
+    box(batch, frame, s, s + 0.5, lateral, lateral + 0.4, 0.1, 0.75, flat("dark"))
+    box(batch, frame, s - 0.01, s + 0.51, lateral - 0.01, lateral + 0.41, 0.75, 0.8, flat(colour))
+    cylinder(batch, frame.at(s + 0.25, lateral + 0.2, 0.8), (0, 0, 1), 0.04, 0.2, flat("jack"), 8)
+    cylinder(batch, frame.at(s + 0.25, lateral + 0.2, 0.42), frame.at(s + 0.25, lateral - 0.02, 0.42) - frame.at(s + 0.25, lateral + 0.2, 0.42), 0.17, 0.06, flat("rubber"), 12)
+
+
+def traffic_light(batch, frame, s, front):
+    tip = front - BOOM_REACH
+    box(batch, frame, s - 0.2, s + 0.2, tip - 0.08, tip + 0.08, BOOM_HEIGHT - 1.2, BOOM_HEIGHT - 0.55, flat("monitor"))
+    for k, colour in enumerate(("soft", "go")):
+        centre = frame.at(s, tip - 0.09, BOOM_HEIGHT - 0.72 - k * 0.3)
+        cylinder(batch, centre, frame.at(s, tip - 0.11, 0) - frame.at(s, tip - 0.09, 0), 0.09, 0.02, flat(colour), 12)
+
+
 def equipment(frame, pit, parts):
     front = pit["garageFront"]
     team_parts, tyres, metal = parts["team"], parts["tyres"], parts["metal"]
     all_bays = bays(frame.track)
-    colours = [f"team {i}" for i in range(TEAM_COUNT)]
     for index, (s, spacing) in enumerate(all_bays):
         team = team_of(index, len(all_bays))
         if team is None:
             continue
-        colour = colours[team]
+        colour = f"team {team}"
         middle = s + spacing / 2
         boom(team_parts, frame, middle - BOOM_OFFSET, front, colour)
         boom(team_parts, frame, middle + BOOM_OFFSET, front, colour)
-        for stack, offset in enumerate((-6.0, -5.2)):
-            base = frame.at(s + 1.3 + stack * 0.0, front + offset, 0.02)
-            for layer in range(4):
-                cylinder(tyres, base + np.array([0, 0, layer * TYRE_WIDTH]), (0, 0, 1), TYRE_RADIUS, TYRE_WIDTH - 0.02, flat("black"), 12)
+        traffic_light(team_parts, frame, middle + BOOM_OFFSET, front)
+        for k, (along, lateral) in enumerate(((1.0, -6.1), (1.0, -5.25), (1.85, -6.1), (1.85, -5.25))):
+            tyre_stack(tyres, frame.at(s + along, front + lateral, 0.02), 4, COMPOUNDS[(index + k // 2) % len(COMPOUNDS)])
         for bottle in range(2):
             cylinder(metal, frame.at(s + spacing - 1.2 + bottle * 0.35, front - 0.35, 0.02), (0, 0, 1), BOTTLE_RADIUS, BOTTLE_HEIGHT, flat("grey"), 10)
         cart_s = s + spacing - 3.4
         box(metal, frame, cart_s, cart_s + CART_SIZE[1], front - 1.2, front - 1.2 + CART_SIZE[0], 0.15, CART_SIZE[2], flat("grey"))
         box(team_parts, frame, cart_s, cart_s + CART_SIZE[1], front - 1.21, front - 1.19 + CART_SIZE[0], CART_SIZE[2], CART_SIZE[2] + 0.06, flat(colour))
+        jack(team_parts, frame, s + 3.0, front - 0.9, 1.9, f"team deep {team}")
+        jack(team_parts, frame, s + spacing - 6.2, front - 0.9, 1.3, f"team deep {team}")
+        for k in range(4):
+            gun_cart(team_parts, frame, s + 5.0 + k * 0.75, front - 0.55, colour)
 
 
 def crew(frame, pit, parts, rng, figures):
@@ -312,6 +399,55 @@ def marshals(frame, pit, parts, rng, figures):
         figures.add(parts, frame.at(s, deck + rng.uniform(-0.6, 0.6), 1.02), tangent_heading - np.pi / 2 + rng.uniform(-0.8, 0.8), MARSHAL_TILE, int(rng.integers(0, 6)), str(rng.choice(POSES)))
 
 
+def pit_stand(frame, parts, rng, figures, team, centre, front, deck):
+    team_parts, steel, screens = parts["team"], parts["steel"], parts["screens"]
+    brand, base = flat(f"team {team}"), flat(f"team deep {team}")
+    s0, s1 = centre - STATION_LENGTH / 2, centre + STATION_LENGTH / 2
+    l0, l1 = front + 0.45, front + deck - 0.15
+    floor = STAND_DECK + 0.15
+    box(team_parts, frame, s0, s1, l0, l1, STAND_DECK, floor, flat("dark"))
+    box(team_parts, frame, s0, s1, l0 + 0.05, l0 + 0.75, floor, 2.0, base)
+    box(team_parts, frame, s0 - 0.01, s1 + 0.01, l0 + 0.04, l0 + 0.76, 2.0, 2.05, flat("dark"))
+    box(team_parts, frame, s0 - 0.01, s1 + 0.01, l0 + 0.03, l0 + 0.05, 1.45, 1.6, brand)
+    width = STATION_LENGTH / MONITORS
+    for row, (bottom, top) in enumerate(((2.1, 2.55), (2.6, 3.05))):
+        for k in range(MONITORS):
+            a, b = s0 + k * width + 0.04, s0 + (k + 1) * width - 0.04
+            lean = 0.05 * row
+            box(team_parts, frame, a, b, l0 + 0.3 - lean, l0 + 0.36 - lean, bottom, top, flat("monitor"))
+            screens.add([frame.at(a + 0.03, l0 + 0.365 - lean, bottom + 0.03), frame.at(b - 0.03, l0 + 0.365 - lean, bottom + 0.03), frame.at(b - 0.03, l0 + 0.365 - lean, top - 0.03), frame.at(a + 0.03, l0 + 0.365 - lean, top - 0.03)], UNIT)
+    for k in range(CHAIRS):
+        seat_s = s0 + (k + 0.5) * STATION_LENGTH / CHAIRS
+        seat_l = l0 + 1.15
+        limb(steel, frame.at(seat_s, seat_l, floor), frame.at(seat_s, seat_l, 1.72), 0.03, 0.03, UNIT, 6)
+        box(team_parts, frame, seat_s - 0.24, seat_s + 0.24, seat_l - 0.22, seat_l + 0.22, 1.72, 1.8, flat("chair"))
+        box(team_parts, frame, seat_s - 0.23, seat_s + 0.23, seat_l + 0.2, seat_l + 0.26, 1.8, 2.35, flat("chair"))
+        box(team_parts, frame, seat_s - 0.235, seat_s + 0.235, seat_l + 0.195, seat_l + 0.265, 2.22, 2.35, brand)
+    roof_l0, roof_l1 = l0 - 0.6, l1 + 0.5
+    box(team_parts, frame, s0 - 0.5, s1 + 0.5, roof_l0, roof_l1, STAND_ROOF, STAND_ROOF + 0.16, base)
+    for lateral in (roof_l0 - 0.03, roof_l1 - 0.01):
+        box(team_parts, frame, s0 - 0.52, s1 + 0.52, lateral, lateral + 0.04, STAND_ROOF - 0.28, STAND_ROOF + 0.18, brand)
+    parts["lights"].add([frame.at(s0, l0 + 0.2, STAND_ROOF - 0.01), frame.at(s1, l0 + 0.2, STAND_ROOF - 0.01), frame.at(s1, l0 + 0.45, STAND_ROOF - 0.01), frame.at(s0, l0 + 0.45, STAND_ROOF - 0.01)], UNIT)
+    for post_s in (s0 + 0.1, centre, s1 - 0.1):
+        for post_l in (l0 + 0.1, l1 - 0.1):
+            limb(steel, frame.at(post_s, post_l, floor), frame.at(post_s, post_l, STAND_ROOF), 0.045, 0.045, UNIT, 6)
+    for edge in (s0 - 0.02, s1 - 0.02):
+        box(team_parts, frame, edge, edge + 0.04, l0 + 0.05, l0 + 0.95, 2.05, STAND_ROOF, base)
+    mast = frame.at(s1 + 0.2, l1, STAND_ROOF + 0.16)
+    top = mast + np.array([0, 0, MAST_HEIGHT])
+    limb(steel, mast, top, 0.035, 0.025, UNIT, 6)
+    for lift, reach in ((0.6, 0.45), (1.5, 0.3)):
+        a, b = frame.at(s1 + 0.2 - reach, l1, STAND_ROOF + 0.16 + lift), frame.at(s1 + 0.2 + reach, l1, STAND_ROOF + 0.16 + lift)
+        limb(steel, a, b, 0.015, 0.015, UNIT, 4)
+    dish = frame.at(s0 + 0.6, l0 + 0.6, STAND_ROOF + 0.45)
+    cylinder(steel, dish, frame.at(s0 + 0.6, l0 + 0.1, STAND_ROOF + 0.7) - frame.at(s0 + 0.6, l0 + 0.6, STAND_ROOF + 0.45), 0.32, 0.05, UNIT, 16)
+    limb(steel, frame.at(s0 + 0.6, l0 + 0.6, STAND_ROOF + 0.16), dish, 0.03, 0.03, UNIT, 6)
+    heading = np.arctan2(*frame.basis(s0)[1][::-1])
+    for seat in (1, 3, 4):
+        seat_s = s0 + (seat + 0.5) * STATION_LENGTH / CHAIRS
+        figures.add(parts, frame.at(seat_s, l0 + 1.6, floor), heading + np.pi, team, int(rng.integers(0, 6)), str(rng.choice(POSES)))
+
+
 def pit_wall(frame, pit, parts, rng, figures):
     length = frame.track.length
     front = pit["pitWall"]
@@ -319,7 +455,7 @@ def pit_wall(frame, pit, parts, rng, figures):
     back = front + deck
     start = pit["garageStart"]
     span = (pit["garageEnd"] - start) % length
-    team_parts, steel, screens, station_roof = parts["team"], parts["steel"], parts["screens"], parts["canopy"]
+    steel = parts["steel"]
     margin = 24.0
     post = margin
     while post < span - margin:
@@ -332,25 +468,7 @@ def pit_wall(frame, pit, parts, rng, figures):
     for team in range(TEAM_COUNT):
         first = (len(all_bays) - TEAM_COUNT * TEAM_BAYS) // 2 + team * TEAM_BAYS
         s, spacing = all_bays[first]
-        centre = s + spacing
-        s0, s1 = centre - STATION_LENGTH / 2, centre + STATION_LENGTH / 2
-        l0 = front + 0.55
-        l1 = l0 + STATION_DEPTH
-        colour = flat(f"team {team}")
-        box(team_parts, frame, s0, s1, l0 + 0.5, l1 - 0.3, 1.0, 1.0 + 0.85, flat("dark"))
-        box(team_parts, frame, s0, s1, l0 + 0.5, l1 - 0.3, 1.85, 1.92, colour)
-        for screen in range(5):
-            a = s0 + 0.3 + screen * (STATION_LENGTH - 0.6) / 5
-            b = a + (STATION_LENGTH - 0.6) / 5 - 0.12
-            for face_lat in (l0 + 0.48, l1 - 0.28):
-                screens.add([frame.at(a, face_lat, 2.0), frame.at(b, face_lat, 2.0), frame.at(b, face_lat, 2.55), frame.at(a, face_lat, 2.55)], UNIT)
-        for corner_s in (s0 + 0.15, s1 - 0.15):
-            for corner_l in (l0 + 0.1, l1 - 0.1):
-                limb(steel, frame.at(corner_s, corner_l, 1.0), frame.at(corner_s, corner_l, 1.0 + STATION_HEIGHT), 0.05, 0.05, UNIT, 6)
-        station_roof.add([frame.at(s0 - 0.3, l0 - 0.3, 3.5), frame.at(s1 + 0.3, l0 - 0.3, 3.5), frame.at(s1 + 0.3, l1 + 0.3, 3.5 + STATION_ROOF), frame.at(s0 - 0.3, l1 + 0.3, 3.5 + STATION_ROOF)], UNIT)
-        box(team_parts, frame, s0 - 0.3, s1 + 0.3, l1 + 0.28, l1 + 0.32, 3.2, 3.5 + STATION_ROOF, colour)
-        for seat in (0.25, 0.5, 0.75):
-            figures.add(parts, frame.at(s0 + STATION_LENGTH * seat, l1 - 0.15, 1.02), np.arctan2(*frame.basis(s0)[1][::-1]) + np.pi, team, int(rng.integers(0, 6)), str(rng.choice(POSES)))
+        pit_stand(frame, parts, rng, figures, team, s + spacing, front, deck)
     for stairs in (0.2, 0.5, 0.8):
         s = start + span * stairs
         step_depth = 0.2

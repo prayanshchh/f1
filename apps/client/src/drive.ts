@@ -1188,6 +1188,8 @@ async function main(): Promise<void> {
     pitPressed = false;
     return { padInput, pressed };
   };
+  let servedTyre: number | null = null;
+  const freshTyre = () => servedTyre ?? controls.tyre();
   const applyPit = (frame: Float64Array, now: number, steward: StewardCar) => {
     const { padInput, pressed } = pitButton(now);
     pit.setPenalty(pitPenaltyFor(steward));
@@ -1208,11 +1210,12 @@ async function main(): Promise<void> {
       control.drive !== null,
     );
     if (control.serviceNow) {
+      servedTyre = tyre;
       engine.setPitCompound(tyre);
       engine.pitService(startFuel, control.wingChange);
       controls.wingServed();
       controls.tyreServed();
-    }
+    } else if (control.phase !== "service") servedTyre = null;
     return control;
   };
   const openWeekend = () => {
@@ -1334,7 +1337,7 @@ async function main(): Promise<void> {
     const info = engine.hudInfo();
     scene.setDash(info);
     scene.updateTyres(frame, tyres);
-    scene.updatePit(control, frame);
+    scene.updatePit(control, frame, freshTyre());
     scene.marks.update(
       frame,
       engine.wheelGrip(),

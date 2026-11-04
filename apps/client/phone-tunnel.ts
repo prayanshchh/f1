@@ -51,10 +51,20 @@ async function reachable(origin: string): Promise<boolean> {
   return false;
 }
 
-function openTunnel(port: number, site: PhoneSite): ChildProcess {
+function localUrl({ address, family, port }: AddressInfo): string {
+  const host =
+    address === "::" || address === "0.0.0.0"
+      ? "127.0.0.1"
+      : family === "IPv6"
+        ? `[${address}]`
+        : address;
+  return `http://${host}:${String(port)}`;
+}
+
+function openTunnel(local: AddressInfo, site: PhoneSite): ChildProcess {
   const tunnel = spawn(
     "cloudflared",
-    ["tunnel", "--no-autoupdate", "--url", `http://127.0.0.1:${String(port)}`],
+    ["tunnel", "--no-autoupdate", "--url", localUrl(local)],
     { stdio: ["ignore", "pipe", "pipe"] },
   );
   let found = false;
@@ -90,7 +100,7 @@ export function phoneTunnel(): Plugin {
       });
       server.httpServer?.once("listening", () => {
         const address = server.httpServer?.address() as AddressInfo | null;
-        if (address) tunnel = openTunnel(address.port, site);
+        if (address) tunnel = openTunnel(address, site);
       });
       server.httpServer?.on("close", () => {
         tunnel?.kill();

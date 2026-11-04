@@ -2708,13 +2708,46 @@ kbd,
   line-height: 1.4;
 }
 
+.pad-code {
+  position: relative;
+}
+
 .pad-panel .pad-url {
-  width: 100%;
+  position: absolute;
+  inset: auto 0 0;
+  padding: 8px 10px;
+  background: rgb(21 22 33 / 92%);
+  border-radius: 0 0 8px 8px;
+  color: #d3d5de;
   font-family: ui-monospace, monospace;
   font-size: 11px;
   line-height: 1.5;
   overflow-wrap: anywhere;
-  opacity: 0.75;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+
+.pad-code:hover .pad-url {
+  opacity: 1;
+  pointer-events: auto;
+  user-select: all;
+}
+
+.pad-code.waiting .pad-url {
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: none;
+  color: #4a4d5c;
+  font-family: inherit;
+  font-size: 13px;
+  opacity: 1;
+}
+
+.pad-panel .pad-note {
+  font-size: 13px;
+  text-wrap: balance;
 }
 
 .pad-panel .pad-close {

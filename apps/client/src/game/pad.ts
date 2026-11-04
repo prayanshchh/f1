@@ -264,6 +264,8 @@ export class PadLink {
   private paintCode(url: string | null, caption: string): void {
     const qr = this.panel.querySelector<HTMLElement>("[data-pad=pad-qr]");
     const text = this.panel.querySelector<HTMLElement>("[data-pad=pad-url]");
+    const code = this.panel.querySelector<HTMLElement>("[data-pad=pad-code]");
+    code?.classList.toggle("waiting", !url);
     if (qr) qr.innerHTML = url ? renderSVG(url, { border: 2 }) : "";
     if (text) text.textContent = caption;
   }

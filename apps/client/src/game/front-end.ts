@@ -591,17 +591,13 @@ export class FrontEnd {
           void this.onboard(driver).then(reopen);
         },
       },
-      {
-        label: "Credits",
-        detail: "Speed Dreams, open source and licences",
-        run: () => {
-          void new CreditsScreen().run().then(() => {
-            reopen(driver);
-          });
-          this.keys = {};
-        },
-      },
     ];
+    const credits = () => {
+      void new CreditsScreen().run().then(() => {
+        reopen(driver);
+      });
+      this.keys = {};
+    };
     let focus = 0;
     const nav = el("nav", "front-hub");
     const rows = items.map((item, index) => {
@@ -648,10 +644,15 @@ export class FrontEnd {
         Enter: () => {
           items[focus]?.run();
         },
+        c: credits,
+        C: credits,
       },
       card,
       nav,
-      this.footer(["↵", "Select", () => items[focus]?.run()]),
+      this.footer(
+        ["↵", "Select", () => items[focus]?.run()],
+        ["C", "Credits", credits],
+      ),
     );
     paint();
   }

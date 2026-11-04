@@ -9,6 +9,7 @@ from scipy.ndimage import gaussian_filter
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from design import linear, use
+from helmet import paint_helmet
 
 CONTRAST = 0.22
 DARK_TEXT = np.array([0.008, 0.008, 0.010])
@@ -306,13 +307,10 @@ def paint(atlas, team):
     carbon[fin_accent] = 0.0
     rough[fin_accent] = ROUGH_PAINT
 
-    helmet = atlas.where(r"^helmet")
-    albedo[helmet] = np.array(linear(team.get("helmet", "#e7e8e9")))
-    albedo[helmet & (np.abs(z - 0.768) < 0.03)] = EMBER
-    albedo[helmet & (np.abs(y) < 0.018)] = EMBER
-    albedo[helmet & (z > 0.813)] = GOLD
+    helmet, colour, gloss = paint_helmet(atlas, team, text_mask, sample)
+    albedo[helmet] = colour
     carbon[helmet] = 0.0
-    rough[helmet] = 0.2
+    rough[helmet] = gloss
 
     for joint in (1.42, 0.92):
         line = chassis & (np.abs(x - joint) < 0.0022)
@@ -399,36 +397,6 @@ def save_rgb(path, array, quality=92, gamma=True, size=None):
     image.save(path, quality=quality, subsampling=0)
 
 
-def tyre_texture(out):
-    width, height = 4096, 512
-    image = Image.new("RGB", (width, height), (21, 21, 23))
-    draw = ImageDraw.Draw(image)
-    face = font(30, 800)
-    small = font(15, 600)
-    rows = height
-    for sidewall, flip in ((0.20, False), (0.80, True)):
-        y = int(rows * sidewall)
-        for k in range(2):
-            x = width * (k / 2 + 0.05)
-            layer = Image.new("RGBA", (900, 90), (0, 0, 0, 0))
-            layer_draw = ImageDraw.Draw(layer)
-            layer_draw.text((10, 4), "KESTREL", font=face, fill=(208, 208, 208, 255))
-            layer_draw.text((330, 16), "P RACE 18", font=small, fill=(208, 208, 208, 255))
-            if flip:
-                layer = layer.transpose(Image.FLIP_TOP_BOTTOM).transpose(Image.FLIP_LEFT_RIGHT)
-            image.paste(layer, (int(x), y - 45), layer)
-    array = np.asarray(image, np.float32) / 255.0
-    rough = np.full(array.shape[:2], 0.82, np.float32)
-    v = (np.arange(height, dtype=np.float32) + 0.5) / height
-    tread = (v > 0.34) & (v < 0.66)
-    array = array.copy()
-    array[tread] *= 0.72
-    rough[tread] = 0.62
-    for centre in (0.30, 0.325, 0.675, 0.70):
-        array[np.abs(v - centre) < 0.0035] *= 0.6
-    Image.fromarray(np.round(array * 255).astype(np.uint8)).save(out / "shared" / "tyre.jpg", quality=90, subsampling=0)
-
-
 def main():
     team = use(sys.argv[1] if len(sys.argv) > 1 else "velza")
     work = Path(sys.argv[2] if len(sys.argv) > 2 else f"build/car/{team['id']}")
@@ -442,7 +410,6 @@ def main():
     save_rgb(out / "orm.jpg", orm, gamma=False, size=4096)
     save_rgb(out / "orm-lod.jpg", orm, gamma=False, size=LOD_ORM)
     save_rgb(out / "bump.jpg", np.stack([height, height, height], axis=-1), gamma=False, size=4096, quality=88)
-    tyre_texture(root)
     print(f"livery: {team['id']} {atlas.size}px")
 
 

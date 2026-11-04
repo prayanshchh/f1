@@ -5,6 +5,7 @@ import {
   dot,
   exp,
   float,
+  fwidth,
   materialEmissive,
   materialRoughness,
   mix,
@@ -33,21 +34,29 @@ import streaksUrl from "../../../../content/tracks/hill-country/textures/baked/a
 import terrainUrl from "../../../../content/tracks/hill-country/textures/baked/terrain_albedo.jpg?url";
 import grainUrl from "../../../../content/tracks/hill-country/textures/source/asphalt_track_base_color.jpg?url";
 import { frustumContains } from "./world-culler.ts";
+import {
+  asphaltDetail,
+  lushGrass,
+  mownAlong,
+  mownWorld,
+  shadeKerb,
+} from "./track-surface.ts";
 import { releaseOnceUploaded } from "./preload.ts";
 
-const asphaltDark = 0.115;
-const asphaltLight = 0.155;
+const asphaltDark = 0.088;
+const asphaltLight = 0.118;
 const asphaltMean = 0.0152;
-const asphaltContrast = 0.55;
-const asphaltTint = vec3(1.0, 0.985, 0.965);
+const asphaltContrast = 0.75;
+const asphaltTint = vec3(0.98, 0.99, 1.0);
 const streakStrength = 0.2;
 const streakAcross = 1 / 7;
 const streakAlong = 1 / 24;
 const apronShade = 0.5;
 const grassMean = 0.315;
-const grassDetail = 0.5;
+const grassDetail = 0.75;
 const terrainGain = 0.62;
-const maskEdge = 0.07;
+const apronReach = 60;
+const maskEdge = 0.012;
 const paintGrain = 0.24;
 const paintRed = vec3(0.44, 0.052, 0.042);
 const paintTeal = vec3(0.075, 0.3, 0.15);
@@ -390,15 +399,18 @@ function shadeRoad(
     smoothstep(0.08, 0.42, photo),
   );
   const band = rubber();
+  const detail = asphaltDetail(baked.grain);
   material.colorNode = asphaltGrain(source)
     .mul(tone)
+    .mul(detail.tone)
     .mul(asphaltTint)
     .mul(float(1).add(streak.sub(0.5).mul(streakStrength)))
     .mul(float(1).sub(band.mul(rubberDarkening)));
   if (source.roughnessMap)
-    material.roughnessNode = texture(source.roughnessMap, uv()).g.mul(
-      float(1).sub(band.mul(rubberSmoothing)),
-    );
+    material.roughnessNode = texture(source.roughnessMap, uv())
+      .g.mul(float(1).sub(band.mul(rubberSmoothing)))
+      .mul(detail.roughness)
+      .clamp(0, 1);
 }
 
 function shadePaved(
@@ -422,11 +434,9 @@ function grassDetailFrom(source: THREE.MeshStandardMaterial) {
 }
 
 function crisp(mask: THREE.Node) {
-  return smoothstep(
-    float(0.5 - maskEdge),
-    float(0.5 + maskEdge),
-    mask as ReturnType<typeof float>,
-  );
+  const field = mask as ReturnType<typeof float>;
+  const edge = fwidth(field).max(maskEdge);
+  return smoothstep(float(0.5).sub(edge), float(0.5).add(edge), field);
 }
 
 function shadeApron(
@@ -444,7 +454,13 @@ function shadeApron(
   const blue = crisp(a.b);
   const red = crisp(a.r);
   const white = crisp(a.a);
-  const grass = texture(baked.terrain, uv(2)).rgb.mul(terrainGain).mul(detail);
+  const lateral = uv(1).x.mul(2).sub(1).mul(apronReach);
+  const grass = lushGrass(
+    texture(baked.terrain, uv(2)).rgb.mul(terrainGain),
+    float(1),
+  )
+    .mul(detail)
+    .mul(mownAlong(lateral));
   const hard = mix(
     float(1),
     texture(baked.grain, uv())
@@ -473,9 +489,12 @@ function shadeTerrain(
   baked: BakedGround,
 ): void {
   if (!source.map) return;
-  material.colorNode = texture(baked.terrain, uv(1))
-    .rgb.mul(terrainGain)
-    .mul(grassDetailFrom(source));
+  material.colorNode = lushGrass(
+    texture(baked.terrain, uv(1)).rgb.mul(terrainGain),
+    float(0),
+  )
+    .mul(grassDetailFrom(source))
+    .mul(mownWorld());
   material.roughnessNode = float(grassRoughness);
 }
 
@@ -497,6 +516,12 @@ const shadersBySuffix: {
   ) => void;
 }[] = [
   { suffix: "asphalt", shade: shadeAsphaltSurface },
+  {
+    suffix: "road kerb",
+    shade: (material, _source, baked) => {
+      if (baked) shadeKerb(material, baked.grain);
+    },
+  },
   {
     suffix: "road grass",
     shade: (material, source, baked) => {

@@ -2,6 +2,8 @@ import json
 from pathlib import Path
 
 TEAMS = Path("content/cars/teams.json")
+HEAD = (0.09, 0.0, 0.71)
+HEAD_RADIUS = 0.128
 TEAM = {}
 
 

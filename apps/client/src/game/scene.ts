@@ -138,6 +138,8 @@ export class Scene {
   };
   private readonly viewMatrix = new THREE.Matrix4();
   private warming = false;
+  private compound = 1;
+  private fittedCompound = 1;
   private readonly crewBounds = new THREE.Sphere(
     new THREE.Vector3(),
     crewReach,
@@ -258,7 +260,7 @@ export class Scene {
         skyBox.radiance(direction, false),
       ),
       fetchJson<RacingLineData>(racingLineUrl),
-      PitCrew.load(crewUrl, anisotropy),
+      PitCrew.load(crewUrl, anisotropy, env, team),
       GltfCar.load(team, renderer, env),
       fetchJson<{ length: number; grid: GridSlot[] }>(trackUrl),
     ]);
@@ -432,8 +434,10 @@ export class Scene {
     return this.shake.amount;
   }
 
-  updatePit(control: PitControl, frame: Float64Array): void {
+  updatePit(control: PitControl, frame: Float64Array, fresh: number): void {
     const active = control.phase === "service";
+    if (!active) this.fittedCompound = this.compound;
+    this.crew.setCompounds(this.fittedCompound, fresh);
     const eye = new THREE.Vector3().setFromMatrixPosition(
       this.camera.matrixWorld,
     );
@@ -677,7 +681,9 @@ export class Scene {
   updateTyres(frame: Float64Array, tyres: TyreInfo): void {
     this.smoke.update(frame, tyres, this.car.wheelRadii());
     this.car.setCompound(tyres.compound);
+    this.compound = tyres.compound;
     this.car.setDeflation(tyres.wheels.map((wheel) => wheel.leak));
+    this.car.setWear(tyres.wheels.map((wheel) => wheel.wear));
   }
 
   resize(width: number, height: number): void {

@@ -7,6 +7,7 @@ import { contactShadow, gltfToSdCar, wheelRest } from "./gltf.ts";
 import { mergedMesh, placedCopy } from "./merge.ts";
 import { loaded, releaseOnceUploaded } from "./preload.ts";
 import { carFile, gridTeamOrder, teams } from "./teams.ts";
+import { markTyres, tyreAttribute, tyreMaterial } from "./tyre-paint.ts";
 
 const leaveAfterLap = 2;
 const headingProbe = 2;
@@ -15,6 +16,7 @@ const atlasMaterials = new Set(["body", "cockpit", "helmet"]);
 const anisotropy = 16;
 const textured = ["position", "normal", "uv"] as const;
 const plain = ["position", "normal"] as const;
+const tyred = ["position", "normal", tyreAttribute] as const;
 
 export interface GridSlot {
   distance: number;
@@ -51,27 +53,6 @@ function flatMaterial(
   return material;
 }
 
-const tyreMaps = new WeakMap<CarEnvironment, THREE.Texture>();
-
-function tyreMap(env: CarEnvironment): THREE.Texture {
-  const known = tyreMaps.get(env);
-  if (known) return known;
-  const map = textureOf(carFile("shared", "tyre.jpg"), true);
-  tyreMaps.set(env, map);
-  return map;
-}
-
-function tyreMaterial(env: CarEnvironment): THREE.MeshStandardNodeMaterial {
-  const material = new THREE.MeshStandardNodeMaterial({
-    name: "tyre",
-    map: tyreMap(env),
-    roughness: 0.9,
-    metalness: 0,
-  });
-  useEnvironment(material, env, envStrength);
-  return material;
-}
-
 function atlasMaterial(
   team: string,
   env: CarEnvironment,
@@ -98,6 +79,8 @@ async function teamParts(team: string): Promise<TeamPart[]> {
   const parts: TeamPart[] = [];
   gltf.scene.traverse((object) => {
     if (!(object instanceof THREE.Mesh)) return;
+    if ((object.material as THREE.Material).name === "tyre")
+      markTyres(object.geometry as THREE.BufferGeometry, true);
     parts.push({
       geometry: object.geometry as THREE.BufferGeometry,
       source: object.material as THREE.MeshStandardMaterial,
@@ -146,8 +129,8 @@ function addParts(
     else if (source.name === "tyre")
       batches.add(
         "tyre",
-        () => tyreMaterial(env),
-        placedCopy(geometry, matrix, textured),
+        () => tyreMaterial(env, maxAnisotropy),
+        placedCopy(geometry, matrix, tyred),
       );
     else
       batches.add(

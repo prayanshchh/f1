@@ -168,7 +168,7 @@ export const defaults: Settings = {
   buildUp: true,
   musicVolume: 70,
   laps: 10,
-  difficulty: 90,
+  difficulty: 40,
   startSlot: 10,
   qualifying: "skip",
   rivalLaps: "simulate",

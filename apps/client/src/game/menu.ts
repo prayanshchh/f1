@@ -205,6 +205,8 @@ export class Menu {
   private inSession = false;
   private resolve: ((action: MenuAction) => void) | null = null;
   private readonly initial: string;
+  private store: (settings: Settings) => void = saveSettings;
+  private sessionAction = "Restart Session";
 
   constructor(
     private readonly source: SetupSource,
@@ -241,6 +243,11 @@ export class Menu {
 
   get open(): boolean {
     return !this.root.hidden;
+  }
+
+  useTutorial(store: (settings: Settings) => void): void {
+    this.store = store;
+    this.sessionAction = "Skip Tutorial";
   }
 
   async run(inSession: boolean): Promise<MenuAction> {
@@ -312,7 +319,7 @@ export class Menu {
   }
 
   private finish(action: MenuAction): void {
-    saveSettings(this.settings);
+    this.store(this.settings);
     this.root.classList.remove("open");
     this.root.hidden = true;
     this.resolve?.(action);
@@ -678,7 +685,7 @@ export class Menu {
   }
 
   private afterChange(row: Row): void {
-    saveSettings(this.settings);
+    this.store(this.settings);
     if (row.rerender) {
       this.show(this.tab, this.focus, false);
       return;
@@ -698,7 +705,7 @@ export class Menu {
     const dirty = JSON.stringify({ ...s, hud: null }) !== this.initial;
     const tab = this.current();
     this.find("start-label").textContent = this.inSession
-      ? "Restart Session"
+      ? this.sessionAction
       : "Start Session";
     this.find("note").textContent =
       this.inSession && dirty
@@ -734,7 +741,7 @@ export class Menu {
 
   private resetTab(): void {
     this.current().reset();
-    saveSettings(this.settings);
+    this.store(this.settings);
     this.show(this.tab, this.focus, false);
   }
 

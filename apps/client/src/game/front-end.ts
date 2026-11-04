@@ -9,8 +9,15 @@ import { teamLogo } from "./team-logos.ts";
 import { type Team, teamOf, teams, type TeamRatings } from "./teams.ts";
 
 export interface HubChoice {
-  action: "race";
+  action: "race" | "tutorial";
   driver: Driver;
+}
+
+interface ListItem {
+  label: string;
+  detail: string;
+  tag?: string;
+  run: () => void;
 }
 
 const insights: { id: keyof TeamRatings; label: string }[] = [
@@ -550,12 +557,19 @@ export class FrontEnd {
       rememberDriver(next);
       void this.hub(next).then(done);
     };
-    const items: { label: string; detail: string; run: () => void }[] = [
+    const items: ListItem[] = [
       {
         label: "Race",
         detail: "Set up a session at Hill Country Circuit",
         run: () => {
           done({ action: "race", driver });
+        },
+      },
+      {
+        label: "Driving School",
+        detail: "Learn the basics in one lap",
+        run: () => {
+          done({ action: "tutorial", driver });
         },
       },
       {
@@ -592,29 +606,12 @@ export class FrontEnd {
         },
       },
     ];
+    const list = this.pickList(items);
     const credits = () => {
       void new CreditsScreen().run().then(() => {
         reopen(driver);
       });
       this.keys = {};
-    };
-    let focus = 0;
-    const nav = el("nav", "front-hub");
-    const rows = items.map((item, index) => {
-      const row = button("front-hub-item", "", item.run);
-      row.append(el("b", "", item.label), el("span", "", item.detail));
-      row.addEventListener("pointermove", (event) => {
-        if (event.movementX === 0 && event.movementY === 0) return;
-        focus = index;
-        paint();
-      });
-      return row;
-    });
-    nav.append(...rows);
-    const paint = () => {
-      rows.forEach((row, index) => {
-        row.classList.toggle("active", index === focus);
-      });
     };
     const card = el("section", "front-hub-driver");
     card.style.setProperty("--brand", team.brand);
@@ -632,26 +629,106 @@ export class FrontEnd {
     );
     card.append(names, meta);
     this.show(
-      {
+      list.keys,
+      card,
+      list.nav,
+      this.footer(["↵", "Select", list.choose], ["", "Credits", credits]),
+    );
+  }
+
+  private pickList(items: ListItem[]): {
+    nav: HTMLElement;
+    keys: Keys;
+    choose: () => void;
+  } {
+    let focus = 0;
+    const nav = el("nav", "front-hub");
+    const paint = () => {
+      rows.forEach((row, index) => {
+        row.classList.toggle("active", index === focus);
+      });
+    };
+    const rows = items.map((item, index) => {
+      const row = button("front-hub-item", "", item.run);
+      row.append(el("b", "", item.label), el("span", "", item.detail));
+      if (item.tag) row.append(el("em", "front-hub-tag", item.tag));
+      row.addEventListener("pointermove", (event) => {
+        if (event.movementX === 0 && event.movementY === 0) return;
+        focus = index;
+        paint();
+      });
+      return row;
+    });
+    nav.append(...rows);
+    paint();
+    const move = (delta: number) => {
+      focus = (focus + delta + items.length) % items.length;
+      paint();
+    };
+    const choose = () => {
+      items[focus]?.run();
+    };
+    return {
+      nav,
+      choose,
+      keys: {
         ArrowUp: () => {
-          focus = (focus - 1 + items.length) % items.length;
-          paint();
+          move(-1);
         },
         ArrowDown: () => {
-          focus = (focus + 1) % items.length;
-          paint();
+          move(1);
         },
-        Enter: () => {
-          items[focus]?.run();
-        },
+        Enter: choose,
       },
-      card,
-      nav,
-      this.footer(
-        ["↵", "Select", () => items[focus]?.run()],
-        ["", "Credits", credits],
-      ),
-    );
-    paint();
+    };
+  }
+
+  async tutorialOffer(): Promise<"tutorial" | "skip"> {
+    this.studio.frame(framings.hub);
+    this.showCar(teams[0]?.id ?? "", false);
+    return new Promise((resolve) => {
+      const list = this.pickList([
+        {
+          label: "Driving School",
+          detail: "Learn the basics in one lap.",
+          tag: "Recommended",
+          run: () => {
+            resolve("tutorial");
+          },
+        },
+        {
+          label: "Skip Tutorial",
+          detail: "I know how to race.",
+          run: () => {
+            resolve("skip");
+          },
+        },
+      ]);
+      list.nav.classList.add("front-offer");
+      this.show(
+        {
+          ...list.keys,
+          Escape: () => {
+            resolve("skip");
+          },
+        },
+        heading(
+          "Welcome to RevRacers",
+          "New to the cockpit?",
+          "One quick lap to learn the basics. You can leave any time.",
+        ),
+        list.nav,
+        this.footer(
+          ["↵", "Select", list.choose],
+          [
+            "Esc",
+            "Skip",
+            () => {
+              resolve("skip");
+            },
+          ],
+        ),
+      );
+    });
   }
 }

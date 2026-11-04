@@ -128,6 +128,39 @@ export function cues(
   return result;
 }
 
+export interface LineReading {
+  cue: Cue["kind"];
+  brakeIn: number | null;
+}
+
+const readReach = 600;
+
+export class LineReader {
+  private readonly plan: Cue[];
+
+  constructor(
+    private readonly profile: SpeedProfile,
+    private readonly length: number,
+    private readonly scale: number,
+  ) {
+    this.plan = emptyPlan(profile.speed.length);
+  }
+
+  read(distance: number, speed: number): LineReading {
+    const n = this.plan.length;
+    const step = this.length / n;
+    const at = wrap(distance * this.scale, this.length);
+    planCues(this.plan, this.profile, this.length, at, speed, readReach);
+    const start = Math.floor(at / step);
+    const count = Math.min(n, Math.ceil(readReach / step));
+    const cue = this.plan[start % n]?.kind ?? "accelerate";
+    for (let k = 0; k < count; k++)
+      if (this.plan[(start + k) % n]?.kind === "brake")
+        return { cue, brakeIn: (k * step) / this.scale };
+    return { cue, brakeIn: null };
+  }
+}
+
 function curvature(data: RacingLineData, i: number): number {
   const heading = (j: number) =>
     Math.atan2(

@@ -2934,7 +2934,7 @@ kbd,
 
 .pit-tyres {
   left: 50%;
-  top: calc(206px * var(--s));
+  top: calc(240px * var(--s));
   translate: -50% 0;
   transform-origin: 50% 0;
   width: 620px;
@@ -2995,7 +2995,7 @@ kbd,
 
 .pit-turn {
   left: 50%;
-  top: 36%;
+  top: calc(424px * var(--s));
   translate: -50% 0;
   transform-origin: 50% 0;
   display: flex;

@@ -568,8 +568,12 @@ export class Engine {
   }
 
   resync(now: number): void {
-    this.module._sdResync(now);
+    this.resume(now);
     this.module._sdInputRelease();
+  }
+
+  resume(now: number): void {
+    this.module._sdResync(now);
   }
 
   update(now: number): Float64Array {

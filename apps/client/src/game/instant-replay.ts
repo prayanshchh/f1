@@ -104,6 +104,10 @@ export class InstantReplay {
     for (const node of this.ctx.hidden) node.hidden = true;
   }
 
+  jumpBack(time: number): boolean {
+    return !this.view.active && this.flashback(time);
+  }
+
   key(event: KeyboardEvent, down: boolean): void {
     if (this.reel.active) this.reel.key(event, down);
     else this.view.key(event, down);

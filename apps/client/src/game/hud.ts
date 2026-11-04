@@ -135,6 +135,7 @@ export interface HudOptions {
   qualifying: boolean;
   start: StartLights;
   startHint: boolean;
+  rewindRetired: boolean;
   onLap: (lap: LapResult) => void;
   stewards: StewardView;
 }
@@ -309,6 +310,7 @@ export class Hud {
   private weatherKey = "";
   private readonly damage = new DamageMonitor();
   private toastShown = "";
+  private inPit = false;
   private freezeUntil = 0;
   private extraUntil = 0;
   private lastActiveSector = -1;
@@ -611,6 +613,7 @@ export class Hud {
 
   updatePit(control: PitControl): void {
     const active = control.phase !== "track";
+    this.inPit = active;
     putHidden(this.find("pit-tyres"), !control.choosingTyres);
     this.updatePitPanel(control, active);
     this.updatePitBanner(control, active);
@@ -1107,11 +1110,12 @@ export class Hud {
       this.toast = {
         kind: "warn",
         title: retired,
-        detail: "Session over",
+        detail: this.options.rewindRetired ? "Rewind with R" : "Session over",
         until: Infinity,
       };
       return;
     }
+    if (this.toast?.until === Infinity) this.toast = null;
     this.updateTyreWarning(tyres, now);
     const alert = this.damage.update(status, tyres);
     if (alert) this.toast = { kind: "warn", ...alert, until: now + 6 };
@@ -1150,13 +1154,14 @@ export class Hud {
 
   private updateToast(now: number): void {
     const element = this.find("toast");
-    const toast = this.toast && now < this.toast.until ? this.toast : null;
+    const live = this.toast && now < this.toast.until ? this.toast : null;
+    if (!live) this.toast = null;
+    const toast = this.inPit ? null : live;
     const key = toast ? `${toast.kind}|${toast.title}|${toast.detail}` : "";
     if (key === this.toastShown) return;
     this.toastShown = key;
     if (!toast) {
       element.classList.remove("show");
-      this.toast = null;
       return;
     }
     putData(element, "kind", toast.kind);

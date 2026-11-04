@@ -1,0 +1,613 @@
+.tutorial {
+  position: fixed;
+  inset: 0;
+  z-index: 36;
+  pointer-events: none;
+  --tone: var(--red);
+}
+
+.tutorial[hidden],
+.tutorial [hidden] {
+  display: none;
+}
+
+.tutorial.away {
+  visibility: hidden;
+}
+
+.tut-dim {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 0.35s var(--ease);
+}
+
+.tutorial[data-mode="modal"] .tut-dim {
+  opacity: 1;
+  background: rgb(8 9 14 / 58%);
+}
+
+.tutorial[data-mode="freeze"] .tut-dim {
+  opacity: 1;
+  background: radial-gradient(
+    ellipse at 50% 62%,
+    rgb(8 9 14 / 0%) 28%,
+    rgb(8 9 14 / 62%) 100%
+  );
+  backdrop-filter: grayscale(0.55) brightness(0.9);
+}
+
+.tutorial[data-mode="pause"] .tut-dim {
+  opacity: 1;
+  background: rgb(8 9 14 / 66%);
+  backdrop-filter: grayscale(0.85) brightness(0.8);
+}
+
+.tutorial.spotlit[data-mode="modal"] .tut-dim,
+.tutorial.spotlit[data-mode="freeze"] .tut-dim {
+  background: none;
+  backdrop-filter: none;
+}
+
+.tutorial.spotlit[data-mode="pause"] .tut-dim {
+  mask:
+    linear-gradient(#000 0 0),
+    linear-gradient(#000 0 0) var(--hole-x) var(--hole-y) / var(--hole-w)
+      var(--hole-h) no-repeat;
+  mask-composite: exclude;
+}
+
+.tut-spot {
+  position: fixed;
+  border: 3px solid var(--yellow);
+  border-radius: 14px;
+  box-shadow: 0 0 18px rgb(245 212 0 / 55%);
+  animation: tut-pulse 1.4s ease-in-out infinite;
+}
+
+.tut-spot[data-mode="modal"],
+.tut-spot[data-mode="freeze"],
+.tut-spot[data-mode="pause"] {
+  box-shadow:
+    0 0 18px rgb(245 212 0 / 55%),
+    0 0 0 200vmax rgb(8 9 14 / 58%);
+}
+
+.tut-spot[data-mode="pause"] {
+  box-shadow: 0 0 18px rgb(245 212 0 / 55%);
+}
+
+.tut-stack {
+  position: absolute;
+  left: 50%;
+  top: calc(176px * var(--s));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  translate: -50% 0;
+  scale: var(--s);
+  transform-origin: top center;
+}
+
+.tutorial[data-mode="modal"] .tut-stack,
+.tutorial[data-mode="pause"] .tut-stack {
+  top: 50%;
+  translate: -50% -50%;
+  transform-origin: center;
+}
+
+.tutorial[data-mode="freeze"] .tut-stack {
+  top: calc(130px * var(--s));
+}
+
+.tut-card {
+  position: relative;
+  width: 780px;
+  box-sizing: border-box;
+  padding: 16px 26px 20px;
+  background: var(--panel);
+  border-left: 6px solid var(--tone);
+  border-radius: 6px;
+  box-shadow: 0 18px 40px rgb(0 0 0 / 35%);
+  pointer-events: auto;
+}
+
+.tut-card[data-tone="go"] {
+  --tone: var(--green);
+}
+
+.tut-card[data-tone="brake"] {
+  --tone: var(--hot);
+}
+
+.tut-card[data-tone="lift"] {
+  --tone: var(--yellow);
+}
+
+.tut-card.enter {
+  animation: tut-enter 0.45s var(--ease) both;
+}
+
+.tutorial[data-mode="modal"] .tut-card {
+  width: 860px;
+  padding: 24px 34px 28px;
+}
+
+.tutorial[data-mode="freeze"] .tut-card,
+.tutorial[data-mode="pause"] .tut-card {
+  width: 860px;
+}
+
+.tut-card.compact {
+  width: 520px;
+  padding: 10px 18px 12px;
+}
+
+.tut-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 4px;
+}
+
+.tut-chapter {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.tutorial[data-mode="freeze"] .tut-head::after,
+.tutorial[data-mode="pause"] .tut-head::after {
+  content: "Paused";
+  order: 3;
+  padding: 2px 10px;
+  border-radius: 10px;
+  background: var(--cold);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: #fff;
+}
+
+.tut-progress {
+  position: relative;
+  flex: 1;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--line);
+}
+
+.tut-progress::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--tone);
+  transform-origin: left;
+  scale: var(--done) 1;
+  transition: scale 0.6s var(--ease);
+}
+
+.tut-title {
+  margin: 0;
+  font-size: 34px;
+  font-stretch: 125%;
+  font-weight: 800;
+  font-style: italic;
+  text-transform: uppercase;
+  line-height: 1.1;
+}
+
+.tut-card[data-tone="brake"] .tut-title {
+  color: var(--hot);
+}
+
+.tut-card[data-tone="go"] .tut-title {
+  color: var(--green);
+}
+
+.tutorial[data-mode="freeze"] .tut-card[data-tone="brake"] .tut-title {
+  font-size: 56px;
+  animation: tut-throb 0.9s ease-in-out infinite;
+}
+
+.tut-card.compact .tut-title {
+  font-size: 22px;
+}
+
+.tut-body {
+  margin: 8px 0 0;
+  font-size: 19px;
+  line-height: 1.45;
+  color: var(--dim);
+}
+
+.tut-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 22px;
+  margin-top: 14px;
+}
+
+.tut-action {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 16px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--fg);
+}
+
+button.tut-action {
+  padding: 8px 16px 8px 10px;
+  border-radius: 6px;
+  background: rgb(255 255 255 / 8%);
+}
+
+button.tut-action:hover {
+  background: rgb(255 255 255 / 16%);
+}
+
+button.tut-action.confirm,
+button.tut-action.finish {
+  background: var(--fg);
+  color: #0b0c12;
+}
+
+.tut-action kbd {
+  min-width: 34px;
+  height: 30px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.tut-action kbd.pad {
+  padding: 0 10px;
+  border: 0;
+  background: rgb(255 255 255 / 16%);
+  color: #fff;
+}
+
+.tut-action.gas kbd.pad,
+.tut-action.again kbd.pad {
+  background: rgb(48 209 88 / 70%);
+}
+
+.tut-action.brake kbd.pad,
+.tut-action.confirm kbd.pad,
+.tut-action.finish kbd.pad {
+  background: rgb(255 69 58 / 70%);
+}
+
+.tut-coach {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 16px 6px 10px;
+  border-radius: 20px;
+  background: var(--panel-soft);
+  font-size: 18px;
+  font-weight: 800;
+  font-stretch: 125%;
+  text-transform: uppercase;
+  --cue: var(--green);
+}
+
+.tut-coach i {
+  width: 34px;
+  height: 12px;
+  border-radius: 3px;
+  background: var(--cue);
+}
+
+.tut-coach[data-cue="lift"] {
+  --cue: var(--yellow);
+}
+
+.tut-coach[data-cue="brake"] {
+  --cue: var(--hot);
+  color: var(--hot);
+  animation: tut-throb 0.6s ease-in-out infinite;
+}
+
+.tut-toast {
+  position: absolute;
+  left: 50%;
+  top: calc(430px * var(--s));
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  translate: -50% 0;
+  scale: var(--s);
+  transform-origin: top center;
+  opacity: 0;
+  text-transform: uppercase;
+  --grade: var(--fg);
+}
+
+.tut-toast.show {
+  animation: tut-pop 2.6s var(--ease) both;
+}
+
+.tut-toast b {
+  font-size: 40px;
+  font-weight: 900;
+  font-style: italic;
+  font-stretch: 125%;
+  color: var(--grade);
+  text-shadow: 0 2px 16px rgb(0 0 0 / 60%);
+}
+
+.tut-toast span {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--fg);
+  text-shadow: 0 1px 8px rgb(0 0 0 / 70%);
+}
+
+.tut-toast[data-kind="info"] {
+  --grade: var(--cold);
+}
+
+.tut-alert {
+  position: absolute;
+  left: 50%;
+  top: calc(500px * var(--s));
+  width: 620px;
+  padding: 12px 20px 14px;
+  box-sizing: border-box;
+  translate: -50% 0;
+  scale: var(--s);
+  transform-origin: top center;
+  background: var(--panel);
+  border-top: 3px solid var(--hot);
+  border-radius: 6px;
+  animation: tut-drop 0.35s var(--ease) both;
+}
+
+.tut-alert b {
+  font-size: 22px;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: var(--hot);
+}
+
+.tut-alert p {
+  margin: 4px 0 0;
+  font-size: 17px;
+  color: var(--dim);
+}
+
+.tut-alert .tut-actions {
+  margin-top: 10px;
+}
+
+.tut-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: center;
+  gap: 16px 46px;
+  margin-top: 16px;
+}
+
+.tut-wheel {
+  width: 190px;
+}
+
+.tut-wheel g {
+  transition: transform 0.08s linear;
+}
+
+.tut-wheel .rim {
+  fill: #1d1f2b;
+  stroke: #e9eaee;
+  stroke-width: 4;
+}
+
+.tut-wheel .screen {
+  fill: #3fd6ee;
+  opacity: 0.6;
+}
+
+.tut-wheel .mark {
+  stroke: var(--orange);
+  stroke-width: 6;
+  stroke-linecap: round;
+}
+
+.tut-pedal {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.tut-pedal i {
+  position: relative;
+  width: 34px;
+  height: 120px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: rgb(255 255 255 / 10%);
+}
+
+.tut-pedal i::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform-origin: bottom;
+  scale: 1 var(--v, 0);
+  background: var(--green);
+}
+
+.tut-pedal.brake i::after {
+  background: var(--hot);
+}
+
+.tut-checks {
+  flex-basis: 100%;
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tut-checks li {
+  padding: 5px 14px;
+  border-radius: 14px;
+  background: rgb(255 255 255 / 8%);
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--dim);
+  transition:
+    background 0.3s,
+    color 0.3s;
+}
+
+.tut-checks li.done {
+  background: rgb(30 215 96 / 22%);
+  color: var(--green);
+}
+
+.tut-checks li.done::before {
+  content: "✓ ";
+}
+
+.tut-legend {
+  display: flex;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.tut-cue {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px 6px 8px;
+  border-radius: 6px;
+  background: rgb(255 255 255 / 6%);
+  font-size: 15px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.tut-cue i {
+  width: 46px;
+  height: 14px;
+  border-radius: 3px;
+  background: #4fb85a;
+}
+
+.tut-cue.lift i {
+  background: #f2c230;
+}
+
+.tut-cue.brake i {
+  background: linear-gradient(90deg, #f0832a, #e3302a);
+}
+
+.tut-lights {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.tut-lights i {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: #2a0b0b;
+  box-shadow: inset 0 0 0 3px #111;
+}
+
+.tut-lights i.on {
+  background: #ff2a1f;
+  box-shadow:
+    inset 0 0 0 3px #111,
+    0 0 18px #ff2a1f;
+}
+
+.tut-lights b {
+  margin-left: 14px;
+  font-size: 30px;
+  font-weight: 900;
+  font-style: italic;
+  text-transform: uppercase;
+  color: var(--green);
+  opacity: 0;
+}
+
+.tut-lights.go b {
+  opacity: 1;
+}
+
+.front-hub-tag {
+  justify-self: start;
+  padding: 2px 10px;
+  border-radius: 10px;
+  background: var(--red);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: #fff;
+}
+
+@keyframes tut-enter {
+  from {
+    opacity: 0;
+    translate: 0 -14px;
+  }
+}
+
+@keyframes tut-drop {
+  from {
+    opacity: 0;
+    translate: -50% -14px;
+  }
+}
+
+@keyframes tut-pulse {
+  50% {
+    border-color: #fff;
+  }
+}
+
+@keyframes tut-throb {
+  50% {
+    opacity: 0.72;
+  }
+}
+
+@keyframes tut-pop {
+  0% {
+    opacity: 0;
+    scale: calc(var(--s) * 0.7);
+  }
+
+  18%,
+  80% {
+    opacity: 1;
+    scale: var(--s);
+  }
+
+  100% {
+    opacity: 0;
+    scale: var(--s);
+  }
+}

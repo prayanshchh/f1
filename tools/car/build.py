@@ -64,6 +64,8 @@ def materials(rim):
     material("wheel-bezel", (0.012, 0.012, 0.014), 0.45, 0.6)
     material("wheel-cap", (0.02, 0.02, 0.022), 0.5)
     material("lens", (0.01, 0.01, 0.012), 0.08, 0.5)
+    material("mirror-lens", (0.58, 0.60, 0.63), 0.32, 0, (0.75, 0.8, 0.9), 0.12)
+    material("mirror-led", (0.9, 0.92, 0.95), 0.25, 0, (1.0, 1.0, 1.0), 0.9)
     material("led-green-mark", (0.1, 0.7, 0.1), 0.5, 0, (0.3, 1.0, 0.2), 1.2)
     for name, colour in (
         ("btn-white", (0.8, 0.8, 0.78)),

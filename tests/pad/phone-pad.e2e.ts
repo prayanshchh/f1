@@ -206,6 +206,28 @@ for (const kind of phoneKinds) {
       for (const route of routes) expect(route).toMatch(directRoute);
     });
 
+    test("while a phone drives and the pairing code is hidden, the game stops asking the pairing server for phones", async () => {
+      const phone = await openPhone();
+      await phone.startAndCalibrate();
+      await expect(game.phoneBadge()).toBeVisible();
+      await expect
+        .poll(() => game.pairingRequests().open, { timeout: 2_000 })
+        .toBe(0);
+      const sent = game.pairingRequests().sent;
+      await phone.tilt(15);
+      await pause(3_000);
+      expect(game.pairingRequests()).toEqual({ sent, open: 0 });
+
+      await game.showPairing();
+      await expect.poll(() => game.pairingRequests().open).toBe(1);
+      await game.resume();
+      await expect.poll(() => game.pairingRequests().open).toBe(0);
+
+      await phone.close();
+      await expect(game.phoneBadge()).toBeHidden();
+      await expect.poll(() => game.pairingRequests().open).toBe(1);
+    });
+
     test("a phone only drives the game whose QR code it scanned", async ({
       browser,
     }, testInfo) => {
@@ -233,8 +255,10 @@ for (const kind of phoneKinds) {
         .poll(async () => Math.sign(await game.settledSteer()))
         .toBe(left);
 
+      await game.showPairing();
       const second = await openPhone();
       await second.startAndCalibrate();
+      await game.resume();
       await second.tilt(-25);
       await expect(first.page.locator("[data-pad=notice]")).toContainText(
         "Another phone is driving",
@@ -248,8 +272,10 @@ for (const kind of phoneKinds) {
         "Not driving",
       );
 
+      await game.showPairing();
       await first.tap("retry");
       await expect(first.page.locator("[data-pad=link]")).toHaveText("Live");
+      await game.resume();
       await expect
         .poll(async () => Math.sign(await game.settledSteer()))
         .toBe(left);

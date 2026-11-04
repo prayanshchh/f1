@@ -73,9 +73,11 @@ export async function waitAnswer(
 export async function waitOffers(
   room: string,
   after: number,
+  signal: AbortSignal,
 ): Promise<PadOffer[]> {
   const response = await fetch(
     `${path(room, "offers")}?after=${String(after)}`,
+    { signal },
   );
   if (!response.ok)
     throw new Error(`offers failed: ${String(response.status)}`);

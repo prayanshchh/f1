@@ -581,7 +581,23 @@ export interface CarControls {
 }
 
 export class Game {
-  private constructor(readonly page: Page) {}
+  private readonly pairingAsks: string[] = [];
+  private readonly openAsks = new Set<unknown>();
+
+  private constructor(readonly page: Page) {
+    const pairing = /\/api\/pad\/[^/]+\/offers/;
+    page.on("request", (request) => {
+      if (!pairing.test(request.url())) return;
+      this.pairingAsks.push(request.url());
+      this.openAsks.add(request);
+    });
+    page.on("requestfinished", (request) => this.openAsks.delete(request));
+    page.on("requestfailed", (request) => this.openAsks.delete(request));
+  }
+
+  pairingRequests(): { sent: number; open: number } {
+    return { sent: this.pairingAsks.length, open: this.openAsks.size };
+  }
 
   static async open(browser: Browser, baseURL: string): Promise<Game> {
     const page = await browser.newPage({

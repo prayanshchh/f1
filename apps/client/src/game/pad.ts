@@ -79,6 +79,7 @@ export class PadLink {
   private sentAt = -Infinity;
   private seen = 0;
   private linked = false;
+  private listening: AbortController | null = null;
 
   constructor(
     private readonly panel: HTMLElement,
@@ -88,15 +89,17 @@ export class PadLink {
     window.addEventListener("pagehide", () => {
       this.phone?.pc.close();
     });
-    void this.listen();
+    this.updateListening();
   }
 
   toggle(): void {
     this.panel.hidden = !this.panel.hidden;
+    this.updateListening();
   }
 
   close(): void {
     this.panel.hidden = true;
+    this.updateListening();
   }
 
   get connected(): boolean {
@@ -130,9 +133,23 @@ export class PadLink {
     control.send(JSON.stringify({ speed, gear, rumble, battery, mode }));
   }
 
-  private async listen(): Promise<void> {
+  private updateListening(): void {
+    const wanted = !this.phone || !this.panel.hidden;
+    if (wanted && !this.listening) {
+      this.listening = new AbortController();
+      void this.listen(this.listening.signal);
+    } else if (!wanted && this.listening) {
+      this.listening.abort();
+      this.listening = null;
+    }
+  }
+
+  private async listen(signal: AbortSignal): Promise<void> {
     for (;;) {
-      const offers = await waitOffers(this.room, this.seen).catch(() => null);
+      const offers = await waitOffers(this.room, this.seen, signal).catch(
+        () => null,
+      );
+      if (signal.aborted) return;
       if (!offers) {
         await delay(listenRetry);
         continue;
@@ -245,6 +262,7 @@ export class PadLink {
     this.linked = on;
     this.badge.hidden = !on;
     if (on) this.panel.hidden = true;
+    this.updateListening();
   }
 
   private async showCode(): Promise<void> {

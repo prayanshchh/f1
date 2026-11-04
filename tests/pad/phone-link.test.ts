@@ -4,7 +4,6 @@ import { mkdtempSync } from "node:fs";
 import https from "node:https";
 import os from "node:os";
 import path from "node:path";
-import type { AddressInfo } from "node:net";
 import { createServer, type PluginOption, type ViteDevServer } from "vite";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import {
@@ -93,16 +92,14 @@ describe.runIf(hasTunnel)("the dev server's phone link", () => {
       configFile: false,
       plugins,
       root: path.join(repoRoot, "apps/client"),
-      server: { ...config.server, port: 0, host: "127.0.0.1" },
+      server: { ...config.server, port: 0 },
       logLevel: "silent",
     });
     await server.listen();
-    const { port } = server.httpServer?.address() as AddressInfo;
+    const local = server.resolvedUrls?.local[0] ?? "";
     const started = Date.now();
     while (!site.origin && !site.problem && Date.now() - started < tunnelWait) {
-      const answer = await fetch(
-        `http://127.0.0.1:${String(port)}${phoneSitePath}`,
-      );
+      const answer = await fetch(new URL(phoneSitePath, local));
       site = (await answer.json()) as PhoneSite;
       if (!site.origin) await new Promise((done) => setTimeout(done, 1000));
     }

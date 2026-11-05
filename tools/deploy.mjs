@@ -76,13 +76,13 @@ function files(dir) {
 }
 
 async function live(key, size) {
-  const response = await fetch(`${site}/${key}`, { method: "HEAD" }).catch(
-    () => null,
-  );
-  return (
-    response?.ok === true &&
-    Number(response.headers.get("content-length")) === size
-  );
+  const response = await fetch(`${site}/${key}`).catch((error) => {
+    throw new Error(`cannot reach ${site} to check ${key}; check the network`, {
+      cause: error,
+    });
+  });
+  await response.body?.cancel();
+  return response.ok && Number(response.headers.get("content-length")) === size;
 }
 
 run("pnpm", ["run", "build"]);

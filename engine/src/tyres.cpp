@@ -101,6 +101,8 @@ const double dirtRate = 1.2;
 const double dirtDistance = 350.0;
 const double dirtGripLoss = 0.12;
 const int grassSurface = 2;
+const int gravelSurface = 3;
+const double shredDistance = 400.0;
 const double frontPressure = 23.5;
 const double rearPressure = 22.0;
 const double aquaplaneSpeed = 83.0;
@@ -121,6 +123,7 @@ const WearPoint wearCurve[] = {
 struct Tyre
 {
     double surface, carcass, wear, flat, lock, spin, grip, baseMu, cut, leak, dirt, peakSlip, baseSpring;
+    double flatSin, flatCos, shred, gravel;
 };
 
 struct CarTyres
@@ -266,6 +269,8 @@ void updateWear(Tyre &tyre, const tWheel &wheel, const Compound &c, double axle,
     double flatFactor = 1.0 + flatWearGain * tyre.flat;
     double rate = wearPerJoule * wearRate(c, tyre.wear) * thermalWear(c, temperature) * pressureFactor * flatFactor * slideWear(wheel, tyre);
     double added = std::min(1.0 - tyre.flat, flatSpotRate * tyre.lock * tyre.lock * speed * dt) * std::min(1.0, wearScale);
+    tyre.flatSin += added * sin(wheel.relPos.ay);
+    tyre.flatCos += added * cos(wheel.relPos.ay);
     tyre.flat += added;
     tyre.wear = std::min(1.0, tyre.wear + rate * axle * power * dt * wearScale + flatTreadShare * added);
 }
@@ -280,16 +285,28 @@ void updateLeak(Tyre &tyre, double dt)
 
 void updateDirt(Tyre &tyre, const tWheel &wheel, double speed, double dt)
 {
-    if (sdSurfaceClass(wheel.trkPos.seg) >= grassSurface)
-        tyre.dirt = std::min(1.0, tyre.dirt + dirtRate * std::min(1.0, speed / contactSpeed) * dt);
+    int surface = sdSurfaceClass(wheel.trkPos.seg);
+    if (surface >= grassSurface)
+    {
+        double added = std::min(1.0 - tyre.dirt, dirtRate * std::min(1.0, speed / contactSpeed) * dt);
+        double kind = surface == gravelSurface ? 1.0 : 0.0;
+        tyre.gravel += (kind - tyre.gravel) * added / std::max(tyre.dirt + added, 1e-6);
+        tyre.dirt += added;
+    }
     else
         tyre.dirt = std::max(0.0, tyre.dirt - speed * dt / dirtDistance);
+}
+
+bool isFlat(const Tyre &tyre)
+{
+    return tyre.leak >= flatLeak;
 }
 
 void applyFlat(int index, double clock, tCar *car, Tyre &tyre, tWheel &wheel, bool front, double speed, double dt)
 {
     wheel.susp.spring.x0 = (tdble)(tyre.baseSpring - tyre.leak * flatDrop * wheel.susp.spring.bellcrank);
     double deflated = tyre.leak * tyre.leak;
+    tyre.shred = std::min(1.0, tyre.shred + (isFlat(tyre) ? deflated * speed * dt / shredDistance : 0.0));
     double drag = deflated * (flatDragLoad * wheel.forces.z + flatDragSpeed * speed * speed);
     if (drag <= 0.0 || speed <= 0.0)
         return;
@@ -329,13 +346,9 @@ void fit(CarTyres &car, int compound, double temperature, double wear)
         tyre.surface = tyre.carcass = start;
         tyre.wear = wear;
         tyre.flat = tyre.lock = tyre.spin = tyre.cut = tyre.leak = tyre.dirt = 0;
+        tyre.flatSin = tyre.flatCos = tyre.shred = tyre.gravel = 0;
     }
     car.age = 0;
-}
-
-bool isFlat(const Tyre &tyre)
-{
-    return tyre.leak >= flatLeak;
 }
 
 double worstLeak(const CarTyres &car, int right, int left)
@@ -526,6 +539,7 @@ EMSCRIPTEN_KEEPALIVE void sdTyresInfo(double *out)
 {
     const CarTyres &state = field[0];
     tCar *car = &SimCarTable[0];
+    tCarElt *elt = ReInfo->s->cars[0];
     const Compound &c = compounds[state.fitted];
     out[0] = state.fitted;
     out[1] = state.age;
@@ -534,7 +548,7 @@ EMSCRIPTEN_KEEPALIVE void sdTyresInfo(double *out)
     for (int i = 0; i < 4; i++)
     {
         const Tyre &tyre = state.tyres[i];
-        double *w = &out[4 + i * 10];
+        double *w = &out[4 + i * 15];
         w[0] = tyre.surface;
         w[1] = tyre.carcass;
         w[2] = hotPressure(car->wheel[i], tyre, c);
@@ -545,6 +559,11 @@ EMSCRIPTEN_KEEPALIVE void sdTyresInfo(double *out)
         w[7] = tyre.flat;
         w[8] = tyre.leak;
         w[9] = tyre.cut;
+        w[10] = tyre.dirt;
+        w[11] = tyre.gravel;
+        w[12] = atan2(tyre.flatSin, tyre.flatCos);
+        w[13] = tyre.shred;
+        w[14] = sdWeatherWheelWater(elt, i);
     }
 }
 

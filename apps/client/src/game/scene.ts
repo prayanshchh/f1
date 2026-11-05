@@ -148,6 +148,8 @@ export class Scene {
   private crewOut = false;
   private compound = 1;
   private fittedCompound = 1;
+  private fittedWear = 0;
+  private wear = 0;
   private readonly crewBounds = new THREE.Sphere(
     new THREE.Vector3(),
     crewReach,
@@ -461,8 +463,11 @@ export class Scene {
   updatePit(control: PitControl, frame: Float64Array, fresh: number): void {
     this.crewOut = control.phase !== "track";
     const active = control.phase === "service";
-    if (!active) this.fittedCompound = this.compound;
-    this.crew.setCompounds(this.fittedCompound, fresh);
+    if (!active) {
+      this.fittedCompound = this.compound;
+      this.fittedWear = this.wear;
+    }
+    this.crew.setCompounds(this.fittedCompound, fresh, this.fittedWear);
     const eye = new THREE.Vector3().setFromMatrixPosition(
       this.camera.matrixWorld,
     );
@@ -708,8 +713,10 @@ export class Scene {
     this.smoke.update(frame, tyres, this.car.wheelRadii());
     this.car.setCompound(tyres.compound);
     this.compound = tyres.compound;
-    this.car.setDeflation(tyres.wheels.map((wheel) => wheel.leak));
-    this.car.setWear(tyres.wheels.map((wheel) => wheel.wear));
+    this.car.setTyreCondition(tyres.wheels);
+    this.wear =
+      tyres.wheels.reduce((sum, wheel) => sum + wheel.wear, 0) /
+      Math.max(1, tyres.wheels.length);
   }
 
   resize(width: number, height: number, pixelRatio = 1): void {

@@ -426,6 +426,45 @@ describe.runIf(existsSync(wasm))(
       for (const wheel of [0, 1, 2, 3]) expect(tyres().leak(wheel)).toBe(1);
     });
 
+    test("a flat tyre only shreds while it is driven on, and a new set is whole", async () => {
+      const m = await startRace({ wear: 0 });
+      const tyres = tyreReader(m);
+      const pilot = new Pilot(m, 0.5);
+      m._sdStep(1000);
+      m._sdTyreDamage(frontLeft, 1, 0);
+      m._sdStep(seconds(3));
+      expect(tyres().leak(frontLeft)).toBe(1);
+      expect(tyres().shred(frontLeft)).toBe(0);
+      for (let i = 0; i < seconds(15); i++) pilot.tick();
+      const driven = tyres();
+      expect(driven.shred(frontLeft)).toBeGreaterThan(0.2);
+      expect(driven.shred(frontRight)).toBe(0);
+      m._sdPitService(50, 0);
+      m._sdStep(1);
+      expect(tyres().shred(frontLeft)).toBe(0);
+    }, 60000);
+
+    test("a lock-up leaves its flat spot at one place on the tyre", async () => {
+      const m = await startRace();
+      const tyres = tyreReader(m);
+      const pilot = new Pilot(m, 0.95);
+      m._sdStep(1000);
+      pilot.driveUntil(() => pilot.lapsDone() >= 1 && speedOf(m) >= 70);
+      m._sdTyresFit(1, 95, 0);
+      m._sdInputAnalog(1, 0, 0, 1);
+      for (let i = 0; i < 5000 && speedOf(m) > 5; i++) m._sdStep(1);
+      const locked = tyres();
+      expect(locked.flat(frontRight)).toBeGreaterThan(0.05);
+      pilot.scale = 0.6;
+      for (let i = 0; i < seconds(5); i++) pilot.tick();
+      const later = tyres();
+      expect(later.flat(frontRight)).toBeCloseTo(locked.flat(frontRight), 2);
+      expect(later.flatAt(frontRight)).toBeCloseTo(
+        locked.flatAt(frontRight),
+        3,
+      );
+    }, 60000);
+
     test("a new set of tyres fixes a puncture and flat spots", async () => {
       const m = await startRace();
       const tyres = tyreReader(m);

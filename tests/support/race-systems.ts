@@ -1,7 +1,7 @@
 import { type SpeedDreams, startCircuit } from "./speed-dreams.ts";
 
-export const wheelFields = 10;
-const tyreFields = 44;
+export const wheelFields = 15;
+const tyreFields = 64;
 const energyFields = 17;
 
 export interface Options {
@@ -98,6 +98,11 @@ export function tyreReader(m: RaceSystems) {
       flat: (w: number) => field(w, 7),
       leak: (w: number) => field(w, 8),
       cut: (w: number) => field(w, 9),
+      dirt: (w: number) => field(w, 10),
+      gravel: (w: number) => field(w, 11),
+      flatAt: (w: number) => field(w, 12),
+      shred: (w: number) => field(w, 13),
+      water: (w: number) => field(w, 14),
     };
   };
 }

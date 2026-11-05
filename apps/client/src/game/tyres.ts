@@ -35,7 +35,7 @@ export function nextCompound(current: number): number {
   return current === 2 ? 1 : 2;
 }
 
-interface WheelTyre {
+export interface WheelTyre {
   surface: number;
   carcass: number;
   pressure: number;
@@ -46,6 +46,11 @@ interface WheelTyre {
   flat: number;
   leak: number;
   cut: number;
+  dirt: number;
+  gravel: number;
+  flatAt: number;
+  shred: number;
+  water: number;
 }
 
 export interface TyreInfo {

@@ -688,7 +688,7 @@ export class Engine {
   }
 
   tyreInfo(): TyreInfo {
-    const v = this.doubles(44, (p) => {
+    const v = this.doubles(64, (p) => {
       this.module._sdTyresInfo(p);
     });
     const at = (i: number) => v[i] ?? 0;
@@ -698,7 +698,7 @@ export class Engine {
       low: at(2),
       high: at(3),
       wheels: [0, 1, 2, 3].map((i) => {
-        const o = 4 + i * 10;
+        const o = 4 + i * 15;
         return {
           surface: at(o),
           carcass: at(o + 1),
@@ -710,6 +710,11 @@ export class Engine {
           flat: at(o + 7),
           leak: at(o + 8),
           cut: at(o + 9),
+          dirt: at(o + 10),
+          gravel: at(o + 11),
+          flatAt: at(o + 12),
+          shred: at(o + 13),
+          water: at(o + 14),
         };
       }),
     };

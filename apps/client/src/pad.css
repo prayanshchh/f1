@@ -6,6 +6,7 @@
   --gas: #30d158;
   --brake: #ff453a;
   --accent: #ff9f0a;
+  --boost: #f4f66a;
 }
 
 html,
@@ -394,4 +395,23 @@ body.need-landscape .rotate {
 .ers .center {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+.ers [data-pad="boost"] {
+  transition:
+    background-color 0.15s,
+    border-color 0.15s,
+    box-shadow 0.15s,
+    color 0.15s;
+}
+
+.ers [data-pad="boost"][aria-pressed="true"] {
+  border-color: var(--boost);
+  background: var(--boost);
+  color: var(--bg);
+  box-shadow: 0 0 18px rgb(244 246 106 / 55%);
+}
+
+.ers [data-pad="boost"][aria-pressed="true"] small {
+  opacity: 0.8;
 }

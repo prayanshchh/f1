@@ -30,6 +30,15 @@ export interface PadInput {
   brake: number;
 }
 
+interface PadFeedback {
+  speed: number;
+  gear: number;
+  rumble: number;
+  battery: number;
+  mode: string;
+  boost: boolean;
+}
+
 export interface PadCommands {
   boost: number;
   ers: number;
@@ -118,19 +127,12 @@ export class PadLink {
     return { ...this.totals };
   }
 
-  feedback(
-    now: number,
-    speed: number,
-    gear: number,
-    rumble: number,
-    battery: number,
-    mode: string,
-  ): void {
+  feedback(now: number, state: PadFeedback): void {
     const control = this.phone?.control;
     if (now - this.sentAt < feedbackInterval || control?.readyState !== "open")
       return;
     this.sentAt = now;
-    control.send(JSON.stringify({ speed, gear, rumble, battery, mode }));
+    control.send(JSON.stringify(state));
   }
 
   private updateListening(): void {

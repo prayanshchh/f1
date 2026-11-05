@@ -35,6 +35,7 @@ const roomPattern = /^[A-Za-z0-9_-]{22}$/;
 const pedalReach = 0.03;
 const riseTime: Record<Pedal, number> = { gas: 1.2, brake: 0.8 };
 const fallTime: Record<Pedal, number> = { gas: 0.2, brake: 0.15 };
+const boostSettle = 600;
 
 type Pedal = "gas" | "brake";
 type LinkState = "connecting" | "live" | "waiting" | "lost" | "blocked";
@@ -240,6 +241,8 @@ class Pad {
   private steer = 0;
   private baseAngle = screen.orientation.angle;
   private boostPresses = 0;
+  private boosting = false;
+  private boostTapAt = -Infinity;
   private ersPresses = 0;
   private pagePresses = 0;
   private wingPresses = 0;
@@ -323,6 +326,8 @@ class Pad {
     };
     press("boost", () => {
       this.boostPresses++;
+      this.boostTapAt = performance.now();
+      this.showBoost(!this.boosting);
     });
     press("ers", () => {
       this.ersPresses++;
@@ -461,7 +466,15 @@ class Pad {
     if (!("battery" in message && "mode" in message)) return;
     element("batt").textContent =
       `Batt ${String(Math.round(Number(message.battery) * 100))}%`;
-    element("ers-mode").textContent = String(message.mode);
+    const boost = "boost" in message && message.boost === true;
+    if (!boost) element("ers-mode").textContent = String(message.mode);
+    if (performance.now() - this.boostTapAt > boostSettle)
+      this.showBoost(boost);
+  }
+
+  private showBoost(on: boolean): void {
+    this.boosting = on;
+    element("boost").setAttribute("aria-pressed", String(on));
   }
 
   private onFeedback(message: object): void {

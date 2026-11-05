@@ -1314,14 +1314,14 @@ async function main(): Promise<void> {
       now,
       tyreRoughness(tyres),
     );
-    pad.feedback(
-      now,
-      speedKph,
-      frame[frameIndex.gear] ?? 0,
+    pad.feedback(now, {
+      speed: speedKph,
+      gear: frame[frameIndex.gear] ?? 0,
       rumble,
-      energy.battery / energy.capacity,
-      ersModes[energy.mode]?.label ?? "",
-    );
+      battery: energy.battery / energy.capacity,
+      mode: ersModes[energy.mode]?.label ?? "",
+      boost: energy.mode === boostMode,
+    });
     scene.setWeather(weather);
     if (now - damageClock > damagePeriod) {
       damageClock = now;

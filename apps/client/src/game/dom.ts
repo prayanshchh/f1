@@ -27,14 +27,17 @@ export function prompt(glyph: string, label: string): HTMLElement {
   return box;
 }
 
+export function revBars(className = "loader"): HTMLElement {
+  const bars = el("div", className);
+  bars.setAttribute("aria-hidden", "true");
+  for (let i = 0; i < 5; i++) bars.append(el("i"));
+  return bars;
+}
+
 export function loading(label = "", className = ""): HTMLElement {
   const box = el("div", `loading ${className}`.trim());
   box.setAttribute("role", "status");
-  const bars = document.querySelector("[data-loader]")?.cloneNode(true);
-  if (bars instanceof HTMLElement) {
-    bars.removeAttribute("data-loader");
-    box.append(bars);
-  }
+  box.append(revBars());
   if (label) box.append(el("span", "", label));
   return box;
 }

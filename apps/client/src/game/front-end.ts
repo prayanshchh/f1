@@ -4,6 +4,7 @@ import { button, el, loading, prompt } from "./dom.ts";
 import { countries, countryName, flagUrl, guessCountry } from "./flags.ts";
 import { playerMessage } from "./player-error.ts";
 import { ProfileScreen } from "./profile-screen.ts";
+import { LoadBar } from "./load-bar.ts";
 import { framings, type Studio } from "./studio.ts";
 import { teamLogo } from "./team-logos.ts";
 import { type Team, teamOf, teams, type TeamRatings } from "./teams.ts";
@@ -62,7 +63,10 @@ function draftOf(driver: Driver): DriverProfile {
 export class FrontEnd {
   private keys: Keys = {};
   private readonly stage: HTMLElement;
-  private readonly carLoader = loading("Loading cars", "front-car-loading");
+  private readonly carLoader = loading("Loading", "front-car-loading");
+  private readonly carBar = new LoadBar(
+    this.carLoader.querySelector<HTMLElement>(".loader") ?? undefined,
+  );
   private carRequest = 0;
   private readonly keyHandler = (event: KeyboardEvent): void => {
     const action = this.keys[event.key];
@@ -102,14 +106,18 @@ export class FrontEnd {
     this.carRequest += 1;
     const request = this.carRequest;
     this.root.append(this.carLoader);
+    this.carBar.follow(() => this.studio.teamsLoaded());
     const done = () => {
-      if (request === this.carRequest) this.carLoader.remove();
+      if (request !== this.carRequest) return;
+      this.carBar.set(1);
+      this.carLoader.remove();
     };
     this.studio.select(team, enter).then(done, done);
   }
 
   private hideCar(): void {
     this.carRequest += 1;
+    this.carBar.stop();
     this.carLoader.remove();
     this.studio.hideCar();
   }

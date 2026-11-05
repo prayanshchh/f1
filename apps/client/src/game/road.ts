@@ -648,11 +648,12 @@ export async function loadRoad(
   url: string,
   anisotropy: number,
   textureLimit: number,
-  sky: SkyRadiance | null = null,
+  skyLoad: Promise<SkyRadiance | null> | SkyRadiance | null = null,
 ): Promise<THREE.Object3D> {
-  const [gltf, baked] = await Promise.all([
+  const [gltf, baked, sky] = await Promise.all([
     new GLTFLoader().loadAsync(url),
     loadBaked(anisotropy, textureLimit),
+    skyLoad,
   ]);
   gltf.scene.traverse((object) => {
     if (!(object instanceof THREE.Mesh)) return;

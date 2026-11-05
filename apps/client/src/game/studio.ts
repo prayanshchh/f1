@@ -20,6 +20,7 @@ import { type CarEnvironment, carEnvironment } from "./carpaint.ts";
 import { finishAll, renderDisplay } from "./display.ts";
 import { GltfCar, gltfToSdCar } from "./gltf.ts";
 import { teamModel } from "./grid.ts";
+import { downloadsFromNow } from "./preload.ts";
 import { teams } from "./teams.ts";
 
 const hiResDelayMs = 350;
@@ -162,6 +163,7 @@ export class Studio {
   private slide = 0;
   private lastFrame = 0;
   private lodsReady: Promise<void> | null = null;
+  private teamsShare: () => number = () => 0;
   private showCar = false;
 
   constructor(private readonly renderer: THREE.WebGPURenderer) {
@@ -202,6 +204,7 @@ export class Studio {
   }
 
   preloadTeams(): Promise<void> {
+    if (!this.lodsReady) this.teamsShare = downloadsFromNow();
     this.lodsReady ??= Promise.all(
       teams.map(async (team) => {
         const model = await teamModel(team.id, this.env).catch(() => null);
@@ -212,6 +215,10 @@ export class Studio {
       }),
     ).then(() => undefined);
     return this.lodsReady;
+  }
+
+  teamsLoaded(): number {
+    return this.teamsShare();
   }
 
   private placed(model: THREE.Object3D, scaleZ: number): THREE.Object3D {

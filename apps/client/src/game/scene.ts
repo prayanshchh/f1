@@ -19,6 +19,7 @@ import {
   setCarContact,
   setStartLights,
   setWetness,
+  type SkyRadiance,
   Sunlight,
 } from "./road.ts";
 import { Rumble, type RumbleWheel, type Shake } from "./rumble.ts";
@@ -83,9 +84,14 @@ function presentRoots(
 }
 
 export async function fetchJson<T>(url: string): Promise<T> {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`failed to load ${url}`);
-  return (await response.json()) as T;
+  THREE.DefaultLoadingManager.itemStart(url);
+  try {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`failed to load ${url}`);
+    return (await response.json()) as T;
+  } finally {
+    THREE.DefaultLoadingManager.itemEnd(url);
+  }
 }
 
 const defaultTextureLimit = 8192;
@@ -247,23 +253,35 @@ export class Scene {
     const local = engine.trackLocal();
     const hours = local.timeOfDay / 3600;
     const elevation = ((90 - 15 * Math.abs(hours - 12)) * Math.PI) / 180;
-    const skyBox = await SkyBox.load(elevation, hours > 12);
-    const env = {
-      texture: skyBox.environment,
-      rotation: skyBox.environmentRotation,
-    };
+    const skyLoad = SkyBox.load(elevation, hours > 12);
+    const envLoad = skyLoad.then((sky) => ({
+      texture: sky.environment,
+      rotation: sky.environmentRotation,
+    }));
     const point = engine.trackPoint.bind(engine);
-    const [frame, people, road, data, crew, car, gridData] = await Promise.all([
-      fetchJson<TrackFrame>(frameUrl),
-      Crowd.load(),
-      loadRoad(roadUrl, anisotropy, textureLimit, (direction) =>
-        skyBox.radiance(direction, false),
-      ),
-      fetchJson<RacingLineData>(racingLineUrl),
-      PitCrew.load(crewUrl, anisotropy, env, team),
-      GltfCar.load(team, renderer, env),
-      fetchJson<{ length: number; grid: GridSlot[] }>(trackUrl),
-    ]);
+    const [skyBox, env, frame, people, road, data, crew, car, gridData] =
+      await Promise.all([
+        skyLoad,
+        envLoad,
+        fetchJson<TrackFrame>(frameUrl),
+        Crowd.load(),
+        loadRoad(
+          roadUrl,
+          anisotropy,
+          textureLimit,
+          skyLoad.then(
+            (sky): SkyRadiance =>
+              (direction) =>
+                sky.radiance(direction, false),
+          ),
+        ),
+        fetchJson<RacingLineData>(racingLineUrl),
+        envLoad.then((loaded) =>
+          PitCrew.load(crewUrl, anisotropy, loaded, team),
+        ),
+        envLoad.then((loaded) => GltfCar.load(team, renderer, loaded)),
+        fetchJson<{ length: number; grid: GridSlot[] }>(trackUrl),
+      ]);
     const lengthScale = engine.trackLength() / gridData.length;
     const grid =
       rivals.length > 0

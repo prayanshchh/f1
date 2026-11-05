@@ -99,6 +99,24 @@
   font-family: "Saira Variable", "Saira", system-ui, sans-serif;
 }
 
+@property --fill {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
+}
+
+.loader.meter i {
+  background: linear-gradient(
+    90deg,
+    #ff2e2e calc(var(--fill) * 100%),
+    rgb(255 46 46 / 16%) 0
+  );
+  box-shadow: 0 0 6px rgb(255 46 46 / calc(var(--fill) * 55%));
+  opacity: 1;
+  animation: none;
+  transition: --fill 0.2s ease-out;
+}
+
 .status[hidden] {
   display: none;
 }

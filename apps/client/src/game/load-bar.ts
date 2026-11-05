@@ -1,10 +1,5 @@
 import { revBars } from "./dom.ts";
 import { downloadsFromNow } from "./preload.ts";
-import { teamOf } from "./teams.ts";
-
-export function paintTeam(team: string): void {
-  document.documentElement.style.setProperty("--team", teamOf(team).brand);
-}
 
 export class LoadBar {
   readonly element: HTMLElement;

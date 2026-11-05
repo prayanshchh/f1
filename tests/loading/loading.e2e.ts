@@ -13,7 +13,7 @@ declare global {
   }
 }
 
-const corvusTeal = "rgb(20, 201, 184)";
+const loaderRed = "rgb(255, 46, 46)";
 
 function sampleLoadBars(): void {
   window.loadSamples = [];
@@ -84,7 +84,7 @@ function partway(run: Sample[]): Set<number> {
 test.describe("loading progress", () => {
   test.setTimeout(240_000);
 
-  test("the start and the hub cars show a bar that fills with the download in the team colour", async ({
+  test("the start and the hub cars show bars that fill with the download in red", async ({
     page,
     context,
   }) => {
@@ -110,7 +110,7 @@ test.describe("loading progress", () => {
     expect(samples.map((sample) => sample.label)).not.toContainEqual(
       expect.stringMatching(/speed dreams|cars|webgpu/i),
     );
-    expect(colours(samples)).toEqual(new Set([corvusTeal]));
+    expect(colours(samples)).toEqual(new Set([loaderRed]));
     const runs = phases(samples);
     expect(runs.length).toBeLessThanOrEqual(2);
     expect(partway(runs[0] ?? []).size).toBeGreaterThanOrEqual(10);
@@ -118,7 +118,7 @@ test.describe("loading progress", () => {
   });
 
   if (process.platform !== "linux") {
-    test("loading the circuit fills the bar steadily instead of jumping at the end", async ({
+    test("loading the circuit fills the bars steadily instead of jumping at the end", async ({
       page,
       context,
     }) => {
@@ -140,7 +140,7 @@ test.describe("loading progress", () => {
       const steps = new Set(values.filter((value) => value > 0));
       expect(steps.size).toBeGreaterThanOrEqual(20);
       expect(longestPlateau(values)).toBeLessThan(values.length * 0.35);
-      expect(colours(circuit)).toEqual(new Set([corvusTeal]));
+      expect(colours(circuit)).toEqual(new Set([loaderRed]));
     });
   }
 });

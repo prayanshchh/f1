@@ -106,15 +106,12 @@
 }
 
 .loader.meter i {
-  --lit: var(--team, #ff2e2e);
-
   background: linear-gradient(
     90deg,
-    var(--lit) calc(var(--fill) * 100%),
-    color-mix(in srgb, var(--lit) 16%, transparent) 0
+    #ff2e2e calc(var(--fill) * 100%),
+    rgb(255 46 46 / 16%) 0
   );
-  box-shadow: 0 0 6px
-    color-mix(in srgb, var(--lit) calc(var(--fill) * 55%), transparent);
+  box-shadow: 0 0 6px rgb(255 46 46 / calc(var(--fill) * 55%));
   opacity: 1;
   animation: none;
   transition: --fill 0.2s ease-out;

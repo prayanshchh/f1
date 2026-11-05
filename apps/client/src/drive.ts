@@ -34,7 +34,6 @@ import {
   setupSource,
 } from "./game/engine.ts";
 import {
-  cachedDriver,
   currentDriver,
   type Driver,
   driverOutbox,
@@ -134,7 +133,7 @@ import {
   type WeekendState,
 } from "./game/weekend.ts";
 import { WeekendFlow } from "./game/weekend-flow.ts";
-import { LoadBar, paintTeam } from "./game/load-bar.ts";
+import { LoadBar } from "./game/load-bar.ts";
 import { showActions } from "./game/weekend-ui.ts";
 
 const canvas = document.querySelector<HTMLCanvasElement>(
@@ -811,12 +810,10 @@ async function enterGame(
       driver = await front.onboard(driver);
     }
     rememberDriver(driver);
-    paintTeam(driver.team ?? settings.car);
     const choice = await front.hub(driver);
     driver = choice.driver;
     rememberDriver(driver);
     settings.car = driver.team ?? settings.car;
-    paintTeam(settings.car);
     if (choice.action === "tutorial") return leave(true);
     front.close();
     music.play("menu");
@@ -915,10 +912,7 @@ function debugHooks(
     Object.assign(window, { f1Debug: { engine, scene, renderer } });
 }
 
-async function bootEngine(
-  settings: Settings,
-): ReturnType<typeof loadSpeedDreams> {
-  paintTeam(cachedDriver()?.team ?? settings.car);
+async function bootEngine(): ReturnType<typeof loadSpeedDreams> {
   setStatus("Loading");
   statusBar.followDownloads(0, 0.95);
   const module = await loadSpeedDreams();
@@ -936,8 +930,8 @@ async function main(): Promise<void> {
   const renderer = await createRenderer(canvas);
 
   const params = new URLSearchParams(location.search);
+  const module = await bootEngine();
   const settings = loadSettings(params);
-  const module = await bootEngine(settings);
   const source = setupSource(module);
   const interventions = params.has("interventions");
   const menu = new Menu(source, settings, interventions);
@@ -958,7 +952,6 @@ async function main(): Promise<void> {
   const car = carOf(settings);
   const seat = playerSeat(driver, car.id);
   applySettings(source, settings, stage);
-  paintTeam(settings.car);
   setStatus(`Loading ${track.label}…`);
   statusBar.reset();
   statusBar.followDownloads(0, 0.85);

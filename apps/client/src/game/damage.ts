@@ -84,6 +84,10 @@ function partAlerts(
   }));
 }
 
+export function partDamaged(status: CarStatus): boolean {
+  return partAlerts(status).some((part) => part.level > 0);
+}
+
 function tyreAlerts(tyres: TyreInfo) {
   return tyres.wheels.flatMap((wheel, i) => {
     const name = wheelNames[i] ?? "";

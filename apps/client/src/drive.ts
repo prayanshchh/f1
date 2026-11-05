@@ -42,13 +42,8 @@ import {
 import { playBuildUp, type Weather } from "./game/buildup.ts";
 import type { GridSpot } from "./game/buildup-shots.ts";
 import { FrontEnd } from "./game/front-end.ts";
-import {
-  Hud,
-  type HudOptions,
-  lapTime,
-  signed,
-  type TrackMap,
-} from "./game/hud.ts";
+import { Hud, type HudOptions, lapTime, signed } from "./game/hud.ts";
+import type { TrackMap } from "./game/minimap.ts";
 import { sdlKeycode } from "./game/keys.ts";
 import {
   retirementLabel,
@@ -1333,6 +1328,7 @@ async function main(): Promise<void> {
       scene.setDamage(engine.carsDamage(), frame);
     }
     scene.update(frame);
+    hud.tagCars(scene.fieldCars, scene.camera);
     incident.prepare(frame);
     const info = engine.hudInfo();
     scene.setDash(info);

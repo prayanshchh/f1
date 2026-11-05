@@ -38,6 +38,7 @@
 }
 
 .tutorial[data-mode="pause"] .tut-dim {
+  pointer-events: auto;
   opacity: 1;
   background: rgb(8 9 14 / 66%);
   backdrop-filter: grayscale(0.85) brightness(0.8);
@@ -99,6 +100,13 @@
 
 .tutorial[data-mode="freeze"] .tut-stack {
   top: calc(130px * var(--s));
+}
+
+.tutorial.low[data-mode="pause"] .tut-stack {
+  top: auto;
+  bottom: calc(24px * var(--s));
+  translate: -50% 0;
+  transform-origin: bottom center;
 }
 
 .tut-card {
@@ -554,18 +562,6 @@ button.tut-action.finish {
 
 .tut-lights.go b {
   opacity: 1;
-}
-
-.front-hub-tag {
-  justify-self: start;
-  padding: 2px 10px;
-  border-radius: 10px;
-  background: var(--red);
-  font-size: 12px;
-  font-style: normal;
-  font-weight: 800;
-  text-transform: uppercase;
-  color: #fff;
 }
 
 @keyframes tut-enter {

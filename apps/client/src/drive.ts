@@ -60,7 +60,7 @@ import { idealCompound } from "./game/weather.ts";
 import { IncidentCam } from "./game/incident-cam.ts";
 import { InstantReplay } from "./game/instant-replay.ts";
 import { LapTrace } from "./game/laptrace.ts";
-import { Menu } from "./game/menu.ts";
+import { Menu, type MenuAction } from "./game/menu.ts";
 import type { CarStatus } from "./game/mfd.ts";
 import { type PadCommands, PadLink } from "./game/pad.ts";
 import { PlayerError, playerMessage } from "./game/player-error.ts";
@@ -772,11 +772,8 @@ interface Entry {
   tutorial: boolean;
 }
 
-async function firstVisit(front: FrontEnd, driver: Driver): Promise<boolean> {
-  if (driver.onboarded || tutorialStatus() !== null) return false;
-  if ((await front.tutorialOffer()) === "tutorial") return true;
-  rememberTutorial("skipped");
-  return false;
+function newcomer(driver: Driver | null): boolean {
+  return tutorialStatus() === null && driver?.onboarded !== true;
 }
 
 async function enterGame(
@@ -784,13 +781,13 @@ async function enterGame(
   settings: Settings,
   menu: Menu,
   music: Music,
+  known: Driver | null,
 ): Promise<Entry> {
   const studio = new Studio(renderer);
   const front = new FrontEnd(element("[data-front=root]"), studio);
   front.open();
   music.opening();
   void studio.preloadTeams();
-  const known = await currentDriver();
   setStatus("");
   let driver = known ?? (await front.welcome());
   const leave = (tutorial: boolean): Entry => {
@@ -799,7 +796,6 @@ async function enterGame(
     return { driver, tutorial };
   };
   for (;;) {
-    if (await firstVisit(front, driver)) return leave(true);
     if (!driver.onboarded) {
       music.play("menu");
       driver = await front.onboard(driver);
@@ -825,8 +821,10 @@ async function signIn(
   menu: Menu,
   music: Music,
 ): Promise<Entry> {
-  if (autostart) return { driver: await currentDriver(), tutorial: false };
-  const entry = await enterGame(renderer, settings, menu, music);
+  const known = await currentDriver();
+  if (autostart) return { driver: known, tutorial: false };
+  if (newcomer(known)) return { driver: known, tutorial: true };
+  const entry = await enterGame(renderer, settings, menu, music, known);
   saveWeekend(null);
   return entry;
 }
@@ -1040,9 +1038,10 @@ async function main(): Promise<void> {
     if (coach && auto) armTutorial();
     restart(auto);
   };
-  const leave = () => {
-    if (coach) coach.skip();
-    else restart(true);
+  const leave = (action: MenuAction) => {
+    if (action !== "quit") again(true);
+    else if (coach) coach.skip();
+    else restart(false);
   };
   const pause = () => {
     if (paused || finished()) return;
@@ -1057,7 +1056,7 @@ async function main(): Promise<void> {
         if (action === "replay") openReplay();
         return;
       }
-      leave();
+      leave(action);
     });
   };
 
@@ -1067,7 +1066,7 @@ async function main(): Promise<void> {
     event.stopImmediatePropagation();
     if (event.type !== "keydown" || event.repeat) return;
     pad.toggle();
-    if (pad.panelOpen && !waiting && coach?.holding !== true) pause();
+    if (pad.panelOpen && !waiting && coach?.busy !== true) pause();
   };
   window.addEventListener("keydown", phoneKey, true);
   window.addEventListener("keyup", phoneKey, true);
@@ -1413,6 +1412,13 @@ async function main(): Promise<void> {
       engine,
       pad,
       menuOpen: () => menu.open,
+      pause,
+      resume: () => {
+        menu.resume();
+      },
+      guardMenu: (guard) => {
+        menu.guard(guard);
+      },
       mfdPage: () => element("[data-hud=mfd]").dataset["page"] ?? "quick",
       mute: (muted) => {
         sound.mute(muted);

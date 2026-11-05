@@ -17,10 +17,7 @@ const loaderRed = "rgb(255, 46, 46)";
 
 function sampleLoadBars(): void {
   window.loadSamples = [];
-  setInterval(() => {
-    const box =
-      document.querySelector(".status:not([hidden])") ??
-      document.querySelector(".front-car-loading");
+  const record = (box: Element | null) => {
     const bar = box?.querySelector("[role=progressbar]");
     if (!box || !bar) return;
     const fill = bar.querySelector("i");
@@ -33,7 +30,22 @@ function sampleLoadBars(): void {
           "")
         : "",
     });
+  };
+  setInterval(() => {
+    record(
+      document.querySelector(".status:not([hidden])") ??
+        document.querySelector(".front-car-loading"),
+    );
   }, 40);
+  new MutationObserver((changes) => {
+    for (const change of changes)
+      if (change.target instanceof Element)
+        record(change.target.closest(".status:not([hidden])"));
+  }).observe(document, {
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["aria-valuenow"],
+  });
 }
 
 async function slowNetwork(page: Page, megabits: number): Promise<void> {
@@ -45,6 +57,19 @@ async function slowNetwork(page: Page, megabits: number): Promise<void> {
     latency: 10,
     downloadThroughput: (megabits * 1e6) / 8,
     uploadThroughput: 1e6,
+  });
+}
+
+function storedAssets(page: Page): Promise<number> {
+  return page.evaluate(
+    async () => (await (await caches.open("revracers-assets")).keys()).length,
+  );
+}
+
+async function hubReady(page: Page): Promise<void> {
+  await expect(page.locator(".front-hub")).toBeVisible({ timeout: 120_000 });
+  await expect(page.locator(".front-car-loading")).toHaveCount(0, {
+    timeout: 120_000,
   });
 }
 
@@ -98,6 +123,7 @@ test.describe("loading progress", () => {
       timeout: 60_000,
     });
 
+    await page.evaluate(() => caches.delete("revracers-assets"));
     await page.addInitScript(sampleLoadBars);
     await slowNetwork(page, 40);
     await page.goto("/");
@@ -115,6 +141,47 @@ test.describe("loading progress", () => {
     expect(runs.length).toBeLessThanOrEqual(2);
     expect(partway(runs[0] ?? []).size).toBeGreaterThanOrEqual(10);
     for (const run of runs) expect(run.at(-1)?.value).toBe(100);
+  });
+
+  test("a second visit takes the game's files from the browser instead of downloading them again", async ({
+    page,
+    context,
+  }) => {
+    await seedPlayer(context);
+    await page.addInitScript(() => {
+      localStorage.setItem("revracers.tutorial", "skipped");
+    });
+    const fetched: string[] = [];
+    page.on("request", (request) => {
+      const { pathname } = new URL(request.url());
+      if (request.resourceType() === "fetch" && pathname.startsWith("/assets/"))
+        fetched.push(pathname);
+    });
+    await page.goto("/");
+    await hubReady(page);
+    let files = 0;
+    await expect
+      .poll(
+        async () => {
+          const seen = new Set(fetched).size;
+          const steady = seen === files && (await storedAssets(page)) === seen;
+          files = seen;
+          return steady;
+        },
+        { intervals: [1500], timeout: 90_000 },
+      )
+      .toBe(true);
+    expect(fetched.filter((file) => file.endsWith(".wasm"))).toHaveLength(1);
+    expect(
+      fetched.filter((file) => file.endsWith(".glb")).length,
+    ).toBeGreaterThan(5);
+
+    const first = new Set(fetched);
+    fetched.length = 0;
+    await page.reload();
+    await hubReady(page);
+    await page.waitForTimeout(3000);
+    expect(fetched.filter((file) => first.has(file))).toEqual([]);
   });
 
   if (process.platform !== "linux") {

@@ -5,6 +5,7 @@ import {
   type RacingLineData,
 } from "../../apps/client/src/game/racing-line.ts";
 import {
+  type Command,
   type CourseTurn,
   type Pedals,
   Tutorial,
@@ -51,6 +52,10 @@ class Drive {
   limit = Infinity;
   retired = false;
   crashed = false;
+  phone = false;
+  gear = 1;
+  menu = false;
+  panel = false;
   brakeIn: number | null = null;
   readonly events: TutorialEvent[] = [];
   readonly seen: string[] = [];
@@ -86,7 +91,7 @@ class Drive {
       ...this.tutorial.update({
         now: this.now,
         input: this.input,
-        phone: false,
+        phone: this.phone,
         travel: this.travel,
         speed: this.speed,
         raceTime: this.raceTime,
@@ -100,6 +105,9 @@ class Drive {
         boost: this.boost,
         retired: this.retired,
         crashed: this.crashed,
+        gear: this.gear,
+        menu: this.menu,
+        panel: this.panel,
       }),
     );
     this.note();
@@ -107,9 +115,14 @@ class Drive {
 
   private move(): void {
     const { throttle, brake } = this.input;
-    const accel = throttle * 9 - brake * 38 - 0.0004 * this.speed ** 2;
+    if (this.speed === 0 && brake > throttle) this.gear = -1;
+    if (this.speed === 0 && throttle > brake) this.gear = 1;
+    const back = this.gear < 0;
+    const push = back ? brake : throttle;
+    const stop = back ? throttle : brake;
+    const accel = push * 9 - stop * 38 - 0.0004 * this.speed ** 2;
     this.speed = Math.max(0, Math.min(92, this.limit, this.speed + accel * dt));
-    this.travel += this.speed * dt;
+    this.travel += (back ? -1 : 1) * this.speed * dt;
   }
 
   private note(): void {
@@ -150,6 +163,7 @@ const hands: Record<string, (drive: Drive) => Pedals | undefined> = {
   "brake-pedal": () => ({ steer: 0, throttle: 0, brake: 1 }),
   "gas-pedal": () => ({ steer: 0, throttle: 1, brake: 0 }),
   "t1-brake": () => ({ steer: 0, throttle: 0, brake: 1 }),
+  reversing: () => ({ steer: 0, throttle: 0, brake: 1 }),
 };
 
 const presses: Record<string, (drive: Drive) => void> = {
@@ -170,6 +184,18 @@ const presses: Record<string, (drive: Drive) => void> = {
   },
   screens: (d) => {
     if (d.frames === 20) d.mfd = "temps";
+  },
+  phone: (d) => {
+    if (d.frames === 20) d.panel = true;
+  },
+  "phone-code": (d) => {
+    if (d.frames === 20) d.panel = false;
+  },
+  pause: (d) => {
+    if (d.frames === 20) d.menu = true;
+  },
+  "menu-resume": (d) => {
+    if (d.frames === 20) d.menu = false;
   },
 };
 
@@ -216,6 +242,17 @@ const lessons = [
   "camera",
   "screens",
   "drive",
+  "reverse",
+  "reversing",
+  "phone",
+  "phone-code",
+  "pause",
+  "menu-pages",
+  "menu-options",
+  "menu-replay",
+  "menu-restart",
+  "menu-quit",
+  "menu-resume",
   "finish",
 ];
 
@@ -234,6 +271,21 @@ function pastTurnOne(): Drive {
   return drive;
 }
 
+function brakeOnly(drive: Drive): void {
+  drive.input = { steer: 0, throttle: 0, brake: 1 };
+}
+
+function tourSpots(drive: Drive): (string | null | undefined)[] {
+  const spots: (string | null | undefined)[] = [];
+  while (drive.id !== "menu-resume" && spots.length < 10) {
+    spots.push(drive.tutorial.view.card?.spot);
+    drive.drive(() => undefined, 1);
+    drive.tutorial.press("confirm");
+    drive.frame();
+  }
+  return spots;
+}
+
 function lightsOut(): Drive {
   const drive = new Drive();
   drive.until("go", cooperative());
@@ -241,7 +293,7 @@ function lightsOut(): Drive {
 }
 
 describe("driving school", () => {
-  test("a player who follows every instruction gets the five lessons in order and finishes after a pit stop", () => {
+  test("a player who follows every instruction gets every lesson in order and finishes", () => {
     const drive = new Drive();
     drive.drive(cooperative());
 
@@ -471,9 +523,127 @@ describe("driving school", () => {
     const drive = pastTurnOne();
     drive.drive(racer, 2);
     drive.drive((d) => {
-      d.input = { steer: 0, throttle: 0, brake: 1 };
+      d.input = { steer: 0, throttle: 0, brake: d.speed > 0 ? 1 : 0 };
     }, 6);
     expect(drive.speed).toBe(0);
     expect(drive.tutorial.view.alert?.title).toBe("Get going");
+  });
+
+  test("after the lap, time stops to explain reverse, and the lesson waits until the car has backed up", () => {
+    const drive = new Drive();
+    drive.until("reverse", cooperative());
+    expect(drive.travel).toBeGreaterThan(length + 20);
+    expect(drive.speed).toBeGreaterThan(40);
+    expect(drive.tutorial.frozen).toBe(true);
+    drive.drive(() => undefined, 1);
+    drive.tutorial.press("confirm");
+    drive.frame();
+    expect(drive.id).toBe("reversing");
+    expect(drive.tutorial.view.card?.title).toBe("Brake to a stop");
+
+    drive.drive((d) => {
+      d.input = { steer: 0, throttle: 0, brake: d.speed > 0 ? 1 : 0 };
+    }, 8);
+    expect(drive.speed).toBe(0);
+    expect(drive.id).toBe("reversing");
+    expect(drive.tutorial.view.alert).toBeNull();
+
+    drive.drive(brakeOnly, 0.2);
+    expect(drive.gear).toBe(-1);
+    expect(drive.tutorial.view.card?.title).toBe("Keep holding ↓");
+    const stoppedAt = drive.travel;
+    drive.until("phone", brakeOnly, 10);
+    expect(drive.id).toBe("phone");
+    expect(stoppedAt - drive.travel).toBeGreaterThan(3);
+    expect(drive.events.at(-1)).toEqual({ kind: "tick" });
+  });
+
+  test("the phone lesson spotlights the P key, then the code, and goes on once the code is closed", () => {
+    const drive = new Drive();
+    drive.until("phone", cooperative());
+    expect(drive.tutorial.frozen).toBe(true);
+    expect(drive.tutorial.view.card?.spot).toBe("phone-key");
+    expect(drive.tutorial.view.card?.actions).toEqual(["code"]);
+    drive.drive(() => undefined, 1);
+    drive.tutorial.press("confirm");
+    drive.drive(() => undefined, 1);
+    expect(drive.id).toBe("phone");
+
+    drive.panel = true;
+    drive.frame();
+    expect(drive.id).toBe("phone-code");
+    expect(drive.tutorial.view.card?.spot).toBe("pad-panel");
+    expect(drive.tutorial.view.card?.low).toBe(true);
+    drive.drive(() => undefined, 2);
+    expect(drive.id).toBe("phone-code");
+    drive.panel = false;
+    drive.frame();
+    expect(drive.id).toBe("pause");
+  });
+
+  test("the pause menu lesson spotlights each part of the real menu in turn, and only resuming the race ends it", () => {
+    const drive = new Drive();
+    drive.until("pause", cooperative());
+    expect(drive.tutorial.view.card?.actions).toEqual(["pause"]);
+    drive.drive(() => undefined, 1);
+    drive.tutorial.press("confirm");
+    drive.drive(() => undefined, 1);
+    expect(drive.id).toBe("pause");
+    expect(drive.tutorial.touring).toBe(false);
+
+    drive.menu = true;
+    drive.frame();
+    expect(drive.tutorial.touring).toBe(true);
+    expect(tourSpots(drive)).toEqual([
+      "menu-tabs",
+      "menu-main",
+      "menu-replay",
+      "menu-restart",
+      "menu-quit",
+    ]);
+    expect(drive.tutorial.view.card?.spot).toBe("menu-resume");
+    expect(drive.tutorial.view.card?.actions).toEqual(["resume"]);
+    drive.drive(() => undefined, 1);
+    drive.tutorial.press("confirm");
+    drive.drive(() => undefined, 1);
+    expect(drive.id).toBe("menu-resume");
+
+    drive.menu = false;
+    drive.frame();
+    expect(drive.id).toBe("finish");
+    expect(drive.tutorial.touring).toBe(false);
+  });
+
+  test("closing the menu in the middle of the tour skips the rest of it", () => {
+    const drive = new Drive();
+    drive.until("menu-options", cooperative());
+    expect(drive.menu).toBe(true);
+    drive.menu = false;
+    drive.frame();
+    expect(drive.id).toBe("finish");
+  });
+
+  test("with only a phone, the brake pedal shows the code, opens the menu, steps through the tour and resumes the race", () => {
+    const drive = new Drive();
+    drive.phone = true;
+    drive.until("phone", cooperative());
+    const commands: Command[] = [];
+    const seen = drive.events.length;
+    drive.drive((d) => {
+      for (const event of d.events.splice(seen)) {
+        if (event.kind !== "command") continue;
+        commands.push(event.command);
+        if (event.command === "panel") d.panel = !d.panel;
+        else d.menu = event.command === "pause";
+      }
+      const down = Math.floor(d.now / 0.5) % 2 === 0;
+      d.input = { steer: 0, throttle: 0, brake: down ? 1 : 0 };
+    }, 60);
+
+    expect(commands).toEqual(["panel", "panel", "pause", "resume"]);
+    expect(drive.tutorial.finished).toBe("done");
+    expect(drive.seen.slice(drive.seen.indexOf("phone"))).toEqual(
+      lessons.slice(lessons.indexOf("phone")),
+    );
   });
 });

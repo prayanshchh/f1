@@ -25,6 +25,11 @@ const keyboardPrompts: Record<Action, Prompt> = {
   keyboard: ["K", "Use keyboard"],
   finish: ["Enter", "Finish"],
   boost: ["B", "Boost"],
+  pause: ["Esc", "Pause"],
+  resume: ["Esc", "Resume"],
+  code: ["P", "Show code"],
+  close: ["P", "Close"],
+  next: ["Space", "Next"],
 };
 
 const phonePrompts: Partial<Record<Action, Prompt>> = {
@@ -36,11 +41,22 @@ const phonePrompts: Partial<Record<Action, Prompt>> = {
   confirm: ["Brake", "Continue"],
   finish: ["Brake", "Finish"],
   boost: ["Boost", "Tap"],
+  pause: ["Brake", "Pause"],
+  resume: ["Brake", "Resume"],
+  next: ["Brake", "Next"],
 };
 
 const spots: Record<Spot, string> = {
   mfd: ".hud .mfd",
   battery: ".hud .ring-left",
+  "phone-key": ".hud [data-help=phone]",
+  "pad-panel": "[data-pad=panel]",
+  "menu-tabs": "[data-menu=tabs]",
+  "menu-main": ".menu .menu-main",
+  "menu-replay": "[data-menu=replay]",
+  "menu-restart": "[data-menu=start]",
+  "menu-quit": "[data-menu=quit]",
+  "menu-resume": "[data-menu=resume]",
 };
 
 const clickable = new Set<Action>([
@@ -49,6 +65,11 @@ const clickable = new Set<Action>([
   "phone",
   "keyboard",
   "finish",
+  "pause",
+  "resume",
+  "code",
+  "close",
+  "next",
 ]);
 
 const toastSeconds = 2.6;
@@ -137,6 +158,7 @@ export class TutorialScreen {
   render(view: TutorialView, now: number): void {
     this.root.dataset["mode"] = view.card ? view.mode : "idle";
     this.root.dataset["step"] = view.id;
+    this.root.classList.toggle("low", view.card?.low === true);
     this.paintCard(view);
     this.paintLive(view);
     this.paintLights(now);

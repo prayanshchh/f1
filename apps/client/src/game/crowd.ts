@@ -16,6 +16,7 @@ import {
   texture,
   time,
   uniform,
+  uniformArray,
   uv,
   varying,
   vec2,
@@ -90,10 +91,110 @@ function roll(index: number, salt: number): number {
 }
 
 const eyeModel = uniform(new THREE.Vector3());
+const spriteCells = atlasColumns * atlasRows;
+
+type Atlas = CanvasImageSource & { width: number; height: number };
+
+function alphaOf(image: Atlas): Float32Array {
+  const canvas = new OffscreenCanvas(image.width, image.height);
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) throw new Error("no 2d canvas for the crowd atlas");
+  context.drawImage(image, 0, 0);
+  const rgba = context.getImageData(0, 0, image.width, image.height).data;
+  const alpha = new Float32Array(image.width * image.height);
+  for (let i = 0; i < alpha.length; i++)
+    alpha[i] = (rgba[i * 4 + 3] ?? 0) / 255;
+  return alpha;
+}
+
+function halved(level: Float32Array, width: number, height: number) {
+  const w = Math.max(1, width >> 1);
+  const h = Math.max(1, height >> 1);
+  const next = new Float32Array(w * h);
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      let sum = 0;
+      for (const [dx, dy] of [
+        [0, 0],
+        [1, 0],
+        [0, 1],
+        [1, 1],
+      ] as const) {
+        const sx = Math.min(width - 1, x * 2 + dx);
+        const sy = Math.min(height - 1, y * 2 + dy);
+        sum += level[sy * width + sx] ?? 0;
+      }
+      next[y * w + x] = sum / 4;
+    }
+  return { next, w, h };
+}
+
+function grow(
+  box: number[],
+  left: number,
+  right: number,
+  top: number,
+  bottom: number,
+) {
+  box[0] = Math.min(box[0] ?? 1, THREE.MathUtils.clamp(left, 0, 1));
+  box[1] = Math.max(box[1] ?? 0, THREE.MathUtils.clamp(right, 0, 1));
+  box[2] = Math.min(box[2] ?? 1, THREE.MathUtils.clamp(top, 0, 1));
+  box[3] = Math.max(box[3] ?? 0, THREE.MathUtils.clamp(bottom, 0, 1));
+}
+
+function markTexel(
+  boxes: number[][],
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+) {
+  const left = ((x - 1) / w) * atlasColumns;
+  const right = ((x + 2) / w) * atlasColumns;
+  const top = ((y - 1) / h) * atlasRows;
+  const bottom = ((y + 2) / h) * atlasRows;
+  const lastColumn = Math.min(atlasColumns, Math.ceil(right)) - 1;
+  const lastRow = Math.min(atlasRows, Math.ceil(bottom)) - 1;
+  for (let row = Math.max(0, Math.floor(top)); row <= lastRow; row++)
+    for (
+      let column = Math.max(0, Math.floor(left));
+      column <= lastColumn;
+      column++
+    ) {
+      const box = boxes[row * atlasColumns + column];
+      if (box)
+        grow(box, left - column, right - column, top - row, bottom - row);
+    }
+}
+
+export function spriteBounds(
+  alpha: Float32Array,
+  width: number,
+  height: number,
+): THREE.Vector4[] {
+  const boxes = Array.from({ length: spriteCells }, () => [1, 0, 1, 0]);
+  let level = alpha;
+  let w = width;
+  let h = height;
+  for (;;) {
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++)
+        if ((level[y * w + x] ?? 0) >= alphaCutoff)
+          markTexel(boxes, x, y, w, h);
+    if (w === 1 && h === 1) break;
+    ({ next: level, w, h } = halved(level, w, h));
+  }
+  return boxes.map(([left = 0, right = 0, top = 0, bottom = 0]) =>
+    right > left && bottom > top
+      ? new THREE.Vector4(left, right, top, bottom)
+      : new THREE.Vector4(),
+  );
+}
 
 function material(
   albedo: THREE.Texture,
   mask: THREE.Texture,
+  boxes: ReturnType<typeof uniformArray>,
   origin: THREE.InstancedBufferAttribute,
   shirt: THREE.InstancedBufferAttribute,
 ) {
@@ -112,15 +213,20 @@ function material(
   const right = vec3(flat.y, 0, flat.x.negate());
   const phase = place.x.mul(0.37).add(place.z.mul(0.71));
   const bob = sin(time.mul(bobRate).add(phase)).abs().mul(bobHeight);
+  const box = boxes.element(
+    floor(tint.w).toInt(),
+  ) as unknown as THREE.Node<"vec4">;
+  const across = mix(box.x, box.y, positionGeometry.x.add(0.5));
+  const down = mix(box.z, box.w, float(1).sub(positionGeometry.y));
   result.positionNode = place.xyz
-    .add(right.mul(positionGeometry.x.mul(personWidth).mul(place.w)))
+    .add(right.mul(across.sub(0.5).mul(personWidth).mul(place.w)))
     .add(
-      vec3(0, positionGeometry.y.mul(personHeight).mul(place.w).add(bob), 0),
+      vec3(0, float(1).sub(down).mul(personHeight).mul(place.w).add(bob), 0),
     );
   const cell = varying(floor(tint.w));
   const sprite = vec2(
-    cell.mod(atlasColumns).add(uv().x).div(atlasColumns),
-    floor(cell.div(atlasColumns)).add(float(1).sub(uv().y)).div(atlasRows),
+    cell.mod(atlasColumns).add(varying(across)).div(atlasColumns),
+    floor(cell.div(atlasColumns)).add(varying(down)).div(atlasRows),
   );
   const colour = texture(albedo, sprite);
   const shirtMask = texture(mask, sprite).r;
@@ -291,6 +397,11 @@ export class Crowd {
       atlas(maskUrl, THREE.NoColorSpace),
       fetch(crowdUrl),
     ]);
+    const image = albedo.image as Atlas;
+    const boxes = uniformArray(
+      spriteBounds(alphaOf(image), image.width, image.height),
+      "vec4",
+    );
     const values = new Float32Array(await response.arrayBuffer());
     const tiles = new Map<string, number[]>();
     for (let i = 0; i < values.length; i += stride) {
@@ -313,7 +424,7 @@ export class Crowd {
       );
       const mesh = new THREE.InstancedMesh(
         plane,
-        material(albedo, mask, origin, shirt),
+        material(albedo, mask, boxes, origin, shirt),
         indices.length,
       );
       indices.forEach((source, i) => {

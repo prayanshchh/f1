@@ -1,7 +1,11 @@
 import * as THREE from "three/webgpu";
+import { MeshoptSimplifier } from "meshoptimizer/simplifier";
+import {
+  mergeGeometries,
+  mergeVertices,
+} from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { CarEnvironment } from "./carpaint.ts";
-import { carField, carStride } from "./engine.ts";
-import { carWheel } from "./frame-layout.ts";
+import { carField, carStride, carWheel } from "./frame-layout.ts";
 import {
   contactShadow,
   gltfToSdCar,
@@ -20,6 +24,13 @@ const shadowDistance = 90;
 const shortestFrame = 1 / 240;
 const longestFrame = 1 / 20;
 const wheelParts = new Set(["tyre", "rim"]);
+const detailLevels = [
+  { metresPerPixel: 0.02, error: 0.01, spinning: true },
+  { metresPerPixel: 0.1, error: 0.05, spinning: false },
+  { metresPerPixel: 0.25, error: 0.12, spinning: false },
+];
+const detailHold = 0.85;
+const referenceHeight = 2160;
 
 function matrix(): THREE.Group {
   const object = new THREE.Group();
@@ -37,6 +48,7 @@ interface WheelShape {
 interface Template {
   body: THREE.Object3D;
   wheels: WheelShape[];
+  levels: THREE.Object3D[];
   axleMid: number;
   wheelHeight: number;
 }
@@ -49,6 +61,9 @@ interface WheelNode {
 interface FieldCar {
   root: THREE.Group;
   model: THREE.Group;
+  body: THREE.Object3D;
+  levels: THREE.Object3D[];
+  detail: number;
   wheels: WheelNode[];
   look: TyreLook;
   radius: number;
@@ -62,6 +77,15 @@ interface FieldCar {
 }
 
 const scratch = new THREE.Matrix4();
+
+export function detailFor(current: number, metresPerPixel: number): number {
+  let detail = 0;
+  detailLevels.forEach((level, i) => {
+    const hold = i < current ? detailHold : 1;
+    if (metresPerPixel >= level.metresPerPixel * hold) detail = i + 1;
+  });
+  return detail;
+}
 
 function wheelOf(x: number, y: number): number {
   return (x > 0 ? 0 : 2) + (y > 0 ? 1 : 0);
@@ -140,6 +164,86 @@ function wheelShapes(model: THREE.Object3D): WheelShape[] {
   });
 }
 
+function flatPositions(geometry: THREE.BufferGeometry): Float32Array {
+  const position = geometry.getAttribute("position");
+  const flat = new Float32Array(position.count * 3);
+  for (let i = 0; i < position.count; i++) {
+    flat[i * 3] = position.getX(i);
+    flat[i * 3 + 1] = position.getY(i);
+    flat[i * 3 + 2] = position.getZ(i);
+  }
+  return flat;
+}
+
+function simplified(
+  geometry: THREE.BufferGeometry,
+  error: number,
+): THREE.BufferGeometry {
+  const count = geometry.getAttribute("position").count;
+  const source = geometry.index
+    ? Uint32Array.from(geometry.index.array)
+    : Uint32Array.from({ length: count }, (_, i) => i);
+  const [indices] = MeshoptSimplifier.simplify(
+    source,
+    flatPositions(geometry),
+    3,
+    0,
+    error,
+    ["ErrorAbsolute"],
+  );
+  const result = new THREE.BufferGeometry();
+  for (const [name, attribute] of Object.entries(geometry.attributes))
+    result.setAttribute(name, attribute);
+  result.setIndex(new THREE.BufferAttribute(indices, 1));
+  if (!geometry.boundingSphere) geometry.computeBoundingSphere();
+  result.boundingSphere = geometry.boundingSphere;
+  return result;
+}
+
+function simplifiedBody(body: THREE.Object3D, error: number): THREE.Group {
+  const level = matrix();
+  level.matrix.copy(body.matrix);
+  body.traverse((object) => {
+    const mesh = object as THREE.Mesh;
+    if (object.type !== "Mesh") return;
+    const copy = new THREE.Mesh(
+      simplified(mesh.geometry, error),
+      mesh.material,
+    );
+    copy.userData = mesh.userData;
+    level.add(copy);
+  });
+  return level;
+}
+
+function staticWheels(wheels: WheelShape[], error: number): THREE.Mesh[] {
+  const groups = new Map<THREE.Material, THREE.BufferGeometry[]>();
+  for (const shape of wheels)
+    for (const mesh of shape.meshes) {
+      const material = mesh.material as THREE.Material;
+      const placed = mesh.geometry
+        .clone()
+        .translate(shape.centre.x, shape.centre.y, shape.centre.z);
+      groups.set(material, [...(groups.get(material) ?? []), placed]);
+    }
+  return Array.from(groups, ([material, parts]) => {
+    const merged = mergeGeometries(parts);
+    for (const part of parts) part.dispose();
+    const welded = mergeVertices(merged);
+    merged.dispose();
+    return new THREE.Mesh(simplified(welded, error), material);
+  });
+}
+
+function detailModels(body: THREE.Object3D, wheels: WheelShape[]) {
+  return detailLevels.map(({ error, spinning }) => {
+    const level = new THREE.Group();
+    level.add(simplifiedBody(body, error));
+    if (!spinning) level.add(...staticWheels(wheels, error));
+    return level;
+  });
+}
+
 async function loadTemplate(
   team: string,
   env: CarEnvironment,
@@ -158,6 +262,7 @@ async function loadTemplate(
   return {
     body,
     wheels,
+    levels: detailModels(body, wheels),
     axleMid: mean((shape) => shape.centre.x),
     wheelHeight: mean((shape) => shape.centre.z),
   };
@@ -171,8 +276,10 @@ export class FieldCars {
   );
   private readonly eye = new THREE.Vector3();
   private updatedAt = 0;
+  private viewHeight = referenceHeight;
 
   static async load(teams: string[], env: CarEnvironment): Promise<FieldCars> {
+    await MeshoptSimplifier.ready;
     const field = new FieldCars();
     const unique = [...new Set(teams)];
     const templates = new Map(
@@ -197,14 +304,20 @@ export class FieldCars {
     const model = new THREE.Group();
     const contact = contactShadow(wheelRest);
     const body = template.body.clone();
+    const levels = template.levels.map((level) => level.clone());
     const damage = newLook();
-    body.traverse((object) => {
-      if ((object.userData as { damage?: DamageLook }).damage)
-        object.userData = { ...object.userData, damage };
-    });
-    model.add(body, contact);
-    root.add(model);
     const look = tyreLook();
+    for (const part of [body, ...levels])
+      part.traverse((object) => {
+        if ((object.userData as { damage?: DamageLook }).damage)
+          object.userData = { ...object.userData, damage };
+        const material = (object as THREE.Mesh).material as
+          THREE.Material | undefined;
+        if (material?.name === "tyre") object.userData = { tyre: look };
+      });
+    for (const level of levels) level.visible = false;
+    model.add(body, ...levels, contact);
+    root.add(model);
     const wheels = template.wheels.map((shape) =>
       this.buildWheel(shape, root, look),
     );
@@ -218,6 +331,9 @@ export class FieldCars {
     return {
       root,
       model,
+      body,
+      levels,
+      detail: 0,
       wheels,
       look,
       radius:
@@ -303,8 +419,25 @@ export class FieldCars {
     this.root.visible = !hidden;
   }
 
+  resize(height: number): void {
+    this.viewHeight = Math.max(1, height);
+  }
+
+  private setDetail(car: FieldCar, detail: number): void {
+    if (detail === car.detail) return;
+    car.detail = detail;
+    car.body.visible = detail === 0;
+    car.levels.forEach((level, i) => {
+      level.visible = detail === i + 1;
+    });
+    const spinning = detail === 0 || detailLevels[detail - 1]?.spinning;
+    for (const wheel of car.wheels) wheel.pivot.visible = spinning === true;
+  }
+
   update(data: Float64Array, camera: THREE.Camera): void {
     this.eye.setFromMatrixPosition(camera.matrixWorld);
+    const lens = camera.projectionMatrix.elements[5];
+    const spread = 2 / (Math.max(lens, 1e-6) * this.viewHeight);
     const now = performance.now();
     const seconds = THREE.MathUtils.clamp(
       (now - this.updatedAt) / 1000,
@@ -313,25 +446,38 @@ export class FieldCars {
     );
     this.updatedAt = now;
     this.cars.forEach((car, i) => {
-      const at = (i + 1) * carStride;
-      const visible = (data[at + carField.visible] ?? 0) !== 0;
-      const x = data[at + 12] ?? 0;
-      const y = data[at + 13] ?? 0;
-      const z = data[at + 14] ?? 0;
-      const distance = Math.hypot(
-        x - this.eye.x,
-        y - this.eye.y,
-        z - this.eye.z,
-      );
-      const shown = visible && distance < drawDistance;
-      car.root.visible = shown;
-      if (!shown) return;
-      if (!car.placed) this.place(car, data, at);
-      car.root.matrix.fromArray(data, at);
-      car.root.matrixWorldNeedsUpdate = true;
-      this.setShadow(car, distance < shadowDistance);
-      this.setCompound(car, data[at + carField.compound] ?? 1);
-      if (distance < wheelDistance) this.updateWheels(car, data, at, seconds);
+      this.updateCar(car, data, (i + 1) * carStride, seconds, spread);
     });
+  }
+
+  private distanceOf(data: Float64Array, at: number): number {
+    return Math.hypot(
+      (data[at + 12] ?? 0) - this.eye.x,
+      (data[at + 13] ?? 0) - this.eye.y,
+      (data[at + 14] ?? 0) - this.eye.z,
+    );
+  }
+
+  private updateCar(
+    car: FieldCar,
+    data: Float64Array,
+    at: number,
+    seconds: number,
+    spread: number,
+  ): void {
+    const distance = this.distanceOf(data, at);
+    const shown =
+      (data[at + carField.visible] ?? 0) !== 0 && distance < drawDistance;
+    car.root.visible = shown;
+    if (!shown) return;
+    if (!car.placed) this.place(car, data, at);
+    car.root.matrix.fromArray(data, at);
+    car.root.matrixWorldNeedsUpdate = true;
+    this.setShadow(car, distance < shadowDistance);
+    this.setCompound(car, data[at + carField.compound] ?? 1);
+    this.setDetail(car, detailFor(car.detail, distance * spread));
+    const spinning = car.wheels[0]?.pivot.visible === true;
+    if (spinning && distance < wheelDistance)
+      this.updateWheels(car, data, at, seconds);
   }
 }

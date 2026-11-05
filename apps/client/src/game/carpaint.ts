@@ -170,11 +170,57 @@ function loaded(url: string, sRgb: boolean, anisotropy: number): THREE.Texture {
   return map;
 }
 
+function redChannel(
+  image: CanvasImageSource & { width: number; height: number },
+) {
+  const { width, height } = image;
+  const canvas = new OffscreenCanvas(width, height);
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) throw new Error("no 2d canvas for the height map");
+  context.drawImage(image, 0, 0);
+  const rgba = context.getImageData(0, 0, width, height).data;
+  const red = new Uint8Array(width * height);
+  for (let i = 0; i < red.length; i++) red[i] = rgba[i * 4] ?? 0;
+  return { data: red, width, height };
+}
+
+function heightMap(url: string, anisotropy: number): THREE.Texture {
+  const map = new THREE.DataTexture(
+    new Uint8Array(1),
+    1,
+    1,
+    THREE.RedFormat,
+    THREE.UnsignedByteType,
+  );
+  map.colorSpace = THREE.NoColorSpace;
+  map.magFilter = THREE.LinearFilter;
+  map.minFilter = THREE.LinearMipmapLinearFilter;
+  map.generateMipmaps = true;
+  map.anisotropy = anisotropy;
+  const manager = THREE.DefaultLoadingManager;
+  manager.itemStart(url);
+  void new THREE.ImageLoader()
+    .loadAsync(url)
+    .then(
+      (image) => {
+        map.image = redChannel(image);
+        map.needsUpdate = true;
+      },
+      () => {
+        manager.itemError(url);
+      },
+    )
+    .finally(() => {
+      manager.itemEnd(url);
+    });
+  return releaseOnceUploaded(map);
+}
+
 export function carTextures(team: string, anisotropy: number): CarTextures {
   return {
     albedo: loaded(carFile(team, "albedo.jpg"), true, anisotropy),
     orm: loaded(carFile(team, "orm.jpg"), false, anisotropy),
-    bump: loaded(carFile(team, "bump.jpg"), false, anisotropy),
+    bump: heightMap(carFile(team, "bump.jpg"), anisotropy),
     wheelFace: loaded(carFile(team, "wheel-face.jpg"), true, anisotropy),
     glove: loaded(carFile(team, "glove.jpg"), true, anisotropy),
   };

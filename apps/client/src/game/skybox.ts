@@ -11,6 +11,7 @@ import {
   max,
   min,
   mix,
+  modelViewProjection,
   mx_fractal_noise_float,
   normalize,
   positionLocal,
@@ -19,8 +20,10 @@ import {
   uniform,
   vec2,
   vec3,
+  vec4,
 } from "three/tsl";
 import { releaseOnceUploaded } from "./preload.ts";
+import { alphaTestedOrder } from "./road.ts";
 
 const skyFiles = import.meta.glob<string>(
   "../../../../content/tracks/hill-country/sky/*",
@@ -114,15 +117,16 @@ export class SkyBox {
   ) {
     const material = new THREE.MeshBasicNodeMaterial({
       side: THREE.BackSide,
-      depthTest: false,
       depthWrite: false,
     });
+    const clip = modelViewProjection as unknown as THREE.Node<"vec4">;
+    material.vertexNode = vec4(clip.xy, 0, clip.w);
     material.colorNode = this.radiance(normalize(positionLocal));
     this.mesh = new THREE.Mesh(
       new THREE.SphereGeometry(domeRadius, 64, 32),
       material,
     );
-    this.mesh.renderOrder = -10;
+    this.mesh.renderOrder = alphaTestedOrder + 1;
     this.mesh.frustumCulled = false;
   }
 

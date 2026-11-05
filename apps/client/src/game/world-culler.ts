@@ -6,7 +6,6 @@ const smallCell = 60;
 const largeCell = 200;
 const forestCell = 200;
 const staleShare = 0.25;
-const casterLayer = 1;
 const instanceStride = 16;
 
 interface Cell {
@@ -16,6 +15,13 @@ interface Cell {
   shown: boolean;
   end: number;
   runs: number[];
+  seen: number;
+}
+
+interface RunOrder {
+  starts: Int32Array;
+  ends: Int32Array;
+  cells: Cell[];
 }
 
 export interface SphereTest {
@@ -42,6 +48,8 @@ interface Node {
 }
 
 const leafCells = 8;
+const viewGroups = 6;
+const narrowCellLimit = 4096;
 const boundSlack = 1e-6;
 
 interface Tally {
@@ -70,6 +78,7 @@ class CellSet {
         shown: true,
         end: 0,
         runs: [],
+        seen: 0,
       });
     }
     return this.cells[at] as Cell;
@@ -131,6 +140,49 @@ class CellSet {
     }
     sphere.radius = radius + boundSlack * (1 + radius);
     return sphere;
+  }
+
+  gather(view: SphereTest, stamp: number): void {
+    if (this.nodes.length === 0 && this.cells.length > 0) this.build();
+    let at = 0;
+    while (at < this.nodes.length) {
+      const node = this.nodes[at] as Node;
+      if (!view.intersectsSphere(node.sphere)) {
+        at = node.next;
+        continue;
+      }
+      if (!node.leaf) {
+        at += 1;
+        continue;
+      }
+      for (let i = node.first; i < node.last; i++) {
+        const cell = this.sorted[i] as Cell;
+        if (cell.shown && view.intersectsSphere(cell.sphere)) cell.seen = stamp;
+      }
+      at = node.next;
+    }
+  }
+
+  runOrder(): RunOrder {
+    const extents = this.cells.map((cell) => {
+      let start = Infinity;
+      let end = 0;
+      for (let r = 0; r < cell.runs.length; r += 2) {
+        start = Math.min(start, cell.runs[r] ?? 0);
+        end = Math.max(end, (cell.runs[r] ?? 0) + (cell.runs[r + 1] ?? 0));
+      }
+      return { start, end, cell };
+    });
+    extents.sort((a, b) => a.start - b.start);
+    return {
+      starts: Int32Array.from(extents, (extent) => extent.start),
+      ends: Int32Array.from(extents, (extent) => extent.end),
+      cells: extents.map((extent) => extent.cell),
+    };
+  }
+
+  get cellCount(): number {
+    return this.cells.length;
   }
 
   look(frustum: SphereTest): boolean {
@@ -237,6 +289,42 @@ function boundCell(
   cell.sphere.radius = Math.sqrt(furthest);
 }
 
+function seenSpans(order: RunOrder, stamp: number): [number, number][] {
+  const spans: [number, number][] = [];
+  for (let i = 0; i < order.starts.length; i++) {
+    if (order.cells[i]?.seen !== stamp) continue;
+    const start = order.starts[i] ?? 0;
+    const end = order.ends[i] ?? 0;
+    const last = spans[spans.length - 1];
+    if (last && start <= last[1]) last[1] = Math.max(last[1], end);
+    else spans.push([start, end]);
+  }
+  return spans;
+}
+
+function gapBefore(spans: [number, number][], i: number): number {
+  return (spans[i]?.[0] ?? 0) - (spans[i - 1]?.[1] ?? 0);
+}
+
+function capped(merged: [number, number][]): [number, number][] {
+  const extra = merged.length - viewGroups;
+  if (extra <= 0) return merged;
+  const closed = new Set(
+    merged
+      .map((_, i) => i)
+      .slice(1)
+      .sort((a, b) => gapBefore(merged, a) - gapBefore(merged, b))
+      .slice(0, extra),
+  );
+  const result: [number, number][] = [];
+  merged.forEach(([start, end], i) => {
+    const last = result[result.length - 1];
+    if (last && closed.has(i)) last[1] = end;
+    else result.push([start, end]);
+  });
+  return result;
+}
+
 function markUpload(
   index: THREE.BufferAttribute,
   start: number,
@@ -277,17 +365,23 @@ export class CulledMesh {
   private readonly source: Uint16Array | Uint32Array;
   private readonly index: THREE.BufferAttribute;
   private readonly order: Cell[] = [];
+  private narrow: THREE.Mesh | null = null;
+  private runOrder: RunOrder | null = null;
+  private stamp = 0;
+  private shown = true;
 
   constructor(
     private readonly mesh: THREE.Mesh,
     cellSize: number,
     private readonly inPlace: boolean,
+    shared: Uint16Array | Uint32Array | null = null,
   ) {
     const position = mesh.geometry.getAttribute(
       "position",
     ) as THREE.BufferAttribute;
     this.index = mesh.geometry.index as THREE.BufferAttribute;
-    this.source = (this.index.array as Uint16Array | Uint32Array).slice();
+    this.source =
+      shared ?? (this.index.array as Uint16Array | Uint32Array).slice();
     const { source } = this;
     for (let i = 0; i < source.length; i += 3) {
       const a = source[i] ?? 0;
@@ -313,6 +407,52 @@ export class CulledMesh {
 
   keep(kept: Set<unknown>): void {
     kept.add(this.index);
+  }
+
+  get original(): Uint16Array | Uint32Array {
+    return this.source;
+  }
+
+  addNarrowView(): void {
+    if (this.set.cellCount > narrowCellLimit) return;
+    const geometry = new THREE.BufferGeometry();
+    for (const [name, attribute] of Object.entries(
+      this.mesh.geometry.attributes,
+    ))
+      geometry.setAttribute(name, attribute);
+    geometry.setIndex(this.index);
+    geometry.boundingSphere = this.mesh.geometry.boundingSphere;
+    const copy = new THREE.Mesh(geometry, [
+      this.mesh.material as THREE.Material,
+    ]);
+    copyPlacement(this.mesh, copy);
+    copy.castShadow = false;
+    copy.frustumCulled = false;
+    copy.visible = false;
+    this.mesh.parent?.add(copy);
+    this.narrow = copy;
+    this.runOrder = this.set.runOrder();
+  }
+
+  focus(view: SphereTest | null): void {
+    const narrow = this.narrow;
+    if (!narrow) return;
+    if (!view) {
+      narrow.visible = false;
+      this.mesh.visible = this.shown;
+      return;
+    }
+    this.stamp += 1;
+    this.set.gather(view, this.stamp);
+    const { geometry } = narrow;
+    geometry.clearGroups();
+    const order = this.runOrder;
+    if (!order) return;
+    for (const [start, end] of capped(seenSpans(order, this.stamp)))
+      geometry.addGroup(start, end - start, 0);
+    this.shown = this.mesh.visible;
+    this.mesh.visible = false;
+    narrow.visible = geometry.groups.length > 0;
   }
 
   private collapse(): number {
@@ -412,7 +552,7 @@ function copyPlacement(from: THREE.Mesh, to: THREE.Mesh): void {
   to.receiveShadow = from.receiveShadow;
 }
 
-function casterCopy(mesh: THREE.Mesh): THREE.Mesh {
+function casterCopy(mesh: THREE.Mesh, layer: number): THREE.Mesh {
   const geometry = new THREE.BufferGeometry();
   for (const [name, attribute] of Object.entries(mesh.geometry.attributes))
     geometry.setAttribute(name, attribute);
@@ -423,16 +563,20 @@ function casterCopy(mesh: THREE.Mesh): THREE.Mesh {
   copyPlacement(mesh, copy);
   copy.castShadow = true;
   copy.receiveShadow = false;
-  copy.layers.set(casterLayer);
+  copy.layers.set(layer);
   mesh.parent?.add(copy);
   return copy;
 }
 
 export class WorldCuller {
   private readonly seen: (CulledMesh | CulledForest)[] = [];
-  private readonly cast: CulledMesh[] = [];
+  private readonly cast: CulledMesh[][];
 
-  constructor(root: THREE.Object3D) {
+  constructor(
+    root: THREE.Object3D,
+    private readonly casterLayers: number[],
+  ) {
+    this.cast = casterLayers.map(() => []);
     const meshes: THREE.Mesh[] = [];
     root.traverse((object) => {
       if (object instanceof THREE.Mesh) meshes.push(object as THREE.Mesh);
@@ -450,25 +594,48 @@ export class WorldCuller {
     const radius = boundingSphere?.radius ?? 0;
     const cell = radius < smallMeshRadius ? smallCell : largeCell;
     if (radius < cell) return;
+    const seen = new CulledMesh(mesh, cell, true);
     if (mesh.castShadow) {
-      this.cast.push(new CulledMesh(casterCopy(mesh), smallCell, false));
+      this.casterLayers.forEach((layer, cascade) => {
+        this.cast[cascade]?.push(
+          new CulledMesh(
+            casterCopy(mesh, layer),
+            smallCell,
+            false,
+            seen.original,
+          ),
+        );
+      });
       mesh.castShadow = false;
     }
-    this.seen.push(new CulledMesh(mesh, cell, true));
+    this.seen.push(seen);
   }
 
   bake(): void {
-    for (const item of [...this.seen, ...this.cast]) item.bake();
+    for (const item of [...this.seen, ...this.cast.flat()]) item.bake();
   }
 
   retained(): Set<unknown> {
     const kept = new Set<unknown>();
-    for (const item of [...this.seen, ...this.cast]) item.keep(kept);
+    for (const item of [...this.seen, ...this.cast.flat()]) item.keep(kept);
     return kept;
   }
 
-  update(main: SphereTest, sun: SphereTest): void {
+  narrowViews(): void {
+    for (const item of this.seen)
+      if (item instanceof CulledMesh) item.addNarrowView();
+  }
+
+  focus(view: SphereTest | null): void {
+    for (const item of this.seen)
+      if (item instanceof CulledMesh) item.focus(view);
+  }
+
+  update(main: SphereTest, cascades: SphereTest[]): void {
     for (const item of this.seen) item.update(main);
-    for (const item of this.cast) item.update(sun);
+    this.cast.forEach((items, cascade) => {
+      const view = cascades[cascade];
+      if (view) for (const item of items) item.update(view);
+    });
   }
 }

@@ -64,7 +64,9 @@ export class FrontEnd {
   private keys: Keys = {};
   private readonly stage: HTMLElement;
   private readonly carLoader = loading("Loading", "front-car-loading");
-  private readonly carBar = new LoadBar();
+  private readonly carBar = new LoadBar(
+    this.carLoader.querySelector<HTMLElement>(".loader") ?? undefined,
+  );
   private carRequest = 0;
   private readonly keyHandler = (event: KeyboardEvent): void => {
     const action = this.keys[event.key];
@@ -85,7 +87,6 @@ export class FrontEnd {
   ) {
     this.stage = el("div", "stage");
     root.append(this.stage);
-    this.carLoader.append(this.carBar.element);
   }
 
   open(): void {

@@ -1,4 +1,4 @@
-import { el } from "./dom.ts";
+import { revBars } from "./dom.ts";
 import { downloadsFromNow } from "./preload.ts";
 import { teamOf } from "./teams.ts";
 
@@ -8,13 +8,15 @@ export function paintTeam(team: string): void {
 
 export class LoadBar {
   readonly element: HTMLElement;
-  private readonly fill: HTMLElement;
+  private readonly bars: HTMLElement[];
   private shown = 0;
   private frame = 0;
 
-  constructor(element: HTMLElement = el("div", "load-bar")) {
+  constructor(element: HTMLElement = revBars("loader meter")) {
     this.element = element;
-    this.fill = element.querySelector("i") ?? element.appendChild(el("i"));
+    this.bars = Array.from(element.querySelectorAll<HTMLElement>("i"));
+    element.classList.add("meter");
+    element.removeAttribute("aria-hidden");
     element.setAttribute("role", "progressbar");
     element.setAttribute("aria-valuemin", "0");
     element.setAttribute("aria-valuemax", "100");
@@ -56,7 +58,10 @@ export class LoadBar {
   }
 
   private paint(): void {
-    this.fill.style.transform = `scaleX(${String(this.shown)})`;
+    this.bars.forEach((bar, index) => {
+      const fill = this.shown * this.bars.length - index;
+      bar.style.setProperty("--fill", String(Math.min(1, Math.max(0, fill))));
+    });
     this.element.setAttribute(
       "aria-valuenow",
       String(Math.round(this.shown * 100)),

@@ -99,22 +99,25 @@
   font-family: "Saira Variable", "Saira", system-ui, sans-serif;
 }
 
-.load-bar {
-  width: 120px;
-  height: 4px;
-  overflow: hidden;
-  background: rgb(255 255 255 / 12%);
-  transform: skewX(-11.3deg);
+@property --fill {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
 }
 
-.load-bar i {
-  display: block;
-  height: 100%;
-  background: var(--team, #ff2e2e);
-  box-shadow: 0 0 8px var(--team, #ff2e2e);
-  transform: scaleX(0);
-  transform-origin: left;
-  transition: transform 0.2s ease-out;
+.loader.meter i {
+  --lit: var(--team, #ff2e2e);
+
+  background: linear-gradient(
+    90deg,
+    var(--lit) calc(var(--fill) * 100%),
+    color-mix(in srgb, var(--lit) 16%, transparent) 0
+  );
+  box-shadow: 0 0 6px
+    color-mix(in srgb, var(--lit) calc(var(--fill) * 55%), transparent);
+  opacity: 1;
+  animation: none;
+  transition: --fill 0.2s ease-out;
 }
 
 .status[hidden] {
@@ -127,13 +130,8 @@
   fill: #f4f5f8;
 }
 
-.status .loader,
-.status .load-bar {
+.status .loader {
   width: 300px;
-}
-
-.status .load-bar {
-  margin-top: -14px;
 }
 
 .status p {
@@ -147,10 +145,6 @@
 
 body[data-drive-status="error"] .status .loader i {
   animation: none;
-}
-
-body[data-drive-status="error"] .status .load-bar {
-  visibility: hidden;
 }
 
 body[data-drive-status="error"] .status p {

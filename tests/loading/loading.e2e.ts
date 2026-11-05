@@ -28,7 +28,10 @@ function sampleLoadBars(): void {
       label:
         box.querySelector("[data-status-text], span")?.textContent.trim() ?? "",
       value: Number(bar.getAttribute("aria-valuenow")),
-      colour: fill ? getComputedStyle(fill).backgroundColor : "",
+      colour: fill
+        ? (/rgb\([^)]*\)/.exec(getComputedStyle(fill).backgroundImage)?.[0] ??
+          "")
+        : "",
     });
   }, 40);
 }

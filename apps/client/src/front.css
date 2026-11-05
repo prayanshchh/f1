@@ -945,10 +945,6 @@
   position: absolute;
   left: 50%;
   bottom: 190px;
-  flex-wrap: wrap;
-  justify-content: center;
-  row-gap: 12px;
-  width: 260px;
   transform: translateX(-50%);
   color: #d5d6de;
   font-size: 20px;
@@ -956,10 +952,6 @@
   font-stretch: 118%;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-}
-
-.front-car-loading .load-bar {
-  flex: 0 0 100%;
 }
 
 .front-primary .loading {

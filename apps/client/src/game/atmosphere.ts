@@ -116,7 +116,10 @@ export class Atmosphere {
   ) {
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
-    const scenePass = pass(scene, camera, { samples: multisamples });
+    const scenePass = pass(scene, camera, {
+      samples: multisamples,
+      storeMultisampledColorBuffer: false,
+    });
     this.scenePass = scenePass;
     const resolved = scenePass.getTextureNode("output");
     const depthTexture = scenePass.getTextureNode("depth");

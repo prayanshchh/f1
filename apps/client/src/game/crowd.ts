@@ -16,6 +16,7 @@ import {
   texture,
   time,
   uniform,
+  uniformArray,
   uv,
   varying,
   vec2,
@@ -26,14 +27,17 @@ import albedoUrl from "../../../../content/tracks/hill-country/textures/baked/pe
 import crowdUrl from "../../../../content/tracks/hill-country/crowd.bin?url";
 import maskUrl from "../../../../content/tracks/hill-country/textures/baked/people_mask.png?url";
 import { releaseOnceUploaded } from "./preload.ts";
+import {
+  alphaCutoff,
+  atlasColumns,
+  atlasRows,
+  spriteBounds,
+} from "./sprite-bounds.ts";
 
 const stride = 8;
 const tileSize = 600;
 const personHeight = 2;
 const personWidth = 1;
-const atlasColumns = 8;
-const atlasRows = 4;
-const alphaCutoff = 0.5;
 const bobHeight = 0.05;
 const bobRate = 3.2;
 const skinGain = 1.0;
@@ -91,9 +95,24 @@ function roll(index: number, salt: number): number {
 
 const eyeModel = uniform(new THREE.Vector3());
 
+type Atlas = CanvasImageSource & { width: number; height: number };
+
+function alphaOf(image: Atlas): Float32Array {
+  const canvas = new OffscreenCanvas(image.width, image.height);
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) throw new Error("no 2d canvas for the crowd atlas");
+  context.drawImage(image, 0, 0);
+  const rgba = context.getImageData(0, 0, image.width, image.height).data;
+  const alpha = new Float32Array(image.width * image.height);
+  for (let i = 0; i < alpha.length; i++)
+    alpha[i] = (rgba[i * 4 + 3] ?? 0) / 255;
+  return alpha;
+}
+
 function material(
   albedo: THREE.Texture,
   mask: THREE.Texture,
+  boxes: ReturnType<typeof uniformArray>,
   origin: THREE.InstancedBufferAttribute,
   shirt: THREE.InstancedBufferAttribute,
 ) {
@@ -112,15 +131,20 @@ function material(
   const right = vec3(flat.y, 0, flat.x.negate());
   const phase = place.x.mul(0.37).add(place.z.mul(0.71));
   const bob = sin(time.mul(bobRate).add(phase)).abs().mul(bobHeight);
+  const box = boxes.element(
+    floor(tint.w).toInt(),
+  ) as unknown as THREE.Node<"vec4">;
+  const across = mix(box.x, box.y, positionGeometry.x.add(0.5));
+  const down = mix(box.z, box.w, float(1).sub(positionGeometry.y));
   result.positionNode = place.xyz
-    .add(right.mul(positionGeometry.x.mul(personWidth).mul(place.w)))
+    .add(right.mul(across.sub(0.5).mul(personWidth).mul(place.w)))
     .add(
-      vec3(0, positionGeometry.y.mul(personHeight).mul(place.w).add(bob), 0),
+      vec3(0, float(1).sub(down).mul(personHeight).mul(place.w).add(bob), 0),
     );
   const cell = varying(floor(tint.w));
   const sprite = vec2(
-    cell.mod(atlasColumns).add(uv().x).div(atlasColumns),
-    floor(cell.div(atlasColumns)).add(float(1).sub(uv().y)).div(atlasRows),
+    cell.mod(atlasColumns).add(varying(across)).div(atlasColumns),
+    floor(cell.div(atlasColumns)).add(varying(down)).div(atlasRows),
   );
   const colour = texture(albedo, sprite);
   const shirtMask = texture(mask, sprite).r;
@@ -291,6 +315,11 @@ export class Crowd {
       atlas(maskUrl, THREE.NoColorSpace),
       fetch(crowdUrl),
     ]);
+    const image = albedo.image as Atlas;
+    const boxes = uniformArray(
+      spriteBounds(alphaOf(image), image.width, image.height),
+      "vec4",
+    );
     const values = new Float32Array(await response.arrayBuffer());
     const tiles = new Map<string, number[]>();
     for (let i = 0; i < values.length; i += stride) {
@@ -313,7 +342,7 @@ export class Crowd {
       );
       const mesh = new THREE.InstancedMesh(
         plane,
-        material(albedo, mask, origin, shirt),
+        material(albedo, mask, boxes, origin, shirt),
         indices.length,
       );
       indices.forEach((source, i) => {

@@ -32,6 +32,7 @@ const floorOpacity = 0.86;
 const framingEase = 2.4;
 const slideEase = 7;
 const slideDistance = 2.6;
+const mirrorEvery = 8;
 
 export interface StudioFraming {
   eye: [number, number, number];
@@ -162,6 +163,7 @@ export class Studio {
   private shift = { x: 0, y: 0 };
   private slide = 0;
   private lastFrame = 0;
+  private mirrorTick = 0;
   private lodsReady: Promise<void> | null = null;
   private teamsShare: () => number = () => 0;
   private showCar = false;
@@ -279,6 +281,7 @@ export class Studio {
     finishAll(car.root);
     car.setCompound(studioCompound);
     this.stand.add(car.root);
+    car.warmMirrors(this.renderer, this.scene);
   }
 
   private dropHero(): void {
@@ -346,7 +349,9 @@ export class Studio {
       width,
       height,
     );
-    this.hero?.car.renderAuxiliary(this.renderer, this.scene);
+    this.mirrorTick = (this.mirrorTick + 1) % mirrorEvery;
+    if (this.mirrorTick === 0)
+      this.hero?.car.renderAuxiliary(this.renderer, this.scene);
     renderDisplay(this.renderer, this.scene, this.camera);
   }
 

@@ -16,7 +16,7 @@ import type {
   DashReadout,
   MirrorName,
 } from "./carpaint.ts";
-import { frameIndex } from "./engine.ts";
+import { frameIndex } from "./frame-layout.ts";
 import { mergedMesh, placedCopy } from "./merge.ts";
 import { setTyreShadows, shadowOnlyLayer } from "./road.ts";
 import { carFile } from "./teams.ts";
@@ -73,6 +73,12 @@ const mirrorFov = 15;
 const mirrorForward = 0.62;
 const mirrorOutward = 0.12;
 const mirrorNames: MirrorName[] = ["mirror-l", "mirror-r"];
+
+export interface MirrorView {
+  intersectsSphere(sphere: THREE.Sphere): boolean;
+}
+
+const everywhere: MirrorView = { intersectsSphere: () => true };
 export const wheelRest = [
   new THREE.Vector3(0.78, 0, 1.7),
   new THREE.Vector3(-0.78, 0, 1.7),
@@ -241,6 +247,7 @@ export class GltfCar {
     }
   >();
   private readonly viewMatrix = new THREE.Matrix4();
+  focusMirror: (view: MirrorView | null) => void = () => undefined;
   private dash: Pick<DashReadout, "fuel" | "tyres"> = {
     fuel: 1,
     tyres: [0, 0, 0, 0],
@@ -423,17 +430,20 @@ export class GltfCar {
         Math.floor(this.auxFrame / mirrorInterval) % mirrorNames.length
       ];
     const mirror = name ? this.mirrors.get(name) : undefined;
-    if (mirror) this.drawMirror(renderer, scene, mirror);
+    if (mirror) this.drawMirror(renderer, scene, mirror, this.viewOf(mirror));
   }
 
   private drawMirror(
     renderer: THREE.WebGPURenderer,
     scene: THREE.Scene,
     mirror: { target: THREE.RenderTarget; camera: THREE.PerspectiveCamera },
+    view: MirrorView,
   ): void {
     for (const glass of this.glass) glass.visible = false;
+    this.focusMirror(view);
     renderer.setRenderTarget(mirror.target);
     renderer.render(scene, mirror.camera);
+    this.focusMirror(null);
     for (const glass of this.glass) glass.visible = true;
   }
 
@@ -441,23 +451,29 @@ export class GltfCar {
     this.root.updateWorldMatrix(true, true);
     const previous = renderer.getRenderTarget();
     for (const mirror of this.mirrors.values())
-      this.drawMirror(renderer, scene, mirror);
+      this.drawMirror(renderer, scene, mirror, everywhere);
     renderer.setRenderTarget(previous);
+  }
+
+  private viewOf(mirror: {
+    camera: THREE.PerspectiveCamera;
+    view: THREE.Frustum;
+  }): THREE.Frustum {
+    const { camera, view } = mirror;
+    camera.updateWorldMatrix(true, false);
+    return view.setFromProjectionMatrix(
+      this.viewMatrix.multiplyMatrices(
+        camera.projectionMatrix,
+        camera.matrixWorldInverse,
+      ),
+      camera.coordinateSystem,
+      camera.reversedDepth,
+    );
   }
 
   mirrorViews(): THREE.Frustum[] {
     if (!this.mirrorsShown) return [];
-    return Array.from(this.mirrors.values(), ({ camera, view }) => {
-      camera.updateWorldMatrix(true, false);
-      return view.setFromProjectionMatrix(
-        this.viewMatrix.multiplyMatrices(
-          camera.projectionMatrix,
-          camera.matrixWorldInverse,
-        ),
-        camera.coordinateSystem,
-        camera.reversedDepth,
-      );
-    });
+    return Array.from(this.mirrors.values(), (mirror) => this.viewOf(mirror));
   }
 
   renderAuxiliary(renderer: THREE.WebGPURenderer, scene: THREE.Scene): void {

@@ -1,7 +1,7 @@
 import * as THREE from "three/webgpu";
 import { texture, uv } from "three/tsl";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { frameIndex } from "./engine.ts";
+import { frameIndex } from "./frame-layout.ts";
 import { type CarEnvironment, useEnvironment } from "./carpaint.ts";
 import { contactShadow, gltfToSdCar, wheelRest } from "./gltf.ts";
 import { mergedMesh, placedCopy } from "./merge.ts";

@@ -33,7 +33,7 @@ import apronBUrl from "../../../../content/tracks/hill-country/textures/baked/ap
 import streaksUrl from "../../../../content/tracks/hill-country/textures/baked/asphalt_streaks.png?url";
 import terrainUrl from "../../../../content/tracks/hill-country/textures/baked/terrain_albedo.jpg?url";
 import grainUrl from "../../../../content/tracks/hill-country/textures/source/asphalt_track_base_color.jpg?url";
-import { frustumContains } from "./world-culler.ts";
+import { frustumContains, type SphereTest } from "./world-culler.ts";
 import {
   asphaltDetail,
   lushGrass,
@@ -96,6 +96,10 @@ const casterMargin = 6;
 export const shadowOnlyLayer = 1;
 export const alphaTestedOrder = 1;
 const shadowMask = (1 << 0) | (1 << shadowOnlyLayer);
+const firstCascadeLayer = 2;
+export const cascadeLayers = cascadeEnds.map(
+  (_, cascade) => firstCascadeLayer + cascade,
+);
 const bodyContact = { x: 0.07, hx: 2.3, hy: 0.72, reach: 0.75, strength: 0.62 };
 const tyreContacts = [
   [1.49, -0.74, 0.2, 0.15],
@@ -272,6 +276,18 @@ function wetOf(water: THREE.Node<"float">) {
   return smoothstep(wetFrom, wetFull, water);
 }
 
+const trackWet = wetLine.max(wetOff).greaterThan(wetFrom);
+
+function whenWet(wet: () => THREE.Node<"vec3">): THREE.Node<"vec3"> {
+  return Fn(() => {
+    const result = vec3(0).toVar();
+    If(trackWet, () => {
+      result.assign(wet());
+    });
+    return result;
+  })();
+}
+
 function lineWater() {
   const offset = uv(1).x.abs();
   const share = float(lineHalfWidth + lineBlend)
@@ -289,11 +305,22 @@ function puddles(water: THREE.Node<"float">) {
 
 function skyGlint(sky: SkyRadiance | null, strength: THREE.Node<"float">) {
   if (!sky) return vec3(0);
-  const facing = dot(normalView, positionViewDirection).abs().oneMinus();
-  const fresnel = float(fresnelBase).add(
-    float(1 - fresnelBase).mul(facing.pow(5)),
-  );
-  return sky(reflectVector).mul(fresnel).mul(strength);
+  return Fn(() => {
+    const result = vec3(0).toVar();
+    const facing = dot(normalView, positionViewDirection)
+      .abs()
+      .oneMinus()
+      .toVar();
+    const direction = reflectVector.toVar();
+    const amount = strength.toVar();
+    If(trackWet, () => {
+      const fresnel = float(fresnelBase).add(
+        float(1 - fresnelBase).mul(facing.pow(5)),
+      );
+      result.assign(sky(direction).mul(fresnel).mul(amount));
+    });
+    return result;
+  })();
 }
 
 function wetAsphalt(
@@ -302,23 +329,25 @@ function wetAsphalt(
   sky: SkyRadiance | null,
   pooled: boolean,
 ): void {
-  const wet = () => wetOf(water());
-  const pool = () => (pooled ? puddles(water()) : float(0));
-  const shade = mix(float(1), float(1 - wetDarkening), wet()).mul(
-    mix(float(1), float(1 - puddleDarkening), pool()),
+  const state = whenWet(() => {
+    const level = water();
+    return vec3(wetOf(level), pooled ? puddles(level) : float(0), 0);
+  });
+  const wet = state.x;
+  const pool = state.y;
+  const shade = mix(float(1), float(1 - wetDarkening), wet).mul(
+    mix(float(1), float(1 - puddleDarkening), pool),
   );
   material.colorNode = (material.colorNode ?? materialColor).mul(shade);
   const rough = material.roughnessNode ?? materialRoughness;
   material.roughnessNode = mix(
-    mix(rough as ReturnType<typeof float>, float(wetRoughness), wet()),
+    mix(rough as ReturnType<typeof float>, float(wetRoughness), wet),
     float(puddleRoughness),
-    pool(),
+    pool,
   );
   const glint = skyGlint(
     sky,
-    wet()
-      .mul(reflectionWet)
-      .add(pool().mul(reflectionPuddle - reflectionWet)),
+    wet.mul(reflectionWet).add(pool.mul(reflectionPuddle - reflectionWet)),
   );
   material.emissiveNode = emissiveOf(material).add(glint);
 }
@@ -698,11 +727,13 @@ export function releaseCpuCopies(
   root.traverse((object) => {
     if (!(object instanceof THREE.Mesh)) return;
     releaseGeometry(object as THREE.Mesh, kept);
-    const material = object.material as THREE.MeshStandardMaterial;
-    releaseImage(material.map);
-    releaseImage(material.normalMap);
-    releaseImage(material.roughnessMap);
-    releaseImage(material.emissiveMap);
+    const materials = [object.material as THREE.MeshStandardMaterial].flat();
+    for (const material of materials) {
+      releaseImage(material.map);
+      releaseImage(material.normalMap);
+      releaseImage(material.roughnessMap);
+      releaseImage(material.emissiveMap);
+    }
   });
 }
 
@@ -754,8 +785,11 @@ export class Sunlight {
       const shadow = Object.assign(cloneShadow(), {
         discardColorBuffer: true,
       });
-      const pixels = cascadePixels[cloned++] ?? shadowMapSize;
+      const cascade = cloned++;
+      const pixels = cascadePixels[cascade] ?? shadowMapSize;
       shadow.mapSize.set(pixels, pixels);
+      shadow.camera.layers.mask =
+        shadowMask | (1 << (cascadeLayers[cascade] ?? firstCascadeLayer));
       return shadow;
     };
     this.cascades = new CSMShadowNode(this.sun, {
@@ -793,17 +827,22 @@ export class Sunlight {
     );
   }
 
-  containsSphere(sphere: THREE.Sphere): boolean {
-    this.reach.copy(sphere);
-    this.reach.radius += casterMargin;
-    const lights = this.cascades.lights;
-    return (
-      lights.length === 0 ||
-      lights.some(({ shadow }) =>
-        shadow ? frustumContains(shadow.getFrustum(), this.reach) : true,
-      )
-    );
-  }
+  readonly cascadeViews: SphereTest[] = cascadeEnds.map((_, cascade) => ({
+    intersectsSphere: (sphere: THREE.Sphere): boolean => {
+      const shadow = this.cascades.lights[cascade]?.shadow;
+      if (!shadow) return true;
+      this.reach.copy(sphere);
+      this.reach.radius += casterMargin;
+      return shadow.getFrustum().intersectsSphere(this.reach);
+    },
+    containsSphere: (sphere: THREE.Sphere): boolean => {
+      const shadow = this.cascades.lights[cascade]?.shadow;
+      if (!shadow) return true;
+      this.reach.copy(sphere);
+      this.reach.radius += casterMargin;
+      return frustumContains(shadow.getFrustum(), this.reach);
+    },
+  }));
 
   commit(): void {
     this.sun.updateMatrixWorld();

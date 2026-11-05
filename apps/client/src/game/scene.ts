@@ -14,6 +14,7 @@ import { carField, carStride } from "./frame-layout.ts";
 import { GltfCar, placeOnTrack, type TrackFrame } from "./gltf.ts";
 import { GridCars, type GridSlot } from "./grid.ts";
 import {
+  cascadeLayers,
   loadRoad,
   releaseCpuCopies,
   setCarContact,
@@ -144,6 +145,7 @@ export class Scene {
   };
   private readonly viewMatrix = new THREE.Matrix4();
   private warming = false;
+  private crewOut = false;
   private compound = 1;
   private fittedCompound = 1;
   private readonly crewBounds = new THREE.Sphere(
@@ -233,6 +235,10 @@ export class Scene {
       this.safetyCar.root,
       ...extras,
     ];
+    culler.narrowViews();
+    car.focusMirror = (view) => {
+      culler.focus(view);
+    };
     this.scene.updateMatrixWorld(true);
     this.scene.matrixWorldAutoUpdate = false;
     culler.bake();
@@ -300,7 +306,7 @@ export class Scene {
     const start = engine.trackPoint(0, 0);
     const placed = placeOnTrack(road, frame, start);
     placed.updateMatrixWorld(true);
-    const culler = new WorldCuller(road);
+    const culler = new WorldCuller(road, cascadeLayers);
     const track = new THREE.Group();
     track.add(
       placed,
@@ -453,6 +459,7 @@ export class Scene {
   }
 
   updatePit(control: PitControl, frame: Float64Array, fresh: number): void {
+    this.crewOut = control.phase !== "track";
     const active = control.phase === "service";
     if (!active) this.fittedCompound = this.compound;
     this.crew.setCompounds(this.fittedCompound, fresh);
@@ -664,7 +671,7 @@ export class Scene {
       this.camera.reversedDepth,
     );
     this.mirrorViews = this.car.mirrorViews();
-    this.culler.update(this.seen, this.sunlight);
+    this.culler.update(this.seen, this.sunlight.cascadeViews);
   }
 
   hideUnseenCrew(): void {
@@ -672,8 +679,9 @@ export class Scene {
     if (!this.warming) {
       this.crewBounds.center.setFromMatrixPosition(root.matrix);
       root.visible =
-        this.seen.intersectsSphere(this.crewBounds) ||
-        this.sunlight.intersectsSphere(this.crewBounds);
+        this.crewOut &&
+        (this.seen.intersectsSphere(this.crewBounds) ||
+          this.sunlight.intersectsSphere(this.crewBounds));
     }
     if (!root.visible) return;
     this.crew.prepare();
@@ -704,7 +712,8 @@ export class Scene {
     this.car.setWear(tyres.wheels.map((wheel) => wheel.wear));
   }
 
-  resize(width: number, height: number): void {
+  resize(width: number, height: number, pixelRatio = 1): void {
+    this.field?.resize(height * pixelRatio);
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
     this.sunlight.refit();

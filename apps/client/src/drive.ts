@@ -1007,7 +1007,7 @@ async function main(): Promise<void> {
     const height = canvas.clientHeight;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(width, height, false);
-    scene.resize(width, height);
+    scene.resize(width, height, renderer.getPixelRatio());
     engine.viewResize(width, height);
   };
   window.addEventListener("resize", resize);

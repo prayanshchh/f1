@@ -357,10 +357,27 @@ for (const kind of phoneKinds) {
         .poll(() => phone.text("ers-mode"))
         .toBe(ersModes[cycled]?.label);
 
+      const boost = phone.page.locator("[data-pad=boost]");
       await phone.tap("boost");
       await expect.poll(() => game.ersMode()).toBe(boostMode);
+      await expect(boost).toHaveAttribute("aria-pressed", "true");
+      expect(await phone.text("ers-mode")).toBe(ersModes[cycled]?.label);
       await phone.tap("boost");
       await expect.poll(() => game.ersMode()).toBe(cycled);
+      await expect(boost).toHaveAttribute("aria-pressed", "false");
+    });
+
+    test("boost switched in the game lights and clears the phone's Boost button", async () => {
+      const phone = await openPhone();
+      await phone.startAndCalibrate();
+      const boost = phone.page.locator("[data-pad=boost]");
+
+      await game.page.keyboard.press("b");
+      await expect.poll(() => game.ersMode()).toBe(boostMode);
+      await expect(boost).toHaveAttribute("aria-pressed", "true");
+      await game.page.keyboard.press("b");
+      await expect.poll(() => game.ersMode()).not.toBe(boostMode);
+      await expect(boost).toHaveAttribute("aria-pressed", "false");
     });
 
     test("the phone shows the car's speed and gear", async () => {

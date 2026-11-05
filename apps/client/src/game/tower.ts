@@ -1,4 +1,5 @@
 import type { CarTiming } from "./engine.ts";
+import { teamLogo } from "./team-logos.ts";
 import { compounds } from "./tyres.ts";
 import type { Entrant } from "./weekend.ts";
 
@@ -53,6 +54,8 @@ interface TowerRow {
   root: HTMLElement;
   pos: HTMLElement;
   name: HTMLElement;
+  logo: HTMLElement;
+  label: HTMLElement;
   tyre: HTMLElement;
   gap: HTMLElement;
   pen: HTMLElement;
@@ -78,6 +81,10 @@ export class Tower {
     pos.className = "row-pos";
     const name = document.createElement("span");
     name.className = "row-name";
+    const logo = document.createElement("i");
+    logo.className = "row-logo";
+    const label = document.createElement("span");
+    name.append(logo, label);
     const tyre = document.createElement("i");
     tyre.className = "row-tyre";
     const gap = document.createElement("b");
@@ -88,7 +95,7 @@ export class Tower {
     root.append(pos, name, tyre, gap, pen);
     root.hidden = true;
     this.list.append(root);
-    return { root, pos, name, tyre, gap, pen, shown: "" };
+    return { root, pos, name, logo, label, tyre, gap, pen, shown: "" };
   }
 
   toggleFull(): boolean {
@@ -128,7 +135,8 @@ export class Tower {
       if (key === row.shown) return;
       row.shown = key;
       row.pos.textContent = String(data.position);
-      row.name.textContent = surname(entrant);
+      row.label.textContent = surname(entrant);
+      row.logo.replaceChildren(teamLogo(entrant.car, entrant.colour));
       row.name.style.setProperty("--team", entrant.colour);
       row.root.dataset["me"] = isPlayer ? "1" : "";
       row.root.classList.toggle("out", data.eliminated);

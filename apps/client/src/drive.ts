@@ -42,13 +42,8 @@ import {
 import { playBuildUp, type Weather } from "./game/buildup.ts";
 import type { GridSpot } from "./game/buildup-shots.ts";
 import { FrontEnd } from "./game/front-end.ts";
-import {
-  Hud,
-  type HudOptions,
-  lapTime,
-  signed,
-  type TrackMap,
-} from "./game/hud.ts";
+import { Hud, type HudOptions, lapTime, signed } from "./game/hud.ts";
+import type { TrackMap } from "./game/minimap.ts";
 import { sdlKeycode } from "./game/keys.ts";
 import {
   retirementLabel,
@@ -1336,14 +1331,14 @@ async function main(): Promise<void> {
       now,
       tyreRoughness(tyres),
     );
-    pad.feedback(
-      now,
-      speedKph,
-      frame[frameIndex.gear] ?? 0,
+    pad.feedback(now, {
+      speed: speedKph,
+      gear: frame[frameIndex.gear] ?? 0,
       rumble,
-      energy.battery / energy.capacity,
-      ersModes[energy.mode]?.label ?? "",
-    );
+      battery: energy.battery / energy.capacity,
+      mode: ersModes[energy.mode]?.label ?? "",
+      boost: energy.mode === boostMode,
+    });
     scene.setWeather(weather);
     if (now - damageClock > damagePeriod) {
       damageClock = now;

@@ -8,9 +8,9 @@ import {
   fuelMixes,
 } from "./energy.ts";
 import type { PitControl } from "./pitstop.ts";
-import { DamageMonitor, retirementLabel } from "./damage.ts";
+import { DamageMonitor, partDamaged, retirementLabel } from "./damage.ts";
+import { Dash } from "./dash.ts";
 import {
-  carStride,
   type CarTiming,
   frameIndex,
   type HudInfo,
@@ -22,8 +22,8 @@ import { type Entrant, segmentNames } from "./weekend.ts";
 import type { LapResult, LapTrace, SectorState } from "./laptrace.ts";
 import { type CarStatus, Mfd } from "./mfd.ts";
 import { weatherCall, type WeatherInfo } from "./weather.ts";
-import { closedPolyline, type Polyline, pointAlong } from "./polyline.ts";
-import { putAttr, putData, putHidden, putStyle, putText } from "./hud-dom.ts";
+import { MiniMap, type TrackMap } from "./minimap.ts";
+import { putData, putHidden, putText } from "./hud-dom.ts";
 import type { HudPart } from "./settings.ts";
 import { type StartLights, startLightCount } from "./start-lights.ts";
 import {
@@ -75,26 +75,10 @@ function rowGap(
   return mine === null ? lapTime(time) : signed(time - mine);
 }
 
-function gearLabel(gear: number): string {
-  if (gear < 0) return "R";
-  if (gear === 0) return "N";
-  return String(gear);
-}
-
 function replay(element: HTMLElement | SVGElement, name: string): void {
   element.classList.remove(name);
   void element.getBoundingClientRect();
   element.classList.add(name);
-}
-
-function svg<K extends keyof SVGElementTagNameMap>(
-  tag: K,
-  attrs: Record<string, string | number>,
-): SVGElementTagNameMap[K] {
-  const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
-  for (const [key, value] of Object.entries(attrs))
-    node.setAttribute(key, String(value));
-  return node;
 }
 
 const tyreMessages: Record<string, { title: string; detail: string }> = {
@@ -103,27 +87,25 @@ const tyreMessages: Record<string, { title: string; detail: string }> = {
   worn: { title: "Tyres worn", detail: "Expect less grip from here" },
 };
 
-function ersState(energy: EnergyInfo, share: number): string {
-  if (energy.overtakeActive) return "overtake";
-  return share <= 0.01 ? "empty" : "normal";
-}
-
-function ersLabel(energy: EnergyInfo, boosting: boolean): string {
-  if (!boosting) return ersModes[energy.mode]?.label ?? "";
-  return energy.overtakeActive ? "Overtake Boost" : "Boost Active";
-}
-
-const revLeds = 15;
 const pitTyres = [0, 1, 2, 3, 4];
 const marshalSectors = 24;
 const noticeQueue = 4;
-const blackWhiteShown = 8;
-const sectorColors = ["map-s1", "map-s2", "map-s3"];
 
-export interface TrackMap {
-  points: [number, number][];
-  length: number;
-}
+const lampLens = `<b></b><svg viewBox="-32 -32 64 64" aria-hidden="true">${[
+  [0, 1],
+  [6, 6],
+  [12, 12],
+  [18, 18],
+  [24, 24],
+]
+  .flatMap(([radius = 0, count = 1]) =>
+    Array.from({ length: count }, (_, k) => {
+      const a = (k / count) * Math.PI * 2 + radius * 0.05;
+      return `<circle r="1.7" cx="${(Math.cos(a) * radius).toFixed(1)}" cy="${(Math.sin(a) * radius).toFixed(1)}" />`;
+    }),
+  )
+  .join("")}</svg>`;
+const blackWhiteShown = 8;
 
 export interface HudOptions {
   totalLaps: number | null;
@@ -282,6 +264,16 @@ interface Toast {
   until: number;
 }
 
+function fuelState(
+  fuel: number,
+  perLap: number,
+  total: number | null,
+  delta: number,
+): string {
+  if (fuel < perLap) return "critical";
+  return (total ? delta < 0 : delta < 1.2) ? "low" : "";
+}
+
 function turnInGrade(control: PitControl): PitControl["grade"] {
   return control.phase === "boxing" || control.phase === "service"
     ? control.grade
@@ -291,7 +283,7 @@ function turnInGrade(control: PitControl): PitControl["grade"] {
 export class Hud {
   readonly laps: LapResult[] = [];
   private readonly find: (id: string) => HTMLElement;
-  private readonly leds: HTMLElement[] = [];
+  private readonly dash: Dash;
   private readonly lights: HTMLElement[] = [];
   private readonly sectorCells: HTMLElement[] = [];
   private readonly mfd: Mfd;
@@ -301,10 +293,7 @@ export class Hud {
     gap: HTMLElement;
     tyre: HTMLElement;
   }[] = [];
-  private mapCar: SVGCircleElement | null = null;
-  private mapLine: Polyline | null = null;
-  private mapLength = 1;
-  private sectorPaths: SVGPathElement[] = [];
+  private readonly minimap: MiniMap;
   private sessionBest: number | null = null;
   private toast: Toast | null = null;
   private weatherKey = "";
@@ -323,8 +312,6 @@ export class Hud {
   private countdown = false;
   private lit = 0;
   private readonly tower: Tower | null;
-  private mapScreen: [number, number][] = [];
-  private readonly mapDots: SVGCircleElement[] = [];
   private tyreChoice = -1;
   private readonly notices: Notice[] = [];
   private noticeUntil = 0;
@@ -332,12 +319,12 @@ export class Hud {
   private readonly incidents = new Map<number, StewardMessage>();
   private blackWhiteUntil = 0;
   private flagKey = "";
-  private mapFlags: SVGPathElement[] = [];
   private lastDistance = 0;
   private start: StartLights;
   private signalAt = 0;
   private neutralDelta: { label: string; value: number } | null = null;
   private lineupsSeen = 0;
+  private positionShown = "";
 
   constructor(
     private readonly root: HTMLElement,
@@ -353,16 +340,11 @@ export class Hud {
       found.set(id, element);
       return element;
     };
-    const strip = this.find("leds");
-    for (let i = 0; i < revLeds; i++) {
-      const led = document.createElement("i");
-      led.className = i < 5 ? "g" : i < 10 ? "r" : "b";
-      strip.append(led);
-      this.leds.push(led);
-    }
+    this.dash = new Dash(this.find("dash"), this.find);
     const gantry = this.find("lights");
     for (let i = 0; i < startLightCount; i++) {
       const light = document.createElement("i");
+      light.innerHTML = lampLens;
       gantry.append(light);
       this.lights.push(light);
     }
@@ -382,31 +364,33 @@ export class Hud {
       this.find("lap-total"),
       options.totalLaps ? ` / ${String(options.totalLaps)}` : "",
     );
+    this.paintTeam(options.field?.[0]?.colour);
     this.tower = options.field
       ? new Tower(this.find("rows"), options.field, options.qualifying)
       : null;
     if (!this.tower) this.buildRows();
-    this.buildMap(options.map);
-    this.buildFieldDots();
+    this.minimap = new MiniMap(
+      this.find,
+      options.map,
+      {
+        boundaries: trace.boundaries,
+        detection: detectionPoint(options.map?.length ?? 1),
+        flagSectors: marshalSectors,
+      },
+      options.field,
+    );
     this.setParts(options.parts);
+  }
+
+  private paintTeam(colour: string | undefined): void {
+    if (!colour) return;
+    this.find("timer").style.setProperty("--team", colour);
+    this.find("map").style.setProperty("--me", colour);
   }
 
   toggleTower(): void {
     if (!this.tower) return;
     this.root.classList.toggle("tower-full", this.tower.toggleFull());
-  }
-
-  private buildFieldDots(): void {
-    const field = this.options.field;
-    if (!field) return;
-    const marks = this.find("map-field");
-    field.forEach((entrant, i) => {
-      if (i === 0) return;
-      const dot = svg("circle", { r: 5, class: "map-rival" });
-      dot.style.fill = entrant.colour;
-      marks.append(dot);
-      this.mapDots.push(dot);
-    });
   }
 
   updateField(
@@ -418,30 +402,19 @@ export class Hud {
     this.tower?.update(timing, penalties);
     const total = timing.length;
     const mine = timing[0];
-    this.find("position").textContent = mine
-      ? `${String(mine.position)} / ${String(total)}`
-      : "";
+    const position = this.find("position");
+    if (!mine) position.replaceChildren();
+    else if (
+      this.positionShown !== `${String(mine.position)}/${String(total)}`
+    ) {
+      this.positionShown = `${String(mine.position)}/${String(total)}`;
+      const of = document.createElement("span");
+      of.textContent = ` / ${String(total)}`;
+      position.replaceChildren(String(mine.position), of);
+    }
     if (this.options.qualifying)
       this.find("session").textContent = segmentNames[info.segment] ?? "Q";
-    this.updateFieldDots(cars);
-  }
-
-  private updateFieldDots(cars: Float64Array): void {
-    const count = this.mapScreen.length - 1;
-    if (count <= 0) return;
-    this.mapDots.forEach((dot, i) => {
-      const at = (i + 1) * carStride;
-      const visible = (cars[at + 46] ?? 0) !== 0;
-      dot.style.display = visible ? "" : "none";
-      if (!visible) return;
-      const t = (((cars[at + 48] ?? 0) / this.mapLength) % 1) * count;
-      const a = this.mapScreen[Math.floor(t)];
-      const b = this.mapScreen[Math.floor(t) + 1] ?? a;
-      if (!a || !b) return;
-      const f = t - Math.floor(t);
-      dot.setAttribute("cx", (a[0] + (b[0] - a[0]) * f).toFixed(1));
-      dot.setAttribute("cy", (a[1] + (b[1] - a[1]) * f).toFixed(1));
-    });
+    this.minimap.field(cars);
   }
 
   setParts(parts: Record<HudPart, boolean>): void {
@@ -479,14 +452,21 @@ export class Hud {
       this.showLap(result, now);
       this.options.onLap(result);
     }
-    this.updateDash(value);
+    this.dash.update({
+      speedKph: value(frameIndex.speed) * 3.6,
+      gear: value(frameIndex.gear),
+      rpm: value(frameIndex.rpm) * (30 / Math.PI),
+      redLine: value(frameIndex.rpmRedLine) * (30 / Math.PI),
+      throttle: value(frameIndex.accel),
+      brake: value(frameIndex.brake),
+    });
     this.updateTiming(value, laps, distance, current, now);
     this.updateEnergy(energy, info, value);
     this.updateTyres(tyres);
     this.mfd.update(tyres, status, weather);
-    this.updateInputs(value);
+    this.dash.damaged(partDamaged(status));
     this.updateLights(time);
-    this.updateMap(distance);
+    this.minimap.player(distance);
     this.updateWarnings(status, tyres, laps, now);
     this.updateWeatherCall(weather, tyres, now);
     this.updateToast(now);
@@ -528,9 +508,7 @@ export class Hud {
     putHidden(tag, badge === "");
     putText(tag, badge);
     this.updateFlagPanel(car, flags, now);
-    this.mapFlags.forEach((path, k) => {
-      putData(path, "flag", String(flags[k] ?? 0));
-    });
+    this.minimap.flags(flags);
   }
 
   private showNotice(now: number): void {
@@ -553,7 +531,7 @@ export class Hud {
   }
 
   private updateFlagPanel(car: StewardCar, flags: number[], now: number): void {
-    const length = this.mapLength;
+    const length = this.minimap.length;
     const sector = Math.min(
       marshalSectors - 1,
       Math.max(
@@ -729,147 +707,6 @@ export class Hud {
     });
   }
 
-  private buildMap(map: TrackMap | null): void {
-    const root = this.find("map") as unknown as SVGSVGElement;
-    if (!map || map.points.length < 3) {
-      root.classList.add("empty");
-      return;
-    }
-    const xs = map.points.map((p) => p[0]);
-    const ys = map.points.map((p) => p[1]);
-    const minX = Math.min(...xs);
-    const maxX = Math.max(...xs);
-    const minY = Math.min(...ys);
-    const maxY = Math.max(...ys);
-    const size = 300;
-    const pad = 22;
-    const scale = (size - pad * 2) / Math.max(maxX - minX, maxY - minY, 1);
-    const offX = (size - (maxX - minX) * scale) / 2;
-    const offY = (size - (maxY - minY) * scale) / 2;
-    const project = (p: [number, number]): [number, number] => [
-      offX + (p[0] - minX) * scale,
-      size - (offY + (p[1] - minY) * scale),
-    ];
-    const screen = map.points.map(project);
-    this.mapScreen = screen;
-    root.setAttribute("viewBox", `0 0 ${String(size)} ${String(size)}`);
-    const d = `M${screen.map((p) => `${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join("L")}Z`;
-    const groups = this.find("map-sectors");
-    groups.append(
-      svg("path", { d, class: "map-edge" }),
-      svg("path", { d, class: "map-line" }),
-    );
-    const boundaries = this.trace.boundaries;
-    const cuts = [0, ...boundaries, map.length];
-    const step = map.length / (map.points.length - 1 || 1);
-    cuts.slice(0, -1).forEach((start, i) => {
-      const end = cuts[i + 1] ?? map.length;
-      const from = Math.floor(start / step);
-      const to = Math.min(screen.length - 1, Math.ceil(end / step));
-      const part = screen.slice(from, to + 1);
-      if (part.length < 2) return;
-      const pd = `M${part.map((p) => `${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join("L")}`;
-      groups.append(
-        svg("path", {
-          d: pd,
-          class: `map-sector ${sectorColors[i] ?? ""}`,
-          "data-sector": i,
-        }),
-      );
-    });
-    const marks = this.find("map-marks");
-    const at = (distance: number): [number, number] =>
-      screen[Math.min(screen.length - 1, Math.round(distance / step))] ?? [
-        0, 0,
-      ];
-    const [sx, sy] = at(0);
-    marks.append(
-      svg("rect", {
-        x: sx - 7,
-        y: sy - 4,
-        width: 14,
-        height: 8,
-        class: "map-start",
-      }),
-    );
-    boundaries.forEach((b, i) => {
-      const [x, y] = at(b);
-      const ring = svg("circle", { cx: x, cy: y, r: 6, class: "map-split" });
-      marks.append(ring);
-      const [lx, ly] = at((b + (cuts[i] ?? 0)) / 2);
-      const label = svg("text", { x: lx, y: ly, class: "map-num" });
-      putText(label, String(i + 1));
-      marks.append(label);
-    });
-    const flagGroup = this.find("map-flags");
-    this.mapFlags = Array.from({ length: marshalSectors }, (_, k) => {
-      const from = Math.floor((k * map.length) / marshalSectors / step);
-      const to = Math.min(
-        screen.length - 1,
-        Math.ceil(((k + 1) * map.length) / marshalSectors / step),
-      );
-      const part = screen.slice(from, to + 1);
-      const path = svg("path", {
-        d: `M${part.map((p) => `${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join("L")}`,
-        class: "map-flag",
-      });
-      flagGroup.append(path);
-      return path;
-    });
-    const [lx, ly] = at(((boundaries.at(-1) ?? 0) + map.length) / 2);
-    const label = svg("text", { x: lx, y: ly, class: "map-num" });
-    putText(label, String(boundaries.length + 1));
-    marks.append(label);
-    const [dx, dy] = at(detectionPoint(map.length));
-    marks.append(svg("circle", { cx: dx, cy: dy, r: 7, class: "map-detect" }));
-    this.mapLine = closedPolyline(
-      screen.map((p) => [Number(p[0].toFixed(1)), Number(p[1].toFixed(1))]),
-    );
-    this.sectorPaths = Array.from(
-      this.root.querySelectorAll<SVGPathElement>(".map-sector"),
-    );
-    this.mapLength = map.length;
-    this.mapCar = this.find("map-car") as unknown as SVGCircleElement;
-  }
-
-  private updateMap(distance: number): void {
-    if (!this.mapCar || !this.mapLine) return;
-    const [x, y] = pointAlong(
-      this.mapLine,
-      ((((distance / this.mapLength) % 1) + 1) % 1) * this.mapLine.total,
-    );
-    putAttr(this.mapCar, "cx", x.toFixed(1));
-    putAttr(this.mapCar, "cy", y.toFixed(1));
-  }
-
-  private updateDash(value: (index: number) => number): void {
-    const rpm = value(frameIndex.rpm) * (30 / Math.PI);
-    const redLine = Math.max(1, value(frameIndex.rpmRedLine) * (30 / Math.PI));
-    putText(
-      this.find("speed"),
-      String(Math.round(Math.abs(value(frameIndex.speed)) * 3.6)),
-    );
-    putText(this.find("gear"), gearLabel(value(frameIndex.gear)));
-    putText(this.find("rpm"), String(Math.round(rpm)));
-    const fraction = rpm / redLine;
-    const lit = Math.round(((fraction - 0.7) / 0.28) * revLeds);
-    this.leds.forEach((led, i) => {
-      led.classList.toggle("on", i < lit);
-    });
-    this.find("leds").classList.toggle("flash", fraction > 0.98);
-    const ring = this.find("rpm-ring");
-    putStyle(
-      ring,
-      "stroke-dashoffset",
-      String(100 - Math.min(1, fraction) * 75),
-    );
-    putData(
-      ring,
-      "zone",
-      fraction > 0.97 ? "limit" : fraction > 0.85 ? "high" : "",
-    );
-  }
-
   private updateTiming(
     value: (index: number) => number,
     laps: number,
@@ -904,10 +741,6 @@ export class Hud {
         status ?? (i === sectors.active && laps > 0 ? "live" : ""),
       );
       putText(cell, sectorLabel(i, sectors));
-    });
-    this.sectorPaths.forEach((path) => {
-      const i = Number(path.dataset["sector"]);
-      putData(path, "status", sectors.status[i] ?? "");
     });
     if (sectors.active === this.lastActiveSector) return;
     const closed = sectors.active - 1;
@@ -953,24 +786,7 @@ export class Hud {
     info: HudInfo,
     value: (index: number) => number,
   ): void {
-    const share = Math.min(1, energy.battery / Math.max(1, energy.capacity));
-    const harvest = Math.min(
-      1,
-      energy.harvested / Math.max(1, energy.harvestLimit),
-    );
-    putData(this.find("dash"), "ers", ersState(energy, share));
-    putText(this.find("batt"), `${String(Math.round(share * 100))}%`);
-    putStyle(
-      this.find("batt-ring"),
-      "stroke-dashoffset",
-      String(100 - share * 75),
-    );
-    putStyle(
-      this.find("harvest-ring"),
-      "stroke-dashoffset",
-      String(100 - harvest * 100),
-    );
-    putHidden(this.find("s-mode"), energy.straightMode < 0.5);
+    this.dash.energy(energy);
     putText(
       this.find("bias"),
       `${String(Math.round(energy.brakeBias * 100))}%`,
@@ -981,7 +797,6 @@ export class Hud {
 
   private updateErs(energy: EnergyInfo): void {
     const boosting = energy.mode === boostMode;
-    putText(this.find("status"), ersLabel(energy, boosting));
     putText(this.find("ers-mode"), ersModes[energy.mode]?.label ?? "");
     putText(this.find("boost-state"), boosting ? "Disable" : "Boost");
     putText(this.find("diff"), `${String(Math.round(energy.differential))}%`);
@@ -1002,7 +817,7 @@ export class Hud {
   ): void {
     const perLap = fuelBurnPerLap(energy.lastLapFuel);
     const total = this.options.totalLaps;
-    const distance = value(frameIndex.distFromStart) / this.mapLength;
+    const distance = value(frameIndex.distFromStart) / this.minimap.length;
     const lapsDone = Math.max(0, value(frameIndex.laps) - 1) + distance;
     const remaining = total ? Math.max(0, total - lapsDone) : 0;
     const delta = fuelLapsDelta(info.fuel, perLap, remaining);
@@ -1013,9 +828,11 @@ export class Hud {
     );
     putData(label, "state", !total || delta >= 0 ? "ok" : "short");
     putText(this.find("fuel-mix"), fuelMixes[energy.fuelMix]?.label ?? "");
-    const low = total ? delta < 0 : delta < 1.2;
-    putHidden(this.find("fuel-can"), !low);
-    this.find("dash").classList.toggle("low-fuel", info.fuel < perLap);
+    putData(
+      this.find("fuel-can"),
+      "state",
+      fuelState(info.fuel, perLap, total, delta),
+    );
   }
 
   private updateTyres(tyres: TyreInfo): void {
@@ -1031,20 +848,6 @@ export class Hud {
 
   nextMfdPage(): void {
     this.mfd.next();
-  }
-
-  private updateInputs(value: (index: number) => number): void {
-    const clamp = (v: number) => Math.max(0, Math.min(1, v));
-    putStyle(
-      this.find("in-throttle"),
-      "transform",
-      `scaleX(${String(clamp(value(frameIndex.accel)))})`,
-    );
-    putStyle(
-      this.find("in-brake"),
-      "transform",
-      `scaleX(${String(clamp(value(frameIndex.brake)))})`,
-    );
   }
 
   restartLights(lights: StartLights, signalAt: number): void {

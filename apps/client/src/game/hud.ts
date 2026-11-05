@@ -8,8 +8,6 @@ import {
   fuelMixes,
 } from "./energy.ts";
 import type { PitControl } from "./pitstop.ts";
-import type * as THREE from "three/webgpu";
-import { CarTags } from "./car-tags.ts";
 import { DamageMonitor, partDamaged, retirementLabel } from "./damage.ts";
 import { Dash } from "./dash.ts";
 import {
@@ -276,13 +274,6 @@ function fuelState(
   return (total ? delta < 0 : delta < 1.2) ? "low" : "";
 }
 
-function fieldTags(
-  find: (id: string) => HTMLElement,
-  field: Entrant[] | null,
-): CarTags | null {
-  return field ? new CarTags(find("car-tags"), field) : null;
-}
-
 function turnInGrade(control: PitControl): PitControl["grade"] {
   return control.phase === "boxing" || control.phase === "service"
     ? control.grade
@@ -303,7 +294,6 @@ export class Hud {
     tyre: HTMLElement;
   }[] = [];
   private readonly minimap: MiniMap;
-  private readonly carTags: CarTags | null;
   private sessionBest: number | null = null;
   private toast: Toast | null = null;
   private weatherKey = "";
@@ -379,7 +369,6 @@ export class Hud {
       ? new Tower(this.find("rows"), options.field, options.qualifying)
       : null;
     if (!this.tower) this.buildRows();
-    this.carTags = fieldTags(this.find, options.field);
     this.minimap = new MiniMap(
       this.find,
       options.map,
@@ -411,7 +400,6 @@ export class Hud {
     penalties: string[],
   ): void {
     this.tower?.update(timing, penalties);
-    this.carTags?.timing(timing);
     const total = timing.length;
     const mine = timing[0];
     const position = this.find("position");
@@ -427,10 +415,6 @@ export class Hud {
     if (this.options.qualifying)
       this.find("session").textContent = segmentNames[info.segment] ?? "Q";
     this.minimap.field(cars);
-  }
-
-  tagCars(cars: Float64Array | null, camera: THREE.Camera): void {
-    this.carTags?.update(cars, camera);
   }
 
   setParts(parts: Record<HudPart, boolean>): void {

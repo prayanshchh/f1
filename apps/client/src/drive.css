@@ -75,51 +75,6 @@ button {
   scale: var(--s);
 }
 
-.hud > .car-tags {
-  inset: 0;
-  scale: none;
-  overflow: hidden;
-}
-
-.car-tag {
-  position: absolute;
-  left: 0;
-  top: 0;
-  display: none;
-  will-change: transform, opacity;
-}
-
-.car-tag[data-on="1"] {
-  display: block;
-}
-
-.car-tag > div {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  height: 24px;
-  padding: 0 10px 0 8px;
-  translate: -50% -100%;
-  scale: var(--s);
-  transform-origin: 50% 100%;
-  background: rgb(14 15 20 / 88%);
-  border-radius: 2px;
-  font-size: 15px;
-  font-weight: 700;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-.car-tag b {
-  font-weight: 600;
-}
-
-.car-tag i {
-  width: 3px;
-  height: 15px;
-  background: var(--team);
-}
-
 .tower {
   left: calc(48px * var(--s));
   top: calc(48px * var(--s));

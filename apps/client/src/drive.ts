@@ -1328,7 +1328,6 @@ async function main(): Promise<void> {
       scene.setDamage(engine.carsDamage(), frame);
     }
     scene.update(frame);
-    hud.tagCars(scene.fieldCars, scene.camera);
     incident.prepare(frame);
     const info = engine.hudInfo();
     scene.setDash(info);

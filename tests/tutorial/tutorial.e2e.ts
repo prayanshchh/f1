@@ -32,7 +32,7 @@ test("onboarded drivers find Driving School in the hub and are not dropped into 
   context,
 }) => {
   await seedPlayer(context);
-  await page.goto("/");
+  await page.goto("/?intro=off");
   await page.mouse.move(1, 1);
   await expect(page.locator(".front-hub")).toBeVisible({ timeout: 60_000 });
   await expect(page.locator("[data-tutorial=root]")).toBeHidden();
@@ -66,7 +66,7 @@ if (!softwareGpu) {
     page,
   }) => {
     test.setTimeout(480_000);
-    await page.goto("/");
+    await page.goto("/?intro=off");
     await page.waitForFunction(
       () => document.body.dataset["driveStatus"] === "running",
       null,
@@ -93,7 +93,7 @@ if (!softwareGpu) {
   }) => {
     test.setTimeout(480_000);
     await seedPlayer(context);
-    await page.goto("/?tutorial");
+    await page.goto("/?tutorial&intro=off");
     await page.waitForFunction(
       () => document.body.dataset["driveStatus"] === "running",
       null,
@@ -112,7 +112,7 @@ if (!softwareGpu) {
     page,
   }) => {
     test.setTimeout(480_000);
-    await page.goto("/?debug");
+    await page.goto("/?debug&intro=off");
     await page.waitForFunction(
       () => document.body.dataset["driveStatus"] === "running",
       null,

@@ -8,6 +8,46 @@
     <link rel="stylesheet" href="/src/loader.css" />
   </head>
   <body data-drive-status="loading">
+    <div class="intro" data-intro data-testid="intro">
+      <video
+        src="/intro/trailer.mp4"
+        preload="none"
+        playsinline
+        aria-label="RevRacers trailer"
+      ></video>
+      <p class="intro-sound" data-intro-sound hidden>
+        Click or press a key for sound
+      </p>
+      <button class="intro-skip" type="button" data-intro-skip hidden>
+        Skip
+      </button>
+    </div>
+    <script>
+      (() => {
+        const box = document.querySelector("[data-intro]");
+        const query = new URLSearchParams(location.search);
+        const skip =
+          sessionStorage.getItem("revracers.introPlayed") === "1" ||
+          sessionStorage.getItem("revracers.autostart") === "1" ||
+          query.has("autostart") ||
+          query.get("intro") === "off" ||
+          !("gpu" in navigator);
+        if (skip) {
+          box.remove();
+          return;
+        }
+        sessionStorage.setItem("revracers.introPlayed", "1");
+        const video = box.querySelector("video");
+        video.preload = "auto";
+        video
+          .play()
+          .catch(() => {
+            video.muted = true;
+            return video.play();
+          })
+          .catch(() => undefined);
+      })();
+    </script>
     <canvas data-testid="drive-canvas"></canvas>
     <div class="status" data-testid="drive-status" role="status">
       <svg class="status-word" aria-hidden="true">

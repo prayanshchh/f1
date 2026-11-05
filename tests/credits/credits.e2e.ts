@@ -10,7 +10,7 @@ test.describe("credits and licences", () => {
   }) => {
     await seedPlayer(context, { ...asha, number: 9 });
 
-    await page.goto("/");
+    await page.goto("/?intro=off");
     await page.mouse.move(1, 1);
     await expect(page.locator(".front-hub")).toBeVisible({ timeout: 60_000 });
     await expect(

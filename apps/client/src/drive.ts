@@ -130,6 +130,7 @@ import {
 } from "./game/weekend.ts";
 import { WeekendFlow } from "./game/weekend-flow.ts";
 import { LoadBar } from "./game/load-bar.ts";
+import { Intro } from "./game/intro.ts";
 import { showActions } from "./game/weekend-ui.ts";
 
 const canvas = document.querySelector<HTMLCanvasElement>(
@@ -145,6 +146,7 @@ const statusBar = new LoadBar(
 const hudRoot = document.querySelector<HTMLElement>("[data-testid=hud]");
 const autostartKey = "revracers.autostart";
 const redeployKey = "revracers.redeploy";
+const intro = Intro.take();
 
 function element(selector: string): HTMLElement {
   const found = document.querySelector<HTMLElement>(selector);
@@ -804,7 +806,9 @@ async function enterGame(
   const studio = new Studio(renderer);
   const front = new FrontEnd(element("[data-front=root]"), studio);
   front.open();
-  music.opening();
+  void intro.done.then(() => {
+    music.opening();
+  });
   void studio.preloadTeams();
   setStatus("");
   let driver = known ?? (await front.welcome());
@@ -1136,6 +1140,7 @@ async function main(): Promise<void> {
   statusBar.followDownloads(0.85, 0.99);
   await scene.warmUp(renderer, draw);
   setStatus("");
+  await intro.done;
   replay = new InstantReplay({
     engine,
     scene,
@@ -1482,6 +1487,7 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
+  intro.stop();
   document.body.dataset["driveStatus"] = "error";
   statusBar.reset();
   setStatus(

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { spriteBounds } from "../../apps/client/src/game/crowd.ts";
+import { spriteBounds } from "../../apps/client/src/game/sprite-bounds.ts";
 
 const columns = 8;
 const rows = 4;

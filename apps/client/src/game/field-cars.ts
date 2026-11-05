@@ -5,6 +5,7 @@ import {
   mergeVertices,
 } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { CarEnvironment } from "./carpaint.ts";
+import { detailFor, detailLevels } from "./detail-level.ts";
 import { carField, carStride, carWheel } from "./frame-layout.ts";
 import {
   contactShadow,
@@ -24,12 +25,6 @@ const shadowDistance = 90;
 const shortestFrame = 1 / 240;
 const longestFrame = 1 / 20;
 const wheelParts = new Set(["tyre", "rim"]);
-const detailLevels = [
-  { metresPerPixel: 0.02, error: 0.01, spinning: true },
-  { metresPerPixel: 0.1, error: 0.05, spinning: false },
-  { metresPerPixel: 0.25, error: 0.12, spinning: false },
-];
-const detailHold = 0.85;
 const referenceHeight = 2160;
 
 function matrix(): THREE.Group {
@@ -77,15 +72,6 @@ interface FieldCar {
 }
 
 const scratch = new THREE.Matrix4();
-
-export function detailFor(current: number, metresPerPixel: number): number {
-  let detail = 0;
-  detailLevels.forEach((level, i) => {
-    const hold = i < current ? detailHold : 1;
-    if (metresPerPixel >= level.metresPerPixel * hold) detail = i + 1;
-  });
-  return detail;
-}
 
 function wheelOf(x: number, y: number): number {
   return (x > 0 ? 0 : 2) + (y > 0 ? 1 : 0);

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { detailFor } from "../../apps/client/src/game/field-cars.ts";
+import { detailFor } from "../../apps/client/src/game/detail-level.ts";
 
 describe("rival car detail", () => {
   test("drops detail as a car gets smaller on screen and never skips back to full detail far away", () => {

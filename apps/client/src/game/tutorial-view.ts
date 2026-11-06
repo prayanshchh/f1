@@ -1,55 +1,17 @@
+import { sensitivities } from "../pad-signal.ts";
 import { el } from "./dom.ts";
 import type {
-  Action,
   Card,
-  Control,
   Spot,
   TutorialEvent,
   TutorialView,
   Widget,
 } from "./tutorial.ts";
 
-type Prompt = [glyph: string, label: string];
-
-const keyboardPrompts: Record<Action, Prompt> = {
-  gas: ["↑", "Accelerate"],
-  brake: ["↓", "Brake"],
-  left: ["←", "Steer left"],
-  right: ["→", "Steer right"],
-  mfd: ["Y", "Next screen"],
-  camera: ["C", "Change view"],
-  rewind: ["R", "Undo"],
-  confirm: ["Enter", "Continue"],
-  skip: ["Esc", "Skip tutorial"],
-  phone: ["P", "Use my phone"],
-  keyboard: ["K", "Use keyboard"],
-  finish: ["Enter", "Finish"],
-  boost: ["B", "Boost"],
-  pause: ["Esc", "Pause"],
-  resume: ["Esc", "Resume"],
-  code: ["P", "Show code"],
-  close: ["P", "Close"],
-  next: ["Space", "Next"],
-};
-
-const phonePrompts: Partial<Record<Action, Prompt>> = {
-  gas: ["Gas", "Hold"],
-  brake: ["Brake", "Hold"],
-  left: ["Tilt", "Tilt left"],
-  right: ["Tilt", "Tilt right"],
-  confirm: ["Brake", "Continue"],
-  finish: ["Brake", "Finish"],
-  boost: ["Boost", "Tap"],
-  pause: ["Brake", "Pause"],
-  resume: ["Brake", "Resume"],
-  next: ["Brake", "Next"],
-};
-
 const spots: Record<Spot, string> = {
   mfd: ".hud .mfd",
   battery: ".hud .ring-left",
   "phone-key": ".hud [data-help=phone]",
-  "pad-panel": "[data-pad=panel]",
   "menu-tabs": "[data-menu=tabs]",
   "menu-main": ".menu .menu-main",
   "menu-replay": "[data-menu=replay]",
@@ -58,32 +20,8 @@ const spots: Record<Spot, string> = {
   "menu-resume": "[data-menu=resume]",
 };
 
-const clickable = new Set<Action>([
-  "confirm",
-  "skip",
-  "phone",
-  "keyboard",
-  "finish",
-  "pause",
-  "resume",
-  "code",
-  "close",
-  "next",
-]);
-
 const toastSeconds = 2.6;
 const remeasure = 0.5;
-const lightGap = 0.6;
-const lightsCycle = 5;
-const lightsOut = 3.6;
-const goShown = 1;
-
-function promptFor(action: Action, control: Control): Prompt {
-  return (
-    (control === "phone" ? phonePrompts[action] : undefined) ??
-    keyboardPrompts[action]
-  );
-}
 
 class Chime {
   private context: AudioContext | null = null;
@@ -126,12 +64,9 @@ export class TutorialScreen {
   private wheel: SVGGElement | null = null;
   private pedals: HTMLElement[] = [];
   private checks: HTMLElement[] = [];
-  private lights: HTMLElement | null = null;
+  private phone: PhoneMock | null = null;
 
-  constructor(
-    private readonly root: HTMLElement,
-    private readonly act: (action: Action) => void,
-  ) {
+  constructor(private readonly root: HTMLElement) {
     for (const part of [this.spot, this.card, this.coach, this.alert])
       part.hidden = true;
     this.stack.append(this.card, this.coach);
@@ -149,6 +84,10 @@ export class TutorialScreen {
     this.root.classList.toggle("away", hidden);
   }
 
+  set covered(covered: boolean) {
+    this.root.classList.toggle("covered", covered);
+  }
+
   close(): void {
     this.root.hidden = true;
     this.root.replaceChildren();
@@ -158,10 +97,9 @@ export class TutorialScreen {
     this.root.dataset["mode"] = view.card ? view.mode : "idle";
     this.root.dataset["step"] = view.id;
     this.root.classList.toggle("low", view.card?.low === true);
-    this.root.classList.toggle("clear", view.card?.clear === true);
+    this.root.classList.toggle("high", view.card?.high === true);
     this.paintCard(view);
     this.paintLive(view);
-    this.paintLights(now);
     this.paintSpot(view.card?.spot ?? null, view.mode, now);
     this.paintCoach(view);
     this.paintAlert(view);
@@ -172,18 +110,11 @@ export class TutorialScreen {
     for (const event of events) {
       if (event.kind === "tick") this.chime.play([880, 1318.5]);
       if (event.kind === "alert") this.chime.play([392, 330], 0.1);
-      if (event.kind === "rewind")
-        this.showToast("Undone", "No damage", "info", now);
+      if (event.kind === "rewind") this.showToast("Undone", "No damage", now);
     }
   }
 
-  private showToast(
-    title: string,
-    detail: string,
-    kind: string,
-    now: number,
-  ): void {
-    this.toast.dataset["kind"] = kind;
+  private showToast(title: string, detail: string, now: number): void {
     this.toast.replaceChildren(el("b", "", title), el("span", "", detail));
     this.toast.classList.remove("show");
     void this.toast.getBoundingClientRect();
@@ -200,7 +131,6 @@ export class TutorialScreen {
           shown.title,
           shown.body,
           shown.compact,
-          shown.actions.join(),
         ].join("|")
       : "";
     if (key === this.shownKey) return;
@@ -209,7 +139,6 @@ export class TutorialScreen {
     this.card.hidden = !shown;
     if (!shown) return;
     this.card.dataset["step"] = view.id;
-    this.card.dataset["tone"] = shown.tone;
     this.card.classList.toggle("compact", shown.compact);
     this.card.replaceChildren(...this.cardParts(view, shown));
     if (!fresh) return;
@@ -219,48 +148,19 @@ export class TutorialScreen {
   }
 
   private cardParts(view: TutorialView, shown: Card): HTMLElement[] {
-    const head = el("header", "tut-head");
-    const bar = el("i", "tut-progress");
-    bar.style.setProperty(
-      "--done",
-      String(view.step / Math.max(1, view.steps - 1)),
-    );
-    head.append(el("span", "tut-chapter", view.chapter), bar);
-    const parts = [head, el("h2", "tut-title", shown.title)];
+    const parts: HTMLElement[] = [el("h2", "tut-title", shown.title)];
     if (!shown.compact && shown.body !== "")
       parts.push(el("p", "tut-body", shown.body));
     const widget = shown.widget ? this.widget(shown.widget, view) : null;
     if (widget) parts.push(widget);
-    if (shown.actions.length > 0 && !shown.compact)
-      parts.push(this.actions(shown.actions, view));
     return parts;
-  }
-
-  private actions(actions: Action[], view: TutorialView): HTMLElement {
-    const row = el("div", "tut-actions");
-    for (const action of actions) {
-      const [glyph, label] = promptFor(action, view.control);
-      const press = clickable.has(action) && view.mode !== "banner";
-      const item = el(press ? "button" : "span", `tut-action ${action}`);
-      if (item instanceof HTMLButtonElement) {
-        item.type = "button";
-        item.addEventListener("click", () => {
-          this.act(action);
-        });
-      }
-      item.dataset["action"] = action;
-      const key = el("kbd", view.control === "phone" ? "pad" : "", glyph);
-      item.append(key, el("span", "", label));
-      row.append(item);
-    }
-    return row;
   }
 
   private widget(widget: Widget, view: TutorialView): HTMLElement {
     if (widget === "controls") return this.controls(view);
     if (widget === "legend") return legend();
-    this.lights = lightsDemo();
-    return this.lights;
+    this.phone = phoneMock(phoneHints[widget]);
+    return this.phone.root;
   }
 
   private controls(view: TutorialView): HTMLElement {
@@ -299,20 +199,15 @@ export class TutorialScreen {
     view.checks.forEach((check, i) => {
       this.checks[i]?.classList.toggle("done", check.done);
     });
+    this.paintPhone(view.sensitivity);
   }
 
-  private paintLights(now: number): void {
-    const row = this.lights;
-    if (!row?.isConnected) return;
-    const phase = now % lightsCycle;
-    const lit = phase < lightsOut ? Math.floor(phase / lightGap) + 1 : 0;
-    row.querySelectorAll("i").forEach((light, i) => {
-      light.classList.toggle("on", i < lit);
-    });
-    row.classList.toggle(
-      "go",
-      phase >= lightsOut && phase < lightsOut + goShown,
-    );
+  private paintPhone(sensitivity: number | null): void {
+    const phone = this.phone;
+    if (!phone?.root.isConnected) return;
+    const value = sensitivity ?? 1;
+    phone.value.textContent = `${value.toFixed(2)}×`;
+    phone.bar.style.width = `${String(sensitivityShare(value) * 100)}%`;
   }
 
   private paintSpot(target: Spot | null, mode: string, now: number): void {
@@ -369,9 +264,77 @@ export class TutorialScreen {
     this.alert.replaceChildren(
       el("b", "", shown.title),
       el("p", "", shown.body),
-      this.actions(shown.actions, { ...view, mode: "banner" }),
     );
   }
+}
+
+const phoneHints = {
+  "pad-center": "Center",
+  "pad-sensitivity": "sensitivity",
+  "pad-boost": "Boost",
+} as const;
+
+interface PhoneMock {
+  root: HTMLElement;
+  value: HTMLElement;
+  bar: HTMLElement;
+}
+
+const padButtons = [
+  ["ERS", "Medium"],
+  ["Display", "MFD"],
+  ["Next stop", "Wing"],
+  ["Next stop", "Tyres"],
+  ["Batt", "Boost"],
+  ["Steering", "Center"],
+] as const;
+function sensitivityShare(value: number): number {
+  const step = sensitivities.findIndex((s) => s >= value - 0.001);
+  const index = step < 0 ? sensitivities.length - 1 : step;
+  return index / (sensitivities.length - 1);
+}
+
+function phonePedal(name: string): HTMLElement {
+  const pedal = el("div", `tut-phone-pedal ${name.toLowerCase()}`);
+  pedal.append(el("i"), el("small", "", name));
+  return pedal;
+}
+
+function phoneSensitivity(hint: boolean): PhoneMock {
+  const row = el("div", "tut-phone-sens");
+  const value = el("b");
+  const bar = el("i");
+  const track = el("span");
+  track.append(bar);
+  const meter = el("div", "tut-phone-meter");
+  meter.append(el("small", "", "Sensitivity"), value, track);
+  const hit = hint ? "tut-phone-hit" : "";
+  row.append(el("span", hit, "−"), meter, el("span", hit, "+"));
+  return { root: row, value, bar };
+}
+
+function phoneMock(hint: string): PhoneMock {
+  const status = el("div", "tut-phone-status");
+  status.append(el("i"), el("span", "", "Connected"));
+  const dial = el("div", "tut-phone-dial");
+  dial.append(el("b", "", "0"), el("small", "", "km/h"));
+  const readout = el("div", "tut-phone-read");
+  readout.append(dial, el("b", "tut-phone-gear", "N"));
+  const grid = el("div", "tut-phone-grid");
+  for (const [label, name] of padButtons) {
+    const button = el("span", name === "Center" ? "center" : "");
+    button.classList.toggle("tut-phone-hit", name === hint);
+    button.append(el("small", "", label), el("b", "", name));
+    grid.append(button);
+  }
+  const sensitivity = phoneSensitivity(hint === "sensitivity");
+  const middle = el("div", "tut-phone-mid");
+  middle.append(status, readout, sensitivity.root, grid);
+  const screen = el("div", "tut-phone-screen");
+  screen.append(phonePedal("Brake"), middle, phonePedal("Gas"));
+  const root = el("div", "tut-phone");
+  root.append(screen);
+  return { ...sensitivity, root };
 }
 
 function legend(): HTMLElement {
@@ -385,12 +348,5 @@ function legend(): HTMLElement {
     chip.append(el("i"), el("b", "", label));
     row.append(chip);
   }
-  return row;
-}
-
-function lightsDemo(): HTMLElement {
-  const row = el("div", "tut-lights");
-  for (let i = 0; i < 5; i++) row.append(el("i"));
-  row.append(el("b", "", "Go!"));
   return row;
 }

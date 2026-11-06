@@ -273,6 +273,58 @@ static void syncTeleported(int index)
     sdCarStatusTeleported(index);
 }
 
+static void scaleVelocity(tDynPt &dyn, tdble k)
+{
+    dyn.vel.x *= k;
+    dyn.vel.y *= k;
+    dyn.vel.z *= k;
+    dyn.vel.ax *= k;
+    dyn.vel.ay *= k;
+    dyn.vel.az *= k;
+}
+
+static void scaleSpin(tDynAxis &axis, tdble k)
+{
+    axis.spinVel *= k;
+}
+
+static void scaleCarMotion(int index, tdble k)
+{
+    tCar *car = &SimCarTable[index];
+    scaleVelocity(car->DynGCg, k);
+    scaleVelocity(car->DynGC, k);
+    scaleVelocity(car->preDynGC, k);
+    for (int i = 0; i < 4; i++)
+    {
+        tWheel &wheel = car->wheel[i];
+        wheel.spinVel *= k;
+        wheel.prespinVel *= k;
+        scaleSpin(wheel.in, k);
+        scaleSpin(wheel.feedBack, k);
+    }
+    for (int i = 0; i < 3; i++)
+    {
+        scaleSpin(car->transmission.differential[i].in, k);
+        scaleSpin(car->transmission.differential[i].feedBack, k);
+    }
+    car->engine.rads = std::max(car->engine.tickover, car->engine.rads * k);
+    tCarElt *elt = ReInfo->s->cars[index];
+    scaleVelocity(elt->pub.DynGC, k);
+    scaleVelocity(elt->pub.DynGCg, k);
+}
+
+void sdCarSlowTo(int index, double speed)
+{
+    if (index < 0 || index >= ReInfo->s->_ncars)
+        return;
+    const tDynPt &dyn = SimCarTable[index].DynGCg;
+    double now = std::sqrt(dyn.vel.x * dyn.vel.x + dyn.vel.y * dyn.vel.y);
+    if (now <= speed || now <= 0.0)
+        return;
+    scaleCarMotion(index, (tdble)(std::max(0.0, speed) / now));
+    sdCarStatusTeleported(index);
+}
+
 void sdCarTeleport(int index, double distance, double lateral)
 {
     placeCar(ReInfo->s->cars[index], distance, lateral, 0.05);
@@ -633,6 +685,11 @@ EMSCRIPTEN_KEEPALIVE void sdCars(double *out)
         c[47] = car->_trkPos.toMiddle;
         c[48] = car->_distFromStartLine;
     }
+}
+
+EMSCRIPTEN_KEEPALIVE void sdPlayerSlowTo(double speed)
+{
+    sdCarSlowTo(0, speed);
 }
 
 EMSCRIPTEN_KEEPALIVE void sdTimeScale(double scale)

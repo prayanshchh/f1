@@ -264,10 +264,6 @@ export class Menu {
     this.guardKey = guardKey;
   }
 
-  resume(): void {
-    if (this.open && this.inSession) this.finish("resume");
-  }
-
   async run(inSession: boolean): Promise<MenuAction> {
     this.inSession = inSession;
     this.find("resume-label").textContent = inSession ? "Resume" : "Back";

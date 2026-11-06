@@ -342,6 +342,7 @@ const exported = [
   "_sdFieldCount",
   "_sdCars",
   "_sdTimeScale",
+  "_sdPlayerSlowTo",
   "_sdAiPlayerLaneClear",
   "_sdAiLine",
   "_sdAiLineCount",

@@ -23,6 +23,10 @@ export const cars = teams.map((team) => ({
 }));
 
 export const choices = {
+  graphics: [
+    { id: "ultra", label: "Ultra" },
+    { id: "low", label: "Low (No GPU)" },
+  ],
   tyreWear: [
     { id: "off", label: "Off" },
     { id: "real", label: "Real Life" },
@@ -106,6 +110,7 @@ type ChoiceId<K extends keyof typeof choices> =
   (typeof choices)[K][number]["id"];
 
 export interface Settings {
+  graphics: "auto" | ChoiceId<"graphics">;
   track: string;
   car: string;
   session: ChoiceId<"session">;
@@ -162,6 +167,7 @@ const practiceFuelLaps = 10;
 const raceBurnShare = 1.2;
 
 export const defaults: Settings = {
+  graphics: "auto",
   track: "hill-country",
   car: "velza",
   session: "weekend",
@@ -243,17 +249,29 @@ export function loadSettings(params: URLSearchParams): Settings {
   if (!options.includes(settings.laps))
     settings.laps =
       options.find((laps) => laps >= settings.laps) ?? defaults.laps;
-  if (!choices.tyreWear.some((c) => c.id === settings.tyreWear))
-    settings.tyreWear = defaults.tyreWear;
-  if (!choices.qualifying.some((c) => c.id === settings.qualifying))
-    settings.qualifying = defaults.qualifying;
-  if (!choices.rivalLaps.some((c) => c.id === settings.rivalLaps))
-    settings.rivalLaps = defaults.rivalLaps;
-  if (!choices.safetyCar.some((c) => c.id === settings.safetyCar))
-    settings.safetyCar = defaults.safetyCar;
-  if (!choices.startType.some((c) => c.id === settings.startType))
-    settings.startType = defaults.startType;
+  keepChoices(settings);
   return settings;
+}
+
+const checkedChoices = [
+  "tyreWear",
+  "qualifying",
+  "rivalLaps",
+  "safetyCar",
+  "startType",
+] as const;
+
+function keepChoices(settings: Settings): void {
+  if (
+    settings.graphics !== "auto" &&
+    !choices.graphics.some((c) => c.id === settings.graphics)
+  )
+    settings.graphics = defaults.graphics;
+  for (const key of checkedChoices) {
+    const options: readonly { id: string }[] = choices[key];
+    if (!options.some((c) => c.id === settings[key]))
+      Object.assign(settings, { [key]: defaults[key] });
+  }
 }
 
 function applyUrl(settings: Settings, params: URLSearchParams): void {

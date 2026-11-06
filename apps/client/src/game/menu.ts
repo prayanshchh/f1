@@ -1,5 +1,6 @@
 import { ersModes, fuelMixes, nominalFuelPerLap } from "./energy.ts";
 import { el } from "./dom.ts";
+import { graphicsLevelOf } from "./graphics-mode.ts";
 import { carArt } from "./mfd.ts";
 import { ParamDoc } from "./params.ts";
 import { compounds } from "./tyres.ts";
@@ -118,6 +119,8 @@ const tabIntro: Record<string, string> = {
     "Contains driver assist settings that allow you to make controlling the car easier or more authentic.",
   rules:
     "Choose how the International Motor Racing Federation starts the race. A spin, crash or stop you are part of waves local yellow flags.",
+  graphics:
+    "Choose how the race is drawn. The game picks Ultra or Low for this computer the first time, and you can switch at any moment, also with G during a race.",
   osd: "Contains settings that allow you to customise the way the on-screen display is shown.",
   audio:
     "Music plays in the menus, the pre-race build-up and after a win. There is no music while you drive.",
@@ -193,6 +196,10 @@ function stripMode(s: Settings): string {
   return "Practice";
 }
 
+function introOf(tab: string): string {
+  return tabIntro[tab] ?? "";
+}
+
 export class Menu {
   private readonly root: HTMLElement;
   private readonly body: HTMLElement;
@@ -203,6 +210,7 @@ export class Menu {
   private rows: Row[] = [];
   private rowElements: HTMLElement[] = [];
   private inSession = false;
+  private replays = true;
   private resolve: ((action: MenuAction) => void) | null = null;
   private readonly initial: string;
   private store: (settings: Settings) => void = saveSettings;
@@ -228,7 +236,7 @@ export class Menu {
       this.finish(this.inSession ? "resume" : "back");
     });
     this.find("replay").addEventListener("click", () => {
-      if (this.inSession) this.finish("replay");
+      if (this.canReplay) this.finish("replay");
     });
     window.addEventListener(
       "keydown",
@@ -245,6 +253,18 @@ export class Menu {
     return !this.root.hidden;
   }
 
+  private get canReplay(): boolean {
+    return this.inSession && this.replays;
+  }
+
+  setReplays(on: boolean): void {
+    this.replays = on;
+  }
+
+  save(): void {
+    this.store(this.settings);
+  }
+
   useTutorial(store: (settings: Settings) => void): void {
     this.store = store;
     this.sessionAction = "Skip Tutorial";
@@ -253,7 +273,7 @@ export class Menu {
   async run(inSession: boolean): Promise<MenuAction> {
     this.inSession = inSession;
     this.find("resume-label").textContent = inSession ? "Resume" : "Back";
-    this.find("replay").hidden = !inSession;
+    this.find("replay").hidden = !this.canReplay;
     this.root.hidden = false;
     this.root.classList.toggle("paused", inSession);
     requestAnimationFrame(() => {
@@ -304,7 +324,7 @@ export class Menu {
         this.resetTab();
       },
       v: () => {
-        if (this.inSession) this.finish("replay");
+        if (this.canReplay) this.finish("replay");
       },
     };
     const aliases: Record<string, string> = {
@@ -351,7 +371,7 @@ export class Menu {
         id: "session",
         label: "Session",
         title: this.inSession ? "Paused" : "Race setup",
-        info: tabIntro["session"] ?? "",
+        info: introOf("session"),
         setup: false,
         rows: () => this.sessionRows(),
         reset: () => {
@@ -374,7 +394,7 @@ export class Menu {
         id: "strategy",
         label: "Tyres & Energy",
         title: "Tyres & Energy",
-        info: tabIntro["strategy"] ?? "",
+        info: introOf("strategy"),
         setup: false,
         rows: () => this.strategyRows(),
         reset: () => {
@@ -393,7 +413,7 @@ export class Menu {
         id: "assists",
         label: "Assists",
         title: "Assists",
-        info: tabIntro["assists"] ?? "",
+        info: introOf("assists"),
         setup: false,
         rows: () => this.assistRows(),
         reset: () => {
@@ -416,7 +436,7 @@ export class Menu {
         id: "rules",
         label: "Rules & Flags",
         title: "Rules & Flags",
-        info: tabIntro["rules"] ?? "",
+        info: introOf("rules"),
         setup: false,
         rows: () => this.rulesRows(),
         reset: () => {
@@ -429,10 +449,21 @@ export class Menu {
       },
       ...setupTabs,
       {
+        id: "graphics",
+        label: "Graphics",
+        title: "Graphics",
+        info: introOf("graphics"),
+        setup: false,
+        rows: () => this.graphicsRows(),
+        reset: () => {
+          this.settings.graphics = defaults.graphics;
+        },
+      },
+      {
         id: "osd",
         label: "On-Screen Display",
         title: "On-Screen Display",
-        info: tabIntro["osd"] ?? "",
+        info: introOf("osd"),
         setup: false,
         rows: () => this.osdRows(),
         reset: () => {
@@ -443,7 +474,7 @@ export class Menu {
         id: "audio",
         label: "Audio",
         title: "Audio",
-        info: tabIntro["audio"] ?? "",
+        info: introOf("audio"),
         setup: false,
         rows: () => this.audioRows(),
         reset: () => {
@@ -1193,6 +1224,21 @@ export class Menu {
       ),
     );
     return rows;
+  }
+
+  private graphicsRows(): Row[] {
+    const s = this.settings;
+    return [
+      this.choice(
+        "Graphics Quality",
+        "Ultra draws the full circuit with the graphics card. Low draws a simpler, cartoon-style circuit and cars on the processor at full screen resolution, without replays, so the game runs without a graphics card. Switches straight away; press G during a race to swap.",
+        choices.graphics,
+        () => graphicsLevelOf(s.graphics),
+        (id) => {
+          s.graphics = id as Settings["graphics"];
+        },
+      ),
+    ];
   }
 
   private audioRows(): Row[] {

@@ -130,6 +130,16 @@ import {
 import { WeekendFlow } from "./game/weekend-flow.ts";
 import { LoadBar } from "./game/load-bar.ts";
 import { showActions } from "./game/weekend-ui.ts";
+import { corridorDrawer } from "./game/corridor/corridor-mode.ts";
+import {
+  detectedLevel,
+  type GraphicsLevel,
+  graphicsLevelOf,
+  GraphicsMode,
+  type GraphicsView,
+  otherLevel,
+  rememberDetected,
+} from "./game/graphics-mode.ts";
 
 const canvas = document.querySelector<HTMLCanvasElement>(
   "[data-testid=drive-canvas]",
@@ -272,6 +282,78 @@ function trackMap(engine: Engine): TrackMap {
 function fitStage(): void {
   const scale = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
   document.documentElement.style.setProperty("--s", String(scale));
+}
+
+async function softwareAdapter(): Promise<boolean> {
+  const adapter = await navigator.gpu.requestAdapter();
+  if (!adapter) return true;
+  const info = adapter.info;
+  return (
+    info.isFallbackAdapter ||
+    /swiftshader|llvmpipe|software/i.test(
+      `${info.vendor} ${info.architecture} ${info.description}`,
+    )
+  );
+}
+
+async function initialLevel(
+  params: URLSearchParams,
+  settings: Settings,
+): Promise<GraphicsLevel> {
+  if (params.has("corridor")) return "low";
+  if (settings.graphics !== "auto") return settings.graphics;
+  if (await softwareAdapter()) {
+    rememberDetected("low");
+    return "low";
+  }
+  return detectedLevel();
+}
+
+function viewBuilder(
+  params: URLSearchParams,
+  renderer: THREE.WebGPURenderer,
+  scene: Scene,
+  engine: Engine,
+  cpu: { teams: string[]; canvas: HTMLCanvasElement },
+): (level: GraphicsLevel) => Promise<GraphicsView> {
+  return async (level) => {
+    if (level === "ultra") {
+      const draw = drawer(renderer, scene);
+      await scene.warmUp(renderer, draw);
+      return {
+        draw,
+        overlay: (incident) => {
+          incident.render();
+        },
+        show: (shown) => {
+          cpu.canvas.style.visibility = shown ? "visible" : "hidden";
+        },
+      };
+    }
+    const corridor = await corridorDrawer(scene, engine, cpu.teams, cpu.canvas);
+    if (params.has("debug"))
+      Object.assign(window, {
+        f1Corridor: corridor,
+        f1Ultra: drawer(renderer, scene),
+      });
+    return {
+      draw: corridor.draw,
+      overlay: () => undefined,
+      show: corridor.show,
+    };
+  };
+}
+
+function showReplayHints(shown: boolean): void {
+  document
+    .querySelectorAll<HTMLElement>("[data-hint=replay]")
+    .forEach((hint) => {
+      hint.hidden = !shown;
+    });
+}
+
+function buildUpSeek(params: URLSearchParams, low: boolean): string | null {
+  return low ? "off" : params.get("buildup");
 }
 
 function drawer(renderer: THREE.WebGPURenderer, scene: Scene): () => void {
@@ -903,8 +985,18 @@ function debugHooks(
   renderer: THREE.WebGPURenderer,
 ): void {
   if (params.has("autopilot")) engine.autopilot(true);
+  if (params.has("physicsthread")) engine.useThread();
   if (params.has("debug"))
     Object.assign(window, { f1Debug: { engine, scene, renderer } });
+}
+
+function frameAhead(): (now: number) => number {
+  let last = 0;
+  return (now) => {
+    const gap = THREE.MathUtils.clamp(now - last, 1 / 240, 1 / 30);
+    last = now;
+    return now + gap;
+  };
 }
 
 async function bootEngine(): ReturnType<typeof loadSpeedDreams> {
@@ -927,6 +1019,8 @@ async function main(): Promise<void> {
   const params = new URLSearchParams(location.search);
   const module = await bootEngine();
   const settings = loadSettings(params);
+  const startLevel = await initialLevel(params, settings);
+  const low = startLevel === "low";
   const source = setupSource(module);
   const interventions = params.has("interventions");
   const menu = new Menu(source, settings, interventions);
@@ -939,7 +1033,7 @@ async function main(): Promise<void> {
 
   const track = trackOf(settings);
   const setup = prepareSession(settings);
-  const seek = params.get("buildup");
+  const seek = buildUpSeek(params, low);
   if (wantsBuildUp(settings, setup, autostart, seek)) music.preload("buildup");
   const { stage, field, plan } = setup;
   const log = raceLog(driver, settings, stage);
@@ -969,7 +1063,20 @@ async function main(): Promise<void> {
     rivalCars(field),
     lights,
   );
-  const draw = drawer(renderer, scene);
+  const graphics = new GraphicsMode(
+    startLevel,
+    viewBuilder(params, renderer, scene, engine, {
+      teams: [car.id, ...rivalCars(field)],
+      canvas,
+    }),
+    (level) => {
+      menu.setReplays(level === "ultra");
+      showReplayHints(level === "ultra");
+    },
+  );
+  const draw = () => {
+    graphics.draw();
+  };
   debugHooks(params, engine, scene, renderer);
 
   const reference = await loadReference(driver, settings.track, car.car);
@@ -1023,11 +1130,14 @@ async function main(): Promise<void> {
     school.rewound();
     return true;
   };
+  const showReplay = () => {
+    replay?.open(performance.now() / 1000);
+    if (replay?.active) coach?.replayed();
+  };
   const openReplay = () => {
     if (finished() || coach?.busy === true) return;
     if (coach && jumpBack(coach)) return;
-    replay?.open(performance.now() / 1000);
-    if (replay?.active) coach?.replayed();
+    if (!graphics.low) showReplay();
   };
   let buildingUp = false;
   let paused = false;
@@ -1044,6 +1154,32 @@ async function main(): Promise<void> {
     if (coach) coach.skip();
     else restart(true);
   };
+  const switchGraphics = (level: GraphicsLevel, detail: string) => {
+    const title = level === "ultra" ? "Ultra graphics" : "Low graphics";
+    hud.notify(title, detail, performance.now() / 1000);
+    graphics.switchTo(level).catch(() => {
+      hud.notify(
+        "Ultra unavailable",
+        "This computer has no graphics card that can draw Ultra",
+        performance.now() / 1000,
+      );
+    });
+  };
+  const chooseGraphics = (level: GraphicsLevel) => {
+    if (level === graphics.target) return;
+    settings.graphics = level;
+    menu.save();
+    switchGraphics(level, "Press G to switch back");
+  };
+  const watchGraphics = (now: number) => {
+    const forced = params.has("corridor") || params.has("autostart");
+    if (settings.graphics !== "auto" || forced) return;
+    if (graphics.tooSlowForUltra(now))
+      switchGraphics(
+        "low",
+        "Ultra was too slow on this graphics card. Press G for Ultra",
+      );
+  };
   const pause = () => {
     if (paused || finished()) return;
     paused = true;
@@ -1052,6 +1188,8 @@ async function main(): Promise<void> {
       if (action === "resume" || action === "replay") {
         pad.close();
         hud.setParts(settings.hud);
+        if (settings.graphics !== "auto")
+          chooseGraphics(graphicsLevelOf(settings.graphics));
         paused = false;
         sound.mute(coach?.quiet ?? false);
         if (action === "replay") openReplay();
@@ -1094,8 +1232,16 @@ async function main(): Promise<void> {
     if (wanted) openReplay();
     return wanted;
   };
+  const graphicsKey = (down: boolean, event: KeyboardEvent): boolean => {
+    if (event.code !== "KeyG" || typing(event)) return false;
+    event.preventDefault();
+    if (down && !event.repeat && !paused)
+      chooseGraphics(otherLevel(graphics.target));
+    return true;
+  };
   const onKey = (down: boolean) => (event: KeyboardEvent) => {
-    if (buildingUp || replayKey(down, event)) return;
+    if (buildingUp || replayKey(down, event) || graphicsKey(down, event))
+      return;
     if (event.key === "Escape") {
       event.preventDefault();
       if (down && !event.repeat) pause();
@@ -1113,7 +1259,7 @@ async function main(): Promise<void> {
   scene.update(engine.update(performance.now() / 1000));
   setStatus("Preparing circuit…");
   statusBar.followDownloads(0.85, 0.99);
-  await scene.warmUp(renderer, draw);
+  await graphics.start();
   setStatus("");
   replay = new InstantReplay({
     engine,
@@ -1144,6 +1290,7 @@ async function main(): Promise<void> {
     engine.trackLength(),
   );
   const showIncidents = (messages: StewardMessage[]) => {
+    if (graphics.low) return;
     const name = (car: number) => driverName(setup.field, car);
     for (const message of messages)
       if (message.stage === stewardStage.flag)
@@ -1247,6 +1394,7 @@ async function main(): Promise<void> {
       field,
       restart,
       celebrate: (done) =>
+        !graphics.low &&
         replay.celebrate(
           { first: seat.first, last: seat.last, team: teamOf(seat.team).name },
           done,
@@ -1434,6 +1582,11 @@ async function main(): Promise<void> {
     if (frameStale) draw();
     frameStale = false;
   };
+  const ahead = frameAhead();
+  const racingNow = () => flow?.finished !== true && !paused && !ended;
+  const launchNext = (now: number, racing: boolean) => {
+    if (racing && !ended) engine.launch(clock(ahead(now)));
+  };
   void renderer.setAnimationLoop(() => {
     if (waiting) {
       holdForReady();
@@ -1446,13 +1599,16 @@ async function main(): Promise<void> {
       return;
     }
     const afterRace = flow?.finished === true;
+    const racing = racingNow();
     if (afterRace) afterFlag(now);
-    else if (!paused && !ended) step(now);
+    else if (racing) step(now);
     else if (!idle(now)) return;
     frameStale = false;
     canvas.style.transform = scene.mirrored ? "scaleX(-1)" : "";
     draw();
-    incident.render();
+    graphics.overlay(incident);
+    if (racing) watchGraphics(now);
+    launchNext(now, racing);
   });
 }
 

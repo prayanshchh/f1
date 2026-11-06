@@ -1,4 +1,6 @@
 #include <algorithm>
+#include <atomic>
+#include <climits>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -6,6 +8,8 @@
 #include <unistd.h>
 #include <vector>
 #include <emscripten/emscripten.h>
+#include <emscripten/threading.h>
+#include <pthread.h>
 
 #include <tgf.h>
 #include <tgfclient.h>
@@ -784,6 +788,55 @@ EMSCRIPTEN_KEEPALIVE int sdUpdate(double now)
     }
     fillFrame();
     return steps;
+}
+
+static std::atomic<int32_t> physicsState{0};
+static double physicsTarget = 0;
+static int physicsSteps = 0;
+static bool physicsRunning = false;
+
+static void *physicsLoop(void *)
+{
+    for (;;)
+    {
+        while (physicsState.load(std::memory_order_acquire) == 0)
+            emscripten_futex_wait(&physicsState, 0, INFINITY);
+        physicsSteps = sdUpdate(physicsTarget);
+        physicsState.store(0, std::memory_order_release);
+        emscripten_futex_wake(&physicsState, INT_MAX);
+    }
+    return nullptr;
+}
+
+EMSCRIPTEN_KEEPALIVE int sdPhysicsThread()
+{
+    if (physicsRunning)
+        return 1;
+    pthread_t thread;
+    if (pthread_create(&thread, nullptr, physicsLoop, nullptr) != 0)
+        return 0;
+    pthread_detach(thread);
+    physicsRunning = true;
+    return 1;
+}
+
+EMSCRIPTEN_KEEPALIVE void sdLaunch(double now)
+{
+    physicsTarget = now;
+    physicsState.store(1, std::memory_order_release);
+    emscripten_futex_wake(&physicsState, 1);
+}
+
+EMSCRIPTEN_KEEPALIVE int sdBusy()
+{
+    return physicsState.load(std::memory_order_acquire);
+}
+
+EMSCRIPTEN_KEEPALIVE int sdSettle()
+{
+    while (physicsState.load(std::memory_order_acquire) != 0)
+        emscripten_futex_wait(&physicsState, 1, 1);
+    return physicsSteps;
 }
 
 EMSCRIPTEN_KEEPALIVE void sdResync(double now)

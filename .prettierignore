@@ -12,3 +12,5 @@ apps/client/src/game/sound/tables.json
 apps/client/src/game/sound/start-beep.json
 tests/sound/start-beep-fingerprint.json
 content/tracks/hill-country/circuit-map.json
+apps/client/public/corridor/manifest.json
+apps/client/public/corridor/tyre-wall.json

@@ -10,3 +10,5 @@ content/cars/**/*.glb filter=lfs diff=lfs merge=lfs -text
 content/cars/**/*.jpg filter=lfs diff=lfs merge=lfs -text
 content/cars/**/*.png filter=lfs diff=lfs merge=lfs -text
 content/music/*.ogg filter=lfs diff=lfs merge=lfs -text
+apps/client/public/corridor/*.bin filter=lfs diff=lfs merge=lfs -text
+apps/client/public/corridor/*.webp filter=lfs diff=lfs merge=lfs -text

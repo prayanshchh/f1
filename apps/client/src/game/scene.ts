@@ -8,7 +8,7 @@ import { FieldCars } from "./field-cars.ts";
 import { frameIndex, type Engine, type HudInfo } from "./engine.ts";
 import type { WeatherInfo } from "./weather.ts";
 import { RainStreaks, Spray } from "./rain.ts";
-import { rainLight } from "./carpaint.ts";
+import { type CarEnvironment, rainLight } from "./carpaint.ts";
 import { Debris, partCount, updateLook } from "./car-damage.ts";
 import { carField, carStride } from "./frame-layout.ts";
 import { GltfCar, placeOnTrack, type TrackFrame } from "./gltf.ts";
@@ -504,6 +504,27 @@ export class Scene {
       fuel: info.tank > 0 ? info.fuel / info.tank : 0,
       tyres: info.tyreTemp.map((kelvin) => kelvin - kelvinOffset),
     });
+  }
+
+  forEachRacingTile(
+    visit: (matrix: THREE.Matrix4, colour: THREE.Color, alpha: number) => void,
+  ): void {
+    this.racingLine.forEachShown(visit);
+  }
+
+  get sunLight(): THREE.DirectionalLight {
+    return this.sunlight.sun;
+  }
+
+  get trackMatrix(): THREE.Matrix4 {
+    return this.road.matrixWorld;
+  }
+
+  get carEnvironment(): CarEnvironment {
+    return {
+      texture: this.skyBox.environment,
+      rotation: this.skyBox.environmentRotation,
+    };
   }
 
   get playerSlot(): number {

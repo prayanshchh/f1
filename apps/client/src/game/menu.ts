@@ -22,7 +22,8 @@ import {
   tracks,
 } from "./settings.ts";
 
-export type MenuAction = "start" | "resume" | "restart" | "back" | "replay";
+export type MenuAction =
+  "start" | "resume" | "restart" | "back" | "replay" | "quit";
 
 interface Option {
   id: string;
@@ -206,7 +207,7 @@ export class Menu {
   private resolve: ((action: MenuAction) => void) | null = null;
   private readonly initial: string;
   private store: (settings: Settings) => void = saveSettings;
-  private sessionAction = "Restart Session";
+  private guardKey: ((event: KeyboardEvent) => boolean) | null = null;
 
   constructor(
     private readonly source: SetupSource,
@@ -230,11 +231,18 @@ export class Menu {
     this.find("replay").addEventListener("click", () => {
       if (this.inSession) this.finish("replay");
     });
+    this.find("quit").addEventListener("click", () => {
+      if (this.inSession) this.finish("quit");
+    });
     window.addEventListener(
       "keydown",
       (event) => {
         if (this.root.hidden) return;
         event.stopPropagation();
+        if (this.guardKey?.(event) === true) {
+          event.preventDefault();
+          return;
+        }
         this.onKey(event);
       },
       true,
@@ -247,13 +255,21 @@ export class Menu {
 
   useTutorial(store: (settings: Settings) => void): void {
     this.store = store;
-    this.sessionAction = "Skip Tutorial";
+  }
+
+  guard(guardKey: (event: KeyboardEvent) => boolean): void {
+    this.guardKey = guardKey;
+  }
+
+  resume(): void {
+    if (this.open && this.inSession) this.finish("resume");
   }
 
   async run(inSession: boolean): Promise<MenuAction> {
     this.inSession = inSession;
     this.find("resume-label").textContent = inSession ? "Resume" : "Back";
     this.find("replay").hidden = !inSession;
+    this.find("quit").hidden = !inSession;
     this.root.hidden = false;
     this.root.classList.toggle("paused", inSession);
     requestAnimationFrame(() => {
@@ -305,6 +321,9 @@ export class Menu {
       },
       v: () => {
         if (this.inSession) this.finish("replay");
+      },
+      m: () => {
+        if (this.inSession) this.finish("quit");
       },
     };
     const aliases: Record<string, string> = {
@@ -705,7 +724,7 @@ export class Menu {
     const dirty = JSON.stringify({ ...s, hud: null }) !== this.initial;
     const tab = this.current();
     this.find("start-label").textContent = this.inSession
-      ? this.sessionAction
+      ? "Restart Session"
       : "Start Session";
     this.find("note").textContent =
       this.inSession && dirty

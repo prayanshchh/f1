@@ -17,7 +17,6 @@ export interface HubChoice {
 interface ListItem {
   label: string;
   detail: string;
-  tag?: string;
   run: () => void;
 }
 
@@ -659,7 +658,6 @@ export class FrontEnd {
     const rows = items.map((item, index) => {
       const row = button("front-hub-item", "", item.run);
       row.append(el("b", "", item.label), el("span", "", item.detail));
-      if (item.tag) row.append(el("em", "front-hub-tag", item.tag));
       row.addEventListener("pointermove", (event) => {
         if (event.movementX === 0 && event.movementY === 0) return;
         focus = index;
@@ -689,54 +687,5 @@ export class FrontEnd {
         Enter: choose,
       },
     };
-  }
-
-  async tutorialOffer(): Promise<"tutorial" | "skip"> {
-    this.studio.frame(framings.hub);
-    this.showCar(teams[0]?.id ?? "", false);
-    return new Promise((resolve) => {
-      const list = this.pickList([
-        {
-          label: "Driving School",
-          detail: "Learn the basics in one lap.",
-          tag: "Recommended",
-          run: () => {
-            resolve("tutorial");
-          },
-        },
-        {
-          label: "Skip Tutorial",
-          detail: "I know how to race.",
-          run: () => {
-            resolve("skip");
-          },
-        },
-      ]);
-      list.nav.classList.add("front-offer");
-      this.show(
-        {
-          ...list.keys,
-          Escape: () => {
-            resolve("skip");
-          },
-        },
-        heading(
-          "Welcome to RevRacers",
-          "New to the cockpit?",
-          "One quick lap to learn the basics. You can leave any time.",
-        ),
-        list.nav,
-        this.footer(
-          ["↵", "Select", list.choose],
-          [
-            "Esc",
-            "Skip",
-            () => {
-              resolve("skip");
-            },
-          ],
-        ),
-      );
-    });
   }
 }

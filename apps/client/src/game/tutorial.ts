@@ -16,9 +16,25 @@ export type Action =
   | "phone"
   | "keyboard"
   | "finish"
-  | "boost";
+  | "boost"
+  | "pause"
+  | "resume"
+  | "code"
+  | "close"
+  | "next";
 type Mode = "modal" | "banner" | "freeze" | "pause";
-export type Spot = "mfd" | "battery";
+export type Spot =
+  | "mfd"
+  | "battery"
+  | "phone-key"
+  | "pad-panel"
+  | "menu-tabs"
+  | "menu-main"
+  | "menu-replay"
+  | "menu-restart"
+  | "menu-quit"
+  | "menu-resume";
+export type Command = "pause" | "resume" | "panel";
 export type Widget = "controls" | "legend" | "lights";
 type Tone = "info" | "go" | "brake" | "lift";
 export type Finish = "done" | "skipped";
@@ -46,6 +62,9 @@ export interface TutorialSample {
   boost: boolean;
   retired: boolean;
   crashed: boolean;
+  gear: number;
+  menu: boolean;
+  panel: boolean;
 }
 
 export interface Card {
@@ -56,6 +75,8 @@ export interface Card {
   widget: Widget | null;
   spot: Spot | null;
   compact: boolean;
+  low: boolean;
+  clear: boolean;
 }
 
 interface Check {
@@ -78,7 +99,10 @@ export interface TutorialView {
 }
 
 export type TutorialEvent =
-  { kind: "tick" } | { kind: "rewind" } | { kind: "alert" };
+  | { kind: "tick" }
+  | { kind: "rewind" }
+  | { kind: "alert" }
+  | { kind: "command"; command: Command };
 
 export type CourseTurn = Turn & { side?: string };
 
@@ -96,6 +120,8 @@ const backOnTrack = 1;
 const stuckDelay = 3;
 const stuckSpeed = 2;
 const damageShown = 8;
+const reverseLead = 30;
+const reverseDistance = 4;
 
 export function freezeDistance(speed: number): number {
   return 4 + speed * (reaction + slowLead);
@@ -115,6 +141,7 @@ interface Context {
   checks: Record<string, boolean>;
   heldSince: number | null;
   rewinds: number;
+  furthest: number;
 }
 
 interface Step {
@@ -127,6 +154,9 @@ interface Step {
   passive?: boolean;
   minTime?: number;
   coach?: boolean;
+  calm?: boolean;
+  tour?: boolean;
+  command?: Command;
   skip?: (s: TutorialSample, c: Context) => boolean;
   card: (s: TutorialSample, c: Context) => Card;
   done: (s: TutorialSample, c: Context) => boolean;
@@ -147,6 +177,8 @@ function card(
     widget: null,
     spot: null,
     compact: false,
+    low: false,
+    clear: false,
     ...extra,
   };
 }
@@ -181,6 +213,9 @@ const chapters = {
   boost: "3 · Boost",
   camera: "4 · Camera",
   screens: "5 · Screens",
+  reverse: "6 · Reverse",
+  phone: "7 · Phone",
+  menu: "8 · Pause Menu",
 } as const;
 
 function welcomeSteps(): Step[] {
@@ -378,11 +413,23 @@ function viewSteps(p: Place): Step[] {
       mode: "pause",
       from: p.at(12) + 150,
       card: (s, c) =>
-        card(
-          "Camera",
-          by(c, "Press C to change the view.", "Press C on the keyboard."),
-          s.cameras > c.startCameras ? ["camera", "confirm"] : ["camera"],
-        ),
+        s.cameras > c.startCameras
+          ? card(
+              "Camera",
+              "Keep pressing C for more views, then pick the one you like.",
+              ["camera", "confirm"],
+              { clear: true },
+            )
+          : card(
+              "Camera",
+              by(
+                c,
+                "Press C to change the view. Keep pressing C to go through every camera.",
+                "Press C on the keyboard. Keep pressing C to go through every camera.",
+              ),
+              ["camera"],
+              { clear: true },
+            ),
       done: (s, c) => s.cameras > c.startCameras && c.confirmed,
     },
     {
@@ -390,29 +437,187 @@ function viewSteps(p: Place): Step[] {
       chapter: chapters.screens,
       mode: "pause",
       card: (s, c) =>
-        card(
-          "Screens",
-          by(
-            c,
-            "Press Y to see tyre heat and wear.",
-            "Tap Display to see tyre heat and wear.",
-          ),
-          s.mfd !== c.startMfd ? ["mfd", "confirm"] : ["mfd"],
-          { spot: "mfd" },
-        ),
+        s.mfd !== c.startMfd
+          ? card(
+              "Screens",
+              by(
+                c,
+                "Keep pressing Y to see more screens.",
+                "Keep pressing Y, or Display on your phone, to see more screens.",
+              ),
+              ["mfd", "confirm"],
+              { spot: "mfd" },
+            )
+          : card(
+              "Screens",
+              by(
+                c,
+                "Press Y to change the screen at the bottom right. Keep pressing Y to see more screens.",
+                "Press Y, or Display on your phone, to change the screen at the bottom right. Keep pressing Y to see more screens.",
+              ),
+              ["mfd"],
+              { spot: "mfd" },
+            ),
       done: (s, c) => s.mfd !== c.startMfd && c.confirmed,
     },
-    drive("drive", chapters.screens, p.at(12) + 150, p.length),
+    drive("drive", chapters.screens, p.at(12) + 150, p.length + reverseLead),
   ];
 }
 
-function finishSteps(p: Place): Step[] {
+function reverseSteps(p: Place): Step[] {
+  return [
+    {
+      id: "reverse",
+      chapter: chapters.reverse,
+      mode: "pause",
+      from: p.length + reverseLead,
+      card: (_s, c) =>
+        card(
+          "Reverse",
+          by(
+            c,
+            "Brake to a stop, then keep holding ↓ to go backwards.",
+            "Brake to a stop, then keep holding Brake to go backwards.",
+          ),
+          ["confirm"],
+        ),
+      done: confirmed,
+    },
+    {
+      id: "reversing",
+      chapter: chapters.reverse,
+      mode: "banner",
+      calm: true,
+      card: (s, c) =>
+        s.gear < 0
+          ? glance(by(c, "Keep holding ↓", "Keep holding Brake"), "go")
+          : glance("Brake to a stop", "brake"),
+      done: (s, c) => {
+        c.furthest = Math.max(c.furthest, s.travel);
+        return s.gear < 0 && c.furthest - s.travel >= reverseDistance;
+      },
+    },
+  ];
+}
+
+function phoneSteps(): Step[] {
+  return [
+    {
+      id: "phone",
+      chapter: chapters.phone,
+      mode: "pause",
+      command: "panel",
+      card: (s) =>
+        card(
+          "Phone",
+          s.phone
+            ? "Press P any time in a race to connect another phone."
+            : "Press P any time in a race to steer with your phone.",
+          ["code"],
+          { spot: "phone-key" },
+        ),
+      done: (s) => s.panel,
+    },
+    {
+      id: "phone-code",
+      chapter: chapters.phone,
+      mode: "pause",
+      command: "panel",
+      card: () =>
+        card(
+          "Scan to connect",
+          "Point your phone camera here. Phone and computer on the same Wi-Fi or hotspot.",
+          ["close"],
+          { spot: "pad-panel", low: true },
+        ),
+      done: (s) => !s.panel,
+    },
+  ];
+}
+
+function tour(
+  id: string,
+  spot: Spot,
+  title: string,
+  body: string,
+  low = false,
+): Step {
+  return {
+    id,
+    chapter: chapters.menu,
+    mode: "pause",
+    tour: true,
+    card: () => card(title, body, ["next"], { spot, low }),
+    done: (s, c) => c.confirmed || !s.menu,
+  };
+}
+
+function menuSteps(): Step[] {
+  return [
+    {
+      id: "pause",
+      chapter: chapters.menu,
+      mode: "pause",
+      command: "pause",
+      card: () =>
+        card("Pause", "Press Esc any time to pause the race.", ["pause"]),
+      done: (s) => s.menu,
+    },
+    tour(
+      "menu-pages",
+      "menu-tabs",
+      "Settings",
+      "Q and E switch pages: session, tyres and energy, assists, rules, car setup, display and audio.",
+    ),
+    tour(
+      "menu-options",
+      "menu-main",
+      "Every option",
+      "↑ ↓ pick a setting and ← → change it. The panel on the right explains each one.",
+      true,
+    ),
+    tour(
+      "menu-replay",
+      "menu-replay",
+      "Replay & Flashback",
+      "V shows the last moments again, or rewinds so you can retry.",
+    ),
+    tour(
+      "menu-restart",
+      "menu-restart",
+      "Restart",
+      "↵ starts this session again from the grid.",
+    ),
+    tour(
+      "menu-quit",
+      "menu-quit",
+      "Main Menu",
+      "M stops the session and takes you back to the main menu.",
+    ),
+    {
+      id: "menu-resume",
+      chapter: chapters.menu,
+      mode: "pause",
+      tour: true,
+      command: "resume",
+      card: () =>
+        card(
+          "Resume",
+          "Esc takes you back to the race. Try it now.",
+          ["resume"],
+          { spot: "menu-resume", tone: "go" },
+        ),
+      done: (s) => !s.menu,
+    },
+  ];
+}
+
+function finishSteps(): Step[] {
   return [
     {
       id: "finish",
-      chapter: chapters.screens,
+      chapter: chapters.menu,
       mode: "pause",
-      from: p.length,
       card: () => card("You're ready to race!", "", ["finish"], { tone: "go" }),
       done: confirmed,
     },
@@ -445,7 +650,10 @@ function script(course: Course): Step[] {
     ...lineSteps(place),
     ...boostSteps(place),
     ...viewSteps(place),
-    ...finishSteps(place),
+    ...reverseSteps(place),
+    ...phoneSteps(),
+    ...menuSteps(),
+    ...finishSteps(),
   ];
 }
 
@@ -460,6 +668,7 @@ function emptyContext(): Context {
     checks: {},
     heldSince: null,
     rewinds: 0,
+    furthest: -Infinity,
   };
 }
 
@@ -480,6 +689,9 @@ const idleSample: TutorialSample = {
   boost: false,
   retired: false,
   crashed: false,
+  gear: 1,
+  menu: false,
+  panel: false,
 };
 
 const controlChecks = [
@@ -522,6 +734,10 @@ export class Tutorial {
     return this.begun && (mode === "freeze" || mode === "pause");
   }
 
+  get touring(): boolean {
+    return this.current?.tour === true;
+  }
+
   private get current(): Step | undefined {
     return this.steps[this.index];
   }
@@ -554,7 +770,7 @@ export class Tutorial {
     const events: TutorialEvent[] = [];
     this.sample = s;
     if (s.phone) this.context.control = "phone";
-    this.phoneConfirm(s);
+    this.phoneConfirm(s, events);
     this.watchRewinds(s, events);
     if (!this.watchPit(s, events)) {
       this.advance(s, events);
@@ -615,12 +831,15 @@ export class Tutorial {
       this.context.confirmed = true;
   }
 
-  private phoneConfirm(s: TutorialSample): void {
+  private phoneConfirm(s: TutorialSample, events: TutorialEvent[]): void {
     const pressed = s.input.brake >= 0.6 && this.brakeWas < 0.3;
     if (s.input.brake >= 0.6 || s.input.brake < 0.3)
       this.brakeWas = s.input.brake;
-    if (pressed && this.context.control === "phone" && this.begun)
-      this.confirm();
+    if (!pressed || this.context.control !== "phone" || !this.begun) return;
+    const command = this.current?.command;
+    if (!command) this.confirm();
+    else if (this.sample.now - this.startedAt >= confirmDelay)
+      events.push({ kind: "command", command });
   }
 
   private watchRewinds(s: TutorialSample, events: TutorialEvent[]): void {
@@ -659,6 +878,7 @@ export class Tutorial {
     c.startCameras = s.cameras;
     c.startMfd = s.mfd;
     c.heldSince = null;
+    c.furthest = -Infinity;
   }
 
   private watchPit(s: TutorialSample, events: TutorialEvent[]): boolean {
@@ -724,6 +944,7 @@ export class Tutorial {
 
   private drivingAlert(s: TutorialSample): Card | null {
     if (this.offTrack(s)) return offTrackCard;
+    if (this.current?.calm === true) return null;
     return since(this.stuckSince, s.now) >= stuckDelay ? stuckCard : null;
   }
 

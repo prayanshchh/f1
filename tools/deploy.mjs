@@ -26,6 +26,8 @@ const oldFilesGrace = 10 * 60 * 1000;
 const headers = `/*
   Cross-Origin-Opener-Policy: same-origin
   Cross-Origin-Embedder-Policy: require-corp
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
 `;
 
 function run(command, args) {

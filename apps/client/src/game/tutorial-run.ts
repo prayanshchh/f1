@@ -9,10 +9,12 @@ import { fetchJson } from "./scene.ts";
 import { SlowClock } from "./slow-clock.ts";
 import {
   type Action,
+  type Command,
   type CourseTurn,
   type Finish,
   type Pedals,
   Tutorial,
+  type TutorialEvent,
   type TutorialSample,
 } from "./tutorial.ts";
 import { TutorialScreen } from "./tutorial-view.ts";
@@ -23,6 +25,9 @@ export interface TutorialHooks {
   engine: Engine;
   pad: PadLink;
   menuOpen: () => boolean;
+  pause: () => void;
+  resume: () => void;
+  guardMenu: (guard: (event: KeyboardEvent) => boolean) => void;
   mfdPage: () => string;
   mute: (muted: boolean) => void;
   finish: (result: Finish) => void;
@@ -56,6 +61,12 @@ const keyActions: Partial<Record<string, "confirm" | "skip" | "keyboard">> = {
   K: "keyboard",
 };
 const cameraKey = /^(c|C|F[2-9]|F1[01])$/;
+const commands: Partial<Record<Action, Command>> = {
+  pause: "pause",
+  resume: "resume",
+  code: "panel",
+  close: "panel",
+};
 const offSurface = 2;
 const offWheels = 3;
 
@@ -142,6 +153,7 @@ export class TutorialRun {
     window.addEventListener("blur", () => {
       this.release();
     });
+    hooks.guardMenu((event) => this.guard(event));
   }
 
   get holding(): boolean {
@@ -204,8 +216,9 @@ export class TutorialRun {
   private tick(now: number): void {
     const live = this.live;
     if (!live || this.ended) return;
-    this.screen.hidden = false;
     const events = this.machine.update(this.sample(now, live));
+    this.screen.hidden = this.hooks.menuOpen() && !this.machine.touring;
+    this.run(events);
     this.screen.play(events, now);
     this.screen.render(this.machine.view, now);
     this.muteFrozen();
@@ -234,7 +247,28 @@ export class TutorialRun {
       boost: live.boost,
       retired: live.status.retired !== 0,
       crashed: this.incidents.crashed,
+      gear: value(frameIndex.gear),
+      menu: this.hooks.menuOpen(),
+      panel: this.hooks.pad.panelOpen,
     };
+  }
+
+  private run(events: TutorialEvent[]): void {
+    for (const event of events)
+      if (event.kind === "command") this.perform(event.command);
+  }
+
+  private perform(command: Command): void {
+    if (command === "pause") this.hooks.pause();
+    else if (command === "resume") this.hooks.resume();
+    else this.hooks.pad.toggle();
+  }
+
+  private guard(event: KeyboardEvent): boolean {
+    if (!this.machine.touring || this.ended) return false;
+    if (event.key === "Escape") return this.machine.view.id !== "menu-resume";
+    if (event.key === " " && !event.repeat) this.machine.press("confirm");
+    return true;
   }
 
   private input(now: number): Pedals {
@@ -275,6 +309,11 @@ export class TutorialRun {
   }
 
   private act(action: Action): void {
+    const command = commands[action];
+    if (command) {
+      this.perform(command);
+      return;
+    }
     if (action === "phone") {
       this.hooks.pad.toggle();
       return;

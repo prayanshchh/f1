@@ -1,5 +1,6 @@
+import { randomBytes } from "node:crypto";
 import { expect, type Page, test } from "@playwright/test";
-import { seedPlayer } from "../support/player.ts";
+import { playerKeyName, seedPlayer } from "../support/player.ts";
 import { slowNetwork } from "../support/slow-network.ts";
 
 function trailer(page: Page) {
@@ -73,6 +74,17 @@ function rising(values: number[]): boolean {
   return values.every(
     (value, index) => index === 0 || value >= (values[index - 1] ?? 0),
   );
+}
+
+async function countDuring(page: Page, seconds: number): Promise<LoadScreen[]> {
+  const samples: LoadScreen[] = [];
+  for (let tick = 0; tick < seconds * 2; tick += 1) {
+    const sample = await loadScreen(page);
+    if (!sample.showing && samples.length > 0) break;
+    if (sample.showing && sample.total > 0) samples.push(sample);
+    await page.waitForTimeout(500);
+  }
+  return samples;
 }
 
 test.describe("loading trailer", () => {
@@ -186,13 +198,7 @@ test.describe("loading trailer", () => {
         .getByRole("button", { name: "Skip" })
         .click({ timeout: 60_000 });
 
-      const samples: LoadScreen[] = [];
-      for (let tick = 0; tick < 480; tick += 1) {
-        const sample = await loadScreen(page);
-        if (!sample.showing && samples.length > 0) break;
-        if (sample.showing && sample.total > 0) samples.push(sample);
-        await page.waitForTimeout(500);
-      }
+      const samples = await countDuring(page, 240);
 
       expect(samples.length).toBeGreaterThan(10);
       expect(samples[0]?.bar).toBeLessThan(30);
@@ -201,6 +207,90 @@ test.describe("loading trailer", () => {
       await expect
         .poll(async () => (await trailer(page)).status)
         .toBe("running");
+    });
+
+    test("a returning driver who skips the trailer sees a fresh download count when a race loads later", async ({
+      page,
+      context,
+    }) => {
+      test.setTimeout(420_000);
+      await seedPlayer(context);
+      await slowNetwork(page, 40);
+      await page.goto("/");
+      await page
+        .getByTestId("intro")
+        .getByRole("button", { name: "Skip" })
+        .click({ timeout: 60_000 });
+      await expect(page.locator(".front-hub")).toBeVisible({
+        timeout: 180_000,
+      });
+      await page.getByRole("button", { name: /^Race/ }).click();
+      await page.locator('[data-menu="start"]').click();
+
+      const samples = await countDuring(page, 300);
+      expect(samples.length).toBeGreaterThan(5);
+      expect(samples[0]?.received).toBeLessThan(8);
+      expect(samples[0]?.bar).toBeLessThan(30);
+      expect(samples.every((sample) => sample.received <= sample.total)).toBe(
+        true,
+      );
+      expect(rising(samples.map((sample) => sample.bar))).toBe(true);
+      expect(samples.at(-1)?.bar).toBe(100);
+    });
+
+    test("a driver who has not finished naming themselves hears no menu music under the trailer", async ({
+      page,
+      context,
+    }) => {
+      const key = randomBytes(32).toString("base64url");
+      const joined = await context.request.post("/api/players", {
+        data: { key },
+      });
+      expect(joined.ok()).toBe(true);
+      await context.addInitScript(
+        ([name, value]) => {
+          localStorage.setItem(name, value);
+          localStorage.setItem("revracers.tutorial", "skipped");
+        },
+        [playerKeyName, key] as const,
+      );
+      await page.goto("/");
+      await playing(page);
+      await expect(page.locator("[data-front=name]")).toBeAttached({
+        timeout: 60_000,
+      });
+      await page.waitForTimeout(1000);
+      expect((await trailer(page)).music).toBe("");
+
+      await seekToEnd(page);
+      await expect.poll(async () => (await trailer(page)).music).toBe("menu");
+    });
+
+    test("Skip and sound work before the game's main script has downloaded", async ({
+      page,
+    }) => {
+      let held = 0;
+      await page.route("**/assets/*.js", async (route) => {
+        const response = await route.fetch();
+        const body = await response.body();
+        if (body.length > 500_000) {
+          held += 1;
+          await new Promise((resolve) => setTimeout(resolve, 12_000));
+        }
+        await route.fulfill({ response, body });
+      });
+      await page.goto("/", { waitUntil: "commit" });
+      const skip = page.getByTestId("intro").getByRole("button", {
+        name: "Skip",
+      });
+      await expect(skip).toBeVisible({ timeout: 6_000 });
+      await page.keyboard.press("Enter");
+      expect((await trailer(page)).muted).toBe(false);
+      await skip.click();
+      await expect(page.getByTestId("intro")).toHaveCount(0, {
+        timeout: 5_000,
+      });
+      expect(held).toBeGreaterThan(0);
     });
 
     test("skipping the trailer on a slow connection goes straight to the loading screen", async ({

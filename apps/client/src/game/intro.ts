@@ -1,7 +1,7 @@
 const leaveMs = 600;
 const swallowed = ["keydown", "keyup", "keypress"] as const;
 
-export class Intro {
+class Intro {
   readonly done: Promise<void>;
   readonly shown: boolean;
   private finish: () => void = () => undefined;
@@ -90,3 +90,5 @@ export class Intro {
     }, fadeMs);
   }
 }
+
+export const intro = Intro.take();

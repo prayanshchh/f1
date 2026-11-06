@@ -130,7 +130,7 @@ import {
 } from "./game/weekend.ts";
 import { WeekendFlow } from "./game/weekend-flow.ts";
 import { LoadBar } from "./game/load-bar.ts";
-import { Intro } from "./game/intro.ts";
+import { intro } from "./game/intro.ts";
 import { LoadShow } from "./game/load-show.ts";
 import { showActions } from "./game/weekend-ui.ts";
 
@@ -147,7 +147,6 @@ const statusBar = new LoadBar(
 const hudRoot = document.querySelector<HTMLElement>("[data-testid=hud]");
 const autostartKey = "revracers.autostart";
 const redeployKey = "revracers.redeploy";
-const intro = Intro.take();
 const loadShow = status && intro.shown ? new LoadShow(status) : null;
 void intro.done.then(() => {
   loadShow?.arm();
@@ -163,6 +162,12 @@ function padLink(): PadLink {
   return new PadLink(element("[data-pad=panel]"), element("[data-pad=badge]"));
 }
 
+function menuMusic(music: Music): void {
+  void intro.done.then(() => {
+    music.play("menu");
+  });
+}
+
 function scoreLoadShow(music: Music): void {
   loadShow?.attach({
     get blocked() {
@@ -176,7 +181,10 @@ function scoreLoadShow(music: Music): void {
 
 function setStatus(text: string): void {
   if (text === "") statusBar.set(1);
-  else if (status?.hidden === true) statusBar.reset();
+  else if (status?.hidden === true) {
+    statusBar.reset();
+    loadShow?.restart();
+  }
   if (status) status.hidden = text === "";
   if (statusText && text) statusText.textContent = text;
 }
@@ -835,7 +843,7 @@ async function enterGame(
   };
   for (;;) {
     if (!driver.onboarded) {
-      music.play("menu");
+      menuMusic(music);
       driver = await front.onboard(driver);
     }
     rememberDriver(driver);
@@ -845,7 +853,7 @@ async function enterGame(
     settings.car = driver.team ?? settings.car;
     if (choice.action === "tutorial") return leave(true);
     front.close();
-    music.play("menu");
+    menuMusic(music);
     const action = await menu.run(false);
     if (action === "start") return leave(false);
     front.open();

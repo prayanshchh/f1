@@ -1,4 +1,4 @@
-import { downloadTotals } from "./preload.ts";
+import { downloadTotals, startDownloadPhase } from "./preload.ts";
 
 const slideMs = 12_000;
 const fadeMs = 1_600;
@@ -50,6 +50,13 @@ export class LoadShow {
     });
   }
 
+  restart(): void {
+    startDownloadPhase();
+    this.shown = 0;
+    this.paint(0);
+    if (this.bytes) this.bytes.textContent = "";
+  }
+
   attach(soundtrack: Soundtrack): void {
     this.soundtrack = soundtrack;
     if (this.showing) soundtrack.start();
@@ -76,6 +83,7 @@ export class LoadShow {
     if (this.showing) return;
     this.showing = true;
     this.root.classList.add("showing");
+    this.shown = 0;
     this.soundtrack?.start();
     this.next();
     this.slideTimer = window.setInterval(() => {
@@ -93,7 +101,6 @@ export class LoadShow {
     window.clearInterval(this.slideTimer);
     window.clearInterval(this.tickTimer);
     this.root.classList.remove("showing");
-    this.paint(1);
   }
 
   private next(): void {
@@ -123,9 +130,9 @@ export class LoadShow {
   }
 
   private tick(): void {
-    const { received, expected, planned } = downloadTotals();
+    const { received, expected, plans } = downloadTotals();
     if (this.sound) this.sound.hidden = this.soundtrack?.blocked !== true;
-    if (!planned || expected <= 0 || !this.bytes) return;
+    if (plans === 0 || expected <= 0 || !this.bytes) return;
     const done = Math.min(received, expected);
     this.paint(done / expected);
     this.bytes.textContent = `${size(done)} / ${size(expected)} · ${String(Math.floor(this.shown * 100))}%`;

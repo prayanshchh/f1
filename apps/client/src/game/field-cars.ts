@@ -16,7 +16,7 @@ import {
 import { type DamageLook, newLook } from "./car-damage.ts";
 import { teamModel } from "./grid.ts";
 import { compounds } from "./tyres.ts";
-import { spinBlur, type TyreLook, tyreLook } from "./tyre-paint.ts";
+import { spinBlur, treadOf, type TyreLook, tyreLook } from "./tyre-paint.ts";
 
 const wheelCount = 4;
 const drawDistance = 900;
@@ -397,6 +397,7 @@ export class FieldCars {
     car.compound = compound;
     const colour = this.compoundColours[compound] ?? this.compoundColours[1];
     if (colour) car.look.compound.copy(colour);
+    car.look.tread = treadOf(compound);
   }
 
   private setShadow(car: FieldCar, on: boolean): void {

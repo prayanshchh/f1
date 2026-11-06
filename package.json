@@ -26,7 +26,7 @@
     "check": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run unused && pnpm run duplicates",
     "build": "pnpm run build:engine && pnpm --filter ./apps/client run build",
     "build:engine": "node tools/build-engine.mjs",
-    "deploy": "node tools/deploy.mjs",
+    "deploy": "gh workflow run deploy.yml -R prayanshchh/revracers --ref main",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "verify": "pnpm run check && pnpm run build && pnpm run test && pnpm run test:e2e",

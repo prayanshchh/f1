@@ -24,6 +24,8 @@ const sizes = JSON.parse(
 let expectedBytes = 0;
 let receivedBytes = 0;
 const plainFetch = globalThis.fetch.bind(globalThis);
+const storeName = "revracers-assets";
+let store: Promise<Cache | null> | null = null;
 
 function requestUrl(input: RequestInfo | URL): URL {
   if (input instanceof Request) return new URL(input.url);
@@ -37,9 +39,60 @@ function expectedSize(url: URL, response: Response): number {
   return Number(response.headers.get("content-length") ?? 0);
 }
 
-globalThis.fetch = async (input, init) => {
+function buildAsset(
+  url: URL,
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): boolean {
+  const method =
+    init?.method ?? (input instanceof Request ? input.method : "GET");
+  return (
+    method.toUpperCase() === "GET" &&
+    url.origin === location.origin &&
+    sizes[url.pathname] !== undefined
+  );
+}
+
+function assetStore(): Promise<Cache | null> {
+  store ??=
+    "caches" in globalThis
+      ? caches.open(storeName).catch(() => null)
+      : Promise.resolve(null);
+  return store;
+}
+
+async function keptFetch(
+  url: URL,
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): Promise<Response> {
+  const kept = await assetStore();
+  const hit = await kept?.match(url.href).catch(() => undefined);
+  if (hit) return hit;
   const response = await plainFetch(input, init);
+  if (kept && response.status === 200)
+    void kept.put(url.href, response.clone()).catch(() => undefined);
+  return response;
+}
+
+async function forgetOldAssets(): Promise<void> {
+  const kept = await assetStore();
+  if (!kept) return;
+  for (const request of await kept.keys())
+    if (sizes[new URL(request.url).pathname] === undefined)
+      await kept.delete(request);
+}
+
+if (Object.keys(sizes).length > 0)
+  setTimeout(() => {
+    void forgetOldAssets().catch(() => undefined);
+  }, 10_000);
+
+globalThis.fetch = async (input, init) => {
   const url = requestUrl(input);
+  const response = buildAsset(url, input, init)
+    ? await keptFetch(url, input, init)
+    : await plainFetch(input, init);
   const size = url.origin === location.origin ? expectedSize(url, response) : 0;
   if (!response.ok || !response.body || size <= 0) return response;
   expectedBytes += size;

@@ -80,6 +80,7 @@ describe("start light sequence", () => {
 describe.runIf(existsSync(wasm))("engine race start", () => {
   const rpmIndex = 46;
   const distanceIndex = 53;
+  const gearIndex = 48;
   const fullRevs = 10000 * (Math.PI / 30);
   const duel = (): WeekendPlan => {
     const [player, rival] = planWeekend("corvus", 0, null).entrants;
@@ -151,6 +152,29 @@ describe.runIf(existsSync(wasm))("engine race start", () => {
     runTo(m, 20, () => [0, 1]);
     expect(startCalls(m, 0)).toHaveLength(0);
     expect(startCalls(m, 1)).toHaveLength(0);
+  }, 60_000);
+
+  test("holding only the brake keeps the car still in first gear until lights out, then backs it up in reverse", async () => {
+    const m = (await startField({
+      kind: sessionKind.race,
+      laps: 6,
+      seed: 4,
+      plan: { ...duel(), slots: [1, 0] },
+      autopilot: false,
+    })) as Weekend & Stewarded;
+    m._sdStep(1);
+    const grid = frameOf(m)[distanceIndex] ?? 0;
+    runTo(m, -0.01, () => [0, 1]);
+    expect(frameOf(m)[gearIndex]).toBe(1);
+    expect(Math.abs((frameOf(m)[distanceIndex] ?? 0) - grid)).toBeLessThan(
+      0.05,
+    );
+    runTo(m, 2, () => [0, 1]);
+    expect(frameOf(m)[gearIndex]).toBe(-1);
+    expect(frameOf(m)[speedIndex]).toBeLessThan(-1);
+    expect(grid - (frameOf(m)[distanceIndex] ?? 0)).toBeGreaterThan(1);
+    runTo(m, 3, () => [1, 0]);
+    expect(frameOf(m)[gearIndex]).toBeGreaterThan(0);
   }, 60_000);
 
   test("a car left alone does not creep off its grid slot", async () => {

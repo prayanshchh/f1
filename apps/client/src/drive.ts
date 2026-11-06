@@ -60,7 +60,7 @@ import { idealCompound } from "./game/weather.ts";
 import { IncidentCam } from "./game/incident-cam.ts";
 import { InstantReplay } from "./game/instant-replay.ts";
 import { LapTrace } from "./game/laptrace.ts";
-import { Menu } from "./game/menu.ts";
+import { Menu, type MenuAction } from "./game/menu.ts";
 import type { CarStatus } from "./game/mfd.ts";
 import { type PadCommands, PadLink } from "./game/pad.ts";
 import { playerMessage } from "./game/player-error.ts";
@@ -100,6 +100,7 @@ import {
   type Settings,
   stageOf,
   trackOf,
+  weatherOf,
 } from "./game/settings.ts";
 import type { CourseTurn } from "./game/tutorial.ts";
 import {
@@ -131,6 +132,7 @@ import { WeekendFlow } from "./game/weekend-flow.ts";
 import { LoadBar } from "./game/load-bar.ts";
 import { showActions } from "./game/weekend-ui.ts";
 import { corridorDrawer } from "./game/corridor/corridor-mode.ts";
+import { GraphicsNote, type LowReason } from "./game/graphics-note.ts";
 import {
   detectedLevel,
   type GraphicsLevel,
@@ -153,6 +155,7 @@ const statusBar = new LoadBar(
 );
 const hudRoot = document.querySelector<HTMLElement>("[data-testid=hud]");
 const autostartKey = "revracers.autostart";
+const redeployKey = "revracers.redeploy";
 
 function element(selector: string): HTMLElement {
   const found = document.querySelector<HTMLElement>(selector);
@@ -174,12 +177,35 @@ function setStatus(text: string): void {
 function toHub(): void {
   const url = new URL(location.href);
   url.searchParams.delete("tutorial");
+  url.searchParams.delete("autostart");
   location.assign(url);
 }
 
 function restart(autostart: boolean): void {
-  if (autostart) sessionStorage.setItem(autostartKey, "1");
+  if (!autostart) {
+    toHub();
+    return;
+  }
+  sessionStorage.setItem(autostartKey, "1");
   location.reload();
+}
+
+function entryScript(html: string): string | undefined {
+  return /<script type="module"[^>]*\ssrc="([^"]+)"/.exec(html)?.[1];
+}
+
+async function redeployed(tutorial: boolean): Promise<boolean> {
+  const ours = entryScript(document.documentElement.outerHTML);
+  const live = await fetch("/", { cache: "no-store" })
+    .then((response) => (response.ok ? response.text() : ""))
+    .catch(() => "");
+  const theirs = entryScript(live);
+  if (!ours || !theirs || ours === theirs) return false;
+  if (sessionStorage.getItem(redeployKey) === theirs) return false;
+  sessionStorage.setItem(redeployKey, theirs);
+  if (tutorial) armTutorial();
+  restart(true);
+  return true;
 }
 
 function cell(text: string, className = ""): HTMLTableCellElement {
@@ -300,17 +326,23 @@ async function softwareAdapter(): Promise<boolean> {
   );
 }
 
-async function initialLevel(
+async function probeGraphics(): Promise<boolean> {
+  const software = await softwareAdapter();
+  if (software) rememberDetected("low");
+  return software;
+}
+
+function initialLevel(
   params: URLSearchParams,
   settings: Settings,
-): Promise<GraphicsLevel> {
-  if (params.has("corridor")) return "low";
-  if (settings.graphics !== "auto") return settings.graphics;
-  if (await softwareAdapter()) {
-    rememberDetected("low");
-    return "low";
-  }
-  return detectedLevel();
+  software: boolean,
+): { level: GraphicsLevel; reason: LowReason | null } {
+  if (params.has("corridor")) return { level: "low", reason: null };
+  if (settings.graphics !== "auto")
+    return { level: settings.graphics, reason: null };
+  if (software) return { level: "low", reason: "no-gpu" };
+  const level = detectedLevel();
+  return { level, reason: level === "low" ? "busy" : null };
 }
 
 function viewBuilder(
@@ -836,19 +868,12 @@ function weatherFor(settings: Settings, rain: number): Weather {
     autumn: 26,
     winter: 15,
   };
-  const skies: Record<string, string> = {
-    "no cloud": "Clear",
-    "few clouds": "Light Cloud",
-    "scarce clouds": "Light Cloud",
-    "many clouds": "Cloudy",
-    "full cover": "Overcast",
-  };
   const wet = rain > 0;
   const overcast = ["many clouds", "full cover"].includes(settings.clouds);
   return {
     temperature:
       (seasonal[settings.season] ?? 27) - rain * 3 - (overcast ? 2 : 0),
-    label: wet ? "Rain (Wet)" : `${skies[settings.clouds] ?? "Clear"} (Dry)`,
+    label: `${weatherOf(settings).label} (${wet ? "Wet" : "Dry"})`,
     icon: wet ? "rain" : overcast ? "cloud" : "sun",
   };
 }
@@ -858,11 +883,8 @@ interface Entry {
   tutorial: boolean;
 }
 
-async function firstVisit(front: FrontEnd, driver: Driver): Promise<boolean> {
-  if (driver.onboarded || tutorialStatus() !== null) return false;
-  if ((await front.tutorialOffer()) === "tutorial") return true;
-  rememberTutorial("skipped");
-  return false;
+function newcomer(driver: Driver | null): boolean {
+  return tutorialStatus() === null && driver?.onboarded !== true;
 }
 
 async function enterGame(
@@ -870,13 +892,19 @@ async function enterGame(
   settings: Settings,
   menu: Menu,
   music: Music,
+  known: Driver | null,
 ): Promise<Entry> {
   const studio = new Studio(renderer);
-  const front = new FrontEnd(element("[data-front=root]"), studio);
+  const front = new FrontEnd(element("[data-front=root]"), studio, {
+    level: () => graphicsLevelOf(settings.graphics),
+    toggle: () => {
+      settings.graphics = otherLevel(graphicsLevelOf(settings.graphics));
+      menu.save();
+    },
+  });
   front.open();
   music.opening();
   void studio.preloadTeams();
-  const known = await currentDriver();
   setStatus("");
   let driver = known ?? (await front.welcome());
   const leave = (tutorial: boolean): Entry => {
@@ -885,7 +913,6 @@ async function enterGame(
     return { driver, tutorial };
   };
   for (;;) {
-    if (await firstVisit(front, driver)) return leave(true);
     if (!driver.onboarded) {
       music.play("menu");
       driver = await front.onboard(driver);
@@ -911,8 +938,10 @@ async function signIn(
   menu: Menu,
   music: Music,
 ): Promise<Entry> {
-  if (autostart) return { driver: await currentDriver(), tutorial: false };
-  const entry = await enterGame(renderer, settings, menu, music);
+  const known = await currentDriver();
+  if (autostart) return { driver: known, tutorial: false };
+  if (newcomer(known)) return { driver: known, tutorial: true };
+  const entry = await enterGame(renderer, settings, menu, music, known);
   saveWeekend(null);
   return entry;
 }
@@ -928,6 +957,7 @@ async function enter(
   const entry = consumeTutorial(params)
     ? { driver: await currentDriver(), tutorial: true }
     : await signIn(autostart, renderer, settings, menu, music);
+  if (await redeployed(entry.tutorial)) return new Promise(() => undefined);
   return { ...entry, autostart: autostart || entry.tutorial };
 }
 
@@ -1021,8 +1051,7 @@ async function main(): Promise<void> {
   const params = new URLSearchParams(location.search);
   const module = await bootEngine();
   const settings = loadSettings(params);
-  const startLevel = await initialLevel(params, settings);
-  const low = startLevel === "low";
+  const software = await probeGraphics();
   const source = setupSource(module);
   const interventions = params.has("interventions");
   const menu = new Menu(source, settings, interventions);
@@ -1031,6 +1060,13 @@ async function main(): Promise<void> {
   const entry = await enter(params, renderer, settings, menu, music);
   const { driver, autostart } = entry;
   startTutorial(entry.tutorial, settings, menu);
+  const start = initialLevel(params, settings, software);
+  const startLevel = start.level;
+  const low = startLevel === "low";
+  const note = new GraphicsNote(
+    element("[data-graphics=note]"),
+    element("[data-graphics=reason]"),
+  );
   const audio = openAudio();
 
   const track = trackOf(settings);
@@ -1064,6 +1100,7 @@ async function main(): Promise<void> {
     settings.racingLine,
     rivalCars(field),
     lights,
+    settings.clouds,
   );
   const graphics = new GraphicsMode(
     startLevel,
@@ -1074,6 +1111,7 @@ async function main(): Promise<void> {
     (level) => {
       menu.setReplays(level === "ultra");
       showReplayHints(level === "ultra");
+      if (level === "ultra") note.hide();
     },
   );
   const draw = () => {
@@ -1152,9 +1190,10 @@ async function main(): Promise<void> {
     if (coach && auto) armTutorial();
     restart(auto);
   };
-  const leave = () => {
-    if (coach) coach.skip();
-    else restart(true);
+  const leave = (action: MenuAction) => {
+    if (action !== "quit") again(true);
+    else if (coach) coach.skip();
+    else restart(false);
   };
   const switchGraphics = (level: GraphicsLevel, detail: string) => {
     const title = level === "ultra" ? "Ultra graphics" : "Low graphics";
@@ -1176,11 +1215,12 @@ async function main(): Promise<void> {
   const watchGraphics = (now: number) => {
     const forced = params.has("corridor") || params.has("autostart");
     if (settings.graphics !== "auto" || forced) return;
-    if (graphics.tooSlowForUltra(now))
-      switchGraphics(
-        "low",
-        "Ultra was too slow on this graphics card. Press G for Ultra",
-      );
+    if (!graphics.tooSlowForUltra(now)) return;
+    if (note.show("busy"))
+      graphics.switchTo("low").catch(() => {
+        note.hide();
+      });
+    else switchGraphics("low", "Your graphics card is busy. Press G for Ultra");
   };
   const pause = () => {
     if (paused || finished()) return;
@@ -1197,7 +1237,7 @@ async function main(): Promise<void> {
         if (action === "replay") openReplay();
         return;
       }
-      leave();
+      leave(action);
     });
   };
 
@@ -1207,7 +1247,7 @@ async function main(): Promise<void> {
     event.stopImmediatePropagation();
     if (event.type !== "keydown" || event.repeat) return;
     pad.toggle();
-    if (pad.panelOpen && !waiting && coach?.holding !== true) pause();
+    if (pad.panelOpen && !waiting && coach?.busy !== true) pause();
   };
   window.addEventListener("keydown", phoneKey, true);
   window.addEventListener("keyup", phoneKey, true);
@@ -1563,6 +1603,13 @@ async function main(): Promise<void> {
       engine,
       pad,
       menuOpen: () => menu.open,
+      pause,
+      resume: () => {
+        menu.resume();
+      },
+      guardMenu: (guard) => {
+        menu.guard(guard);
+      },
       mfdPage: () => element("[data-hud=mfd]").dataset["page"] ?? "quick",
       mute: (muted) => {
         sound.mute(muted);
@@ -1584,6 +1631,7 @@ async function main(): Promise<void> {
     if (frameStale) draw();
     frameStale = false;
   };
+  if (start.reason) note.show(start.reason);
   const ahead = frameAhead();
   const racingNow = () => flow?.finished !== true && !paused && !ended;
   const launchNext = (now: number, racing: boolean) => {

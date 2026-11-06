@@ -9,6 +9,7 @@ import {
   vec4,
 } from "three/tsl";
 import { frameIndex } from "./engine.ts";
+import { keepMirrorMask } from "./mirror-mask.ts";
 import {
   puffPeakSize,
   puffsPerSecond,
@@ -67,6 +68,7 @@ export class TyreSmoke {
       transparent: true,
       depthWrite: false,
     });
+    keepMirrorMask(material);
     const centre = instancedBufferAttribute(this.centre, "vec4" as const);
     const fade = instancedBufferAttribute(this.fade, "float" as const);
     const soft = smoothstep(

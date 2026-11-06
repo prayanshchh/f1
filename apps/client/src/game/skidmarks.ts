@@ -2,6 +2,7 @@ import * as THREE from "three/webgpu";
 import { attribute, vec3 } from "three/tsl";
 import { frameIndex, type WheelGrip } from "./engine.ts";
 import { markStrength } from "./mark-strength.ts";
+import { keepMirrorMask } from "./mirror-mask.ts";
 
 const capacity = 40000;
 const segmentLength = 0.3;
@@ -50,6 +51,7 @@ export class SkidMarks {
       polygonOffsetFactor: 3,
       polygonOffsetUnits: 12,
     });
+    keepMirrorMask(material);
     material.colorNode = rubber;
     material.opacityNode = attribute("strength", "float").mul(darkness);
     this.mesh = new THREE.Mesh(geometry, material);

@@ -2,6 +2,7 @@ import { api, type Driver, type DriverProfile, rememberDriver } from "./api.ts";
 import { CreditsScreen } from "./credits-screen.ts";
 import { button, el, loading, prompt } from "./dom.ts";
 import { countries, countryName, flagUrl, guessCountry } from "./flags.ts";
+import type { GraphicsLevel } from "./graphics-mode.ts";
 import { playerMessage } from "./player-error.ts";
 import { ProfileScreen } from "./profile-screen.ts";
 import { LoadBar } from "./load-bar.ts";
@@ -17,9 +18,18 @@ export interface HubChoice {
 interface ListItem {
   label: string;
   detail: string;
-  tag?: string;
   run: () => void;
 }
+
+export interface GraphicsChoice {
+  level: () => GraphicsLevel;
+  toggle: () => void;
+}
+
+const graphicsDetail: Record<GraphicsLevel, string> = {
+  ultra: "Ultra · select for Low, no graphics card needed",
+  low: "Low · select for Ultra, the full circuit",
+};
 
 const insights: { id: keyof TeamRatings; label: string }[] = [
   { id: "performance", label: "Performance" },
@@ -84,6 +94,7 @@ export class FrontEnd {
   constructor(
     private readonly root: HTMLElement,
     private readonly studio: Studio,
+    private readonly graphics: GraphicsChoice,
   ) {
     this.stage = el("div", "stage");
     root.append(this.stage);
@@ -559,7 +570,11 @@ export class FrontEnd {
     });
   }
 
-  private hubScreen(driver: Driver, done: (choice: HubChoice) => void): void {
+  private hubScreen(
+    driver: Driver,
+    done: (choice: HubChoice) => void,
+    focus = 0,
+  ): void {
     const team = teamOf(driver.team ?? "");
     const reopen = (next: Driver) => {
       rememberDriver(next);
@@ -613,8 +628,16 @@ export class FrontEnd {
           void this.onboard(driver).then(reopen);
         },
       },
+      {
+        label: "Graphics",
+        detail: graphicsDetail[this.graphics.level()],
+        run: () => {
+          this.graphics.toggle();
+          this.hubScreen(driver, done, items.length - 1);
+        },
+      },
     ];
-    const list = this.pickList(items);
+    const list = this.pickList(items, focus);
     const credits = () => {
       void new CreditsScreen().run().then(() => {
         reopen(driver);
@@ -644,12 +667,15 @@ export class FrontEnd {
     );
   }
 
-  private pickList(items: ListItem[]): {
+  private pickList(
+    items: ListItem[],
+    start = 0,
+  ): {
     nav: HTMLElement;
     keys: Keys;
     choose: () => void;
   } {
-    let focus = 0;
+    let focus = start;
     const nav = el("nav", "front-hub");
     const paint = () => {
       rows.forEach((row, index) => {
@@ -659,7 +685,6 @@ export class FrontEnd {
     const rows = items.map((item, index) => {
       const row = button("front-hub-item", "", item.run);
       row.append(el("b", "", item.label), el("span", "", item.detail));
-      if (item.tag) row.append(el("em", "front-hub-tag", item.tag));
       row.addEventListener("pointermove", (event) => {
         if (event.movementX === 0 && event.movementY === 0) return;
         focus = index;
@@ -689,54 +714,5 @@ export class FrontEnd {
         Enter: choose,
       },
     };
-  }
-
-  async tutorialOffer(): Promise<"tutorial" | "skip"> {
-    this.studio.frame(framings.hub);
-    this.showCar(teams[0]?.id ?? "", false);
-    return new Promise((resolve) => {
-      const list = this.pickList([
-        {
-          label: "Driving School",
-          detail: "Learn the basics in one lap.",
-          tag: "Recommended",
-          run: () => {
-            resolve("tutorial");
-          },
-        },
-        {
-          label: "Skip Tutorial",
-          detail: "I know how to race.",
-          run: () => {
-            resolve("skip");
-          },
-        },
-      ]);
-      list.nav.classList.add("front-offer");
-      this.show(
-        {
-          ...list.keys,
-          Escape: () => {
-            resolve("skip");
-          },
-        },
-        heading(
-          "Welcome to RevRacers",
-          "New to the cockpit?",
-          "One quick lap to learn the basics. You can leave any time.",
-        ),
-        list.nav,
-        this.footer(
-          ["↵", "Select", list.choose],
-          [
-            "Esc",
-            "Skip",
-            () => {
-              resolve("skip");
-            },
-          ],
-        ),
-      );
-    });
   }
 }

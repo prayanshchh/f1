@@ -57,6 +57,23 @@
           stroke-linejoin="round"
         />
       </symbol>
+      <symbol id="proximity-arrow" viewBox="0 0 48 64">
+        <path
+          d="M12 19 29 32 12 45Z"
+          fill="currentColor"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linejoin="round"
+        />
+        <path
+          d="M19 5 35 23Q42 32 35 41L19 59"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="7"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </symbol>
     </svg>
 
     <div class="hud" data-testid="hud" hidden>
@@ -129,6 +146,20 @@
         </div>
       </section>
 
+      <svg
+        class="proximity proximity-left part-proximity"
+        data-hud="proximity-left"
+        aria-hidden="true"
+      >
+        <use href="#proximity-arrow" />
+      </svg>
+      <svg
+        class="proximity proximity-right part-proximity"
+        data-hud="proximity-right"
+        aria-hidden="true"
+      >
+        <use href="#proximity-arrow" />
+      </svg>
       <div class="lights part-lights" data-hud="lights"></div>
       <div class="start-hint part-lights" data-hud="start-hint">
         Wait for lights out<span>Moving early is a jump start penalty</span>
@@ -280,7 +311,7 @@
       <div class="help part-help">
         <span><kbd>Esc</kbd> Menu</span><span><kbd>Arrows</kbd> Drive</span
         ><span><kbd>E</kbd><kbd>Q</kbd> Shift</span><span><kbd>Y</kbd> MFD</span
-        ><span><kbd>P</kbd> Phone</span
+        ><span data-help="phone"><kbd>P</kbd> Phone</span
         ><span data-hint="replay"><kbd>R</kbd> Replay</span
         ><span><kbd>C</kbd> Cameras</span><span><kbd>F2–F11</kbd> Cameras</span
         ><span><kbd>G</kbd> Graphics</span>
@@ -312,6 +343,9 @@
           </button>
           <button type="button" data-menu="replay" hidden>
             <i class="btn-glyph">V</i>Replay &amp; Flashback
+          </button>
+          <button type="button" data-menu="quit" hidden>
+            <i class="btn-glyph">M</i>Main Menu
           </button>
           <button type="button" data-menu="resume">
             <i class="btn-glyph">Esc</i
@@ -464,6 +498,24 @@
     </div>
 
     <div class="tutorial" data-tutorial="root" hidden></div>
+
+    <aside class="graphics-note" data-graphics="note" hidden>
+      <div class="graphics-note-art" aria-hidden="true">
+        <span class="graphics-chip">Ultra</span>
+        <svg viewBox="0 0 26 12"><path d="M1 6h22M17 1l6 5-6 5" /></svg>
+        <span class="graphics-chip lit">Low</span>
+      </div>
+      <b class="graphics-note-title">Low graphics on</b>
+      <p class="graphics-note-reason" data-graphics="reason"></p>
+      <ul class="graphics-note-facts">
+        <li>Same FPS</li>
+        <li>Same latency</li>
+        <li>Visuals only</li>
+      </ul>
+      <p class="graphics-note-key">
+        <kbd>G</kbd> for Ultra · or Graphics in the main menu
+      </p>
+    </aside>
 
     <div class="pad-panel" data-pad="panel" hidden>
       <h2>Drive with your phone</h2>

@@ -25,6 +25,7 @@ import {
   markTyres,
   spinBlur,
   type TyreLook,
+  treadOf,
   tyreLook,
   tyreMaterial,
 } from "./tyre-paint.ts";
@@ -376,6 +377,7 @@ export class GltfCar {
     if (index === this.compoundShown) return;
     this.compoundShown = index;
     this.compoundColour.set((compounds[index] ?? compounds[1]).colour);
+    for (const wheel of this.wheels) wheel.look.tread = treadOf(index);
   }
 
   wheelRadii(): number[] {

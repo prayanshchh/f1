@@ -16,6 +16,12 @@ async function storedKey(page: Page): Promise<string> {
   return key;
 }
 
+async function skippedSchool(context: BrowserContext): Promise<void> {
+  await context.addInitScript(() => {
+    localStorage.setItem("revracers.tutorial", "skipped");
+  });
+}
+
 async function freshBrowser(
   browser: Browser,
   baseURL: string | undefined,
@@ -32,15 +38,14 @@ async function freshBrowser(
 test.describe("driver onboarding", () => {
   test.setTimeout(180_000);
 
-  test("a new player can skip Driving School, names themselves and is the same driver after the browser restarts", async ({
+  test("a new player who skipped Driving School names themselves and is the same driver after the browser restarts", async ({
     page,
     context,
     browser,
     baseURL,
   }) => {
+    await skippedSchool(context);
     await page.goto("/");
-    await expect(page.locator(".front-offer")).toBeVisible({ timeout: 60_000 });
-    await page.getByRole("button", { name: /Skip Tutorial/ }).click();
     const name = page.locator("[data-front=name]");
     await expect(name).toBeVisible({ timeout: 60_000 });
     await page.keyboard.press("Enter");
@@ -169,8 +174,9 @@ test.describe("driver onboarding", () => {
     await expect(page.getByRole("button", { name: /Sign Out/ })).toHaveCount(0);
 
     const other = await freshBrowser(browser, baseURL);
+    await skippedSchool(other.context);
     await other.page.goto("/");
-    await expect(other.page.locator(".front-offer")).toBeVisible({
+    await expect(other.page.locator("[data-front=name]")).toBeVisible({
       timeout: 60_000,
     });
     await expect(other.page.locator(".front-hub-driver")).toHaveCount(0);
@@ -180,7 +186,9 @@ test.describe("driver onboarding", () => {
 
   test("a first visit while the server is down offers a retry and then carries on", async ({
     page,
+    context,
   }) => {
+    await skippedSchool(context);
     await page.route("**/api/players", (route) => route.abort());
     await page.goto("/");
     await expect(page.locator("[data-front=retry]")).toBeVisible({
@@ -190,6 +198,6 @@ test.describe("driver onboarding", () => {
     await expect(page.locator("[data-front=error]")).not.toBeEmpty();
     await page.unroute("**/api/players");
     await page.locator("[data-front=retry]").click();
-    await expect(page.locator(".front-offer")).toBeVisible();
+    await expect(page.locator("[data-front=name]")).toBeVisible();
   });
 });

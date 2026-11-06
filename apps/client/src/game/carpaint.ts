@@ -2,15 +2,18 @@ import * as THREE from "three/webgpu";
 import {
   abs,
   bumpMap,
+  cameraViewMatrix,
   color,
   float,
   floor,
   fract,
   fwidth,
+  hash,
   luminance,
   max,
   mix,
   normalGeometry,
+  normalViewGeometry,
   positionGeometry,
   smoothstep,
   step,
@@ -18,6 +21,7 @@ import {
   uniform,
   uv,
   vec2,
+  vec4,
 } from "three/tsl";
 import { carFile } from "./teams.ts";
 import { releaseOnceUploaded } from "./preload.ts";
@@ -34,6 +38,13 @@ const knitBump = 0.35;
 const weavePitch = 1 / 0.0021;
 const weaveDepth = 0.55;
 const coatRoughness = 0.035;
+const beadPitch = 1 / 0.011;
+const beadShare = 0.3;
+const beadSmall = 0.12;
+const beadLarge = 0.3;
+const beadGrey = 0.1;
+const beadLift = 1.2;
+const wetSheen = 0.7;
 const screenWidth = 1024;
 const screenHeight = 644;
 const ledCount = 15;
@@ -247,6 +258,34 @@ function weave() {
   ).mul(mix(float(1), mix(float(0.86), float(1.14), warp), fade));
 }
 
+export const carWetness = uniform(0);
+const skyward = cameraViewMatrix.mul(vec4(0, 0, 1, 0)).xyz;
+
+function beads() {
+  const n = abs(normalGeometry);
+  const p = positionGeometry;
+  const flat = step(max(n.x, n.z), n.y);
+  const side = step(n.z, n.x);
+  const coords = mix(mix(p.xy, p.zy, side), p.xz, flat).mul(beadPitch);
+  const cell = floor(coords);
+  const seed = cell.x.mul(41.3).add(cell.y.mul(17.9));
+  const present = step(hash(seed), float(beadShare));
+  const centre = vec2(hash(seed.add(3.1)), hash(seed.add(5.7)))
+    .mul(0.44)
+    .add(0.28);
+  const radius = mix(
+    float(beadSmall),
+    float(beadLarge),
+    hash(seed.add(8.9)).pow(1.6),
+  );
+  const offset = fract(coords).sub(centre).div(radius);
+  const reach = offset.dot(offset);
+  const pixel = fwidth(coords);
+  const fade = smoothstep(0.6, 1.4, radius.div(pixel.x.max(pixel.y)));
+  const wet = carWetness.mul(fade);
+  return smoothstep(1, 0.45, reach).mul(present).mul(wet);
+}
+
 function atlasMaterial(
   textures: CarTextures,
   env: CarEnvironment,
@@ -258,14 +297,18 @@ function atlasMaterial(
   const carbon = orm.b;
   const pattern = weave();
   const coat = float(1).sub(smoothstep(0.45, 0.6, orm.g));
-  material.colorNode = texture(textures.albedo, uv()).rgb.mul(
-    mix(float(1), pattern.mul(1.6), carbon),
-  );
-  material.roughnessNode = orm.g;
+  const water = beads();
+  material.colorNode = texture(textures.albedo, uv())
+    .rgb.mul(mix(float(1), pattern.mul(1.6), carbon))
+    .max(water.mul(beadGrey));
+  material.roughnessNode = mix(orm.g, orm.g.mul(wetSheen), carWetness);
   material.metalnessNode = float(0);
   material.aoNode = orm.r;
-  material.clearcoatNode = coat;
+  material.clearcoatNode = coat.max(water);
   material.clearcoatRoughnessNode = float(coatRoughness);
+  material.clearcoatNormalNode = normalViewGeometry
+    .add(skyward.mul(water.mul(beadLift)))
+    .normalize();
   material.normalNode = bumpMap(
     texture(textures.bump, uv()).r,
     float(bumpStrength),

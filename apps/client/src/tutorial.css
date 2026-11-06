@@ -109,6 +109,21 @@
   transform-origin: bottom center;
 }
 
+.tutorial.clear[data-mode="pause"] .tut-dim {
+  background: none;
+  backdrop-filter: none;
+}
+
+.tutorial.clear[data-mode="pause"] .tut-stack {
+  top: calc(24px * var(--s));
+  translate: -50% 0;
+  transform-origin: top center;
+}
+
+.tutorial.clear[data-mode="pause"] .tut-card {
+  width: 640px;
+}
+
 .tut-card {
   position: relative;
   width: 780px;

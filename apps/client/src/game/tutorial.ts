@@ -76,6 +76,7 @@ export interface Card {
   spot: Spot | null;
   compact: boolean;
   low: boolean;
+  clear: boolean;
 }
 
 interface Check {
@@ -177,6 +178,7 @@ function card(
     spot: null,
     compact: false,
     low: false,
+    clear: false,
     ...extra,
   };
 }
@@ -411,11 +413,23 @@ function viewSteps(p: Place): Step[] {
       mode: "pause",
       from: p.at(12) + 150,
       card: (s, c) =>
-        card(
-          "Camera",
-          by(c, "Press C to change the view.", "Press C on the keyboard."),
-          s.cameras > c.startCameras ? ["camera", "confirm"] : ["camera"],
-        ),
+        s.cameras > c.startCameras
+          ? card(
+              "Camera",
+              "Keep pressing C for more views, then pick the one you like.",
+              ["camera", "confirm"],
+              { clear: true },
+            )
+          : card(
+              "Camera",
+              by(
+                c,
+                "Press C to change the view. Keep pressing C to go through every camera.",
+                "Press C on the keyboard. Keep pressing C to go through every camera.",
+              ),
+              ["camera"],
+              { clear: true },
+            ),
       done: (s, c) => s.cameras > c.startCameras && c.confirmed,
     },
     {
@@ -423,16 +437,27 @@ function viewSteps(p: Place): Step[] {
       chapter: chapters.screens,
       mode: "pause",
       card: (s, c) =>
-        card(
-          "Screens",
-          by(
-            c,
-            "Press Y to see tyre heat and wear.",
-            "Tap Display to see tyre heat and wear.",
-          ),
-          s.mfd !== c.startMfd ? ["mfd", "confirm"] : ["mfd"],
-          { spot: "mfd" },
-        ),
+        s.mfd !== c.startMfd
+          ? card(
+              "Screens",
+              by(
+                c,
+                "Keep pressing Y for the weather, tyre temperatures, wear and pressures.",
+                "Keep tapping Display for the weather, tyre temperatures, wear and pressures.",
+              ),
+              ["mfd", "confirm"],
+              { spot: "mfd" },
+            )
+          : card(
+              "Screens",
+              by(
+                c,
+                "Press Y to change the screen at the bottom right. Keep pressing Y to see them all.",
+                "Tap Display to change the screen at the bottom right. Keep tapping to see them all.",
+              ),
+              ["mfd"],
+              { spot: "mfd" },
+            ),
       done: (s, c) => s.mfd !== c.startMfd && c.confirmed,
     },
     drive("drive", chapters.screens, p.at(12) + 150, p.length + reverseLead),

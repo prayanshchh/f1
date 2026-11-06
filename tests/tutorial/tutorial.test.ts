@@ -401,13 +401,46 @@ describe("driving school", () => {
     expect(drive.raceTime).toBe(raceTime);
     expect(drive.travel).toBe(travel);
 
+    expect(drive.tutorial.view.card?.body).toMatch(/keep pressing Y/i);
+
     drive.mfd = "wear";
     drive.frame();
     expect(drive.tutorial.view.card?.actions).toEqual(["mfd", "confirm"]);
+    expect(drive.tutorial.view.card?.body).toMatch(/keep pressing Y/i);
     drive.tutorial.press("confirm");
     drive.drive(racer, 1);
     expect(drive.id).toBe("drive");
     expect(drive.raceTime).toBeGreaterThan(raceTime);
+  });
+
+  test("the camera lesson stops time without dimming the picture, keeps asking for more views after the first C, and lets go on Enter", () => {
+    const drive = pastTurnOne();
+    drive.until("camera", cooperative());
+    const { raceTime, travel } = drive;
+    drive.drive(() => undefined, 1);
+    drive.tutorial.press("confirm");
+    drive.drive(() => undefined, 3);
+    expect(drive.id).toBe("camera");
+    expect(drive.tutorial.view.mode).toBe("pause");
+    expect(drive.tutorial.view.card?.clear).toBe(true);
+    expect(drive.tutorial.view.card?.spot).toBeNull();
+    expect(drive.tutorial.view.card?.actions).toEqual(["camera"]);
+    expect(drive.tutorial.view.card?.body).toMatch(/keep pressing C/i);
+    expect(drive.raceTime).toBe(raceTime);
+    expect(drive.travel).toBe(travel);
+
+    for (let press = 0; press < 3; press++) {
+      drive.cameras += 1;
+      drive.frame();
+      expect(drive.id).toBe("camera");
+      expect(drive.tutorial.view.card?.clear).toBe(true);
+      expect(drive.tutorial.view.card?.actions).toEqual(["camera", "confirm"]);
+      expect(drive.tutorial.view.card?.body).toMatch(/keep pressing C/i);
+    }
+    expect(drive.raceTime).toBe(raceTime);
+    drive.tutorial.press("confirm");
+    drive.frame();
+    expect(drive.id).toBe("screens");
   });
 
   test("Esc on the welcome card skips the whole tutorial, but not once it has started", () => {

@@ -159,6 +159,7 @@ export class TutorialScreen {
     this.root.dataset["mode"] = view.card ? view.mode : "idle";
     this.root.dataset["step"] = view.id;
     this.root.classList.toggle("low", view.card?.low === true);
+    this.root.classList.toggle("clear", view.card?.clear === true);
     this.paintCard(view);
     this.paintLive(view);
     this.paintLights(now);

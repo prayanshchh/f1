@@ -1080,11 +1080,13 @@ async function main(): Promise<void> {
     });
   };
 
+  const freshPress = (event: KeyboardEvent) =>
+    event.type === "keydown" && !event.repeat && coach?.touring !== true;
   const phoneKey = (event: KeyboardEvent) => {
     if (event.code !== "KeyP" || buildingUp || typing(event)) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    if (event.type !== "keydown" || event.repeat) return;
+    if (!freshPress(event)) return;
     pad.toggle();
     if (pad.panelOpen && !waiting && coach?.busy !== true) pause();
   };
@@ -1433,9 +1435,6 @@ async function main(): Promise<void> {
       pad,
       menuOpen: () => menu.open,
       pause,
-      resume: () => {
-        menu.resume();
-      },
       guardMenu: (guard) => {
         menu.guard(guard);
       },

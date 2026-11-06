@@ -125,7 +125,6 @@ if (!softwareGpu) {
     expect(await engineClock(page)).toBe(gridClock);
     expect(gridClock).toBeLessThan(0);
 
-    await page.keyboard.press("Enter");
     await reach(page, "controls");
     await page.keyboard.press("k");
     await reach(page, "steer-left");
@@ -138,10 +137,6 @@ if (!softwareGpu) {
     await hold(page, "ArrowDown", 500);
     await reach(page, "gas-pedal");
     await hold(page, "ArrowUp", 500);
-    await reach(page, "lights");
-    expect(await engineClock(page)).toBe(gridClock);
-    await page.waitForTimeout(800);
-    await page.keyboard.press("Enter");
     await reach(page, "lights-wait");
     await expect.poll(() => engineClock(page)).toBeGreaterThan(gridClock);
 
@@ -153,7 +148,6 @@ if (!softwareGpu) {
     const paused = await engineClock(page);
     await page.waitForTimeout(1200);
     expect(await engineClock(page)).toBe(paused);
-    await page.keyboard.press("Enter");
     await reach(page, "t1-brake", 30_000);
     await expect(step(page)).toHaveAttribute("data-mode", "freeze");
     await page.waitForTimeout(1000);

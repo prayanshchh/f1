@@ -4,6 +4,9 @@ export interface PadOffer {
   sdp: string;
 }
 
+export const sensitivities = [
+  0.5, 0.65, 0.8, 0.9, 1, 1.15, 1.3, 1.5, 1.75, 2, 2.5, 3,
+];
 export const inputChannel = "input";
 export const controlChannel = "control";
 export const peerConfig: RTCConfiguration = { iceServers: [] };

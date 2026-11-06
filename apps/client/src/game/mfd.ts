@@ -26,7 +26,14 @@ export interface CarStatus {
   stopped: boolean;
 }
 
-const pages = ["quick", "weather", "temps", "wear", "pressure"] as const;
+export const mfdPages = [
+  "quick",
+  "weather",
+  "temps",
+  "wear",
+  "pressure",
+] as const;
+const pages = mfdPages;
 type Page = (typeof pages)[number];
 
 const brakeCold = 200;

@@ -11,6 +11,12 @@
 
 ![On the grid at Hill Country, waiting for lights out](docs/readme/hero.jpg)
 
+### Watch the trailer
+
+[![RevRacers trailer: wheel-to-wheel at Hill Country](docs/readme/trailer.jpg)](https://revracers.com/intro/trailer.mp4)
+
+**[Play now at revracers.com](https://revracers.com)**
+
 </div>
 
 ## Built on Speed Dreams

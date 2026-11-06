@@ -11,6 +11,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
+import { setTimeout as sleep } from "node:timers/promises";
 import path from "node:path";
 
 const root = path.resolve(import.meta.dirname, "..");
@@ -20,8 +21,8 @@ const bucket = "revracers-assets";
 const assetLimit = 25 * 1024 * 1024;
 const partSize = 16 * 1024 * 1024;
 const uploadTries = 4;
-const releasesKey = "releases.json";
-const keptReleases = 2;
+const storedKey = "big-files.json";
+const oldFilesGrace = 10 * 60 * 1000;
 const headers = `/*
   Cross-Origin-Opener-Policy: same-origin
   Cross-Origin-Embedder-Policy: require-corp
@@ -84,16 +85,16 @@ function files(dir) {
   });
 }
 
-function readReleases() {
-  const scratch = mkdtempSync(path.join(tmpdir(), "revracers-releases-"));
-  const file = path.join(scratch, releasesKey);
+function readStored() {
+  const scratch = mkdtempSync(path.join(tmpdir(), "revracers-stored-"));
+  const file = path.join(scratch, storedKey);
   try {
     wrangler(
       [
         "r2",
         "object",
         "get",
-        `${bucket}/${releasesKey}`,
+        `${bucket}/${storedKey}`,
         "--file",
         file,
         "--remote",
@@ -110,36 +111,27 @@ function readReleases() {
   }
 }
 
-function writeReleases(releases) {
-  const scratch = mkdtempSync(path.join(tmpdir(), "revracers-releases-"));
-  const file = path.join(scratch, releasesKey);
+function writeStored(stored) {
+  const scratch = mkdtempSync(path.join(tmpdir(), "revracers-stored-"));
+  const file = path.join(scratch, storedKey);
   try {
-    writeFileSync(file, JSON.stringify(releases));
-    upload(releasesKey, file);
+    writeFileSync(file, JSON.stringify(stored));
+    upload(storedKey, file);
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
 }
 
-function prune(previous, releases) {
-  const kept = new Set(releases.flat().map((file) => file.key));
-  const stale = new Map(
-    previous
-      .flat()
-      .filter((file) => !kept.has(file.key))
-      .map((file) => [file.key, file.parts]),
-  );
-  for (const [key, parts] of stale) {
-    for (let index = 0; index < parts; index++)
-      wrangler([
-        "r2",
-        "object",
-        "delete",
-        `${bucket}/${partKey(key, index)}`,
-        "--remote",
-      ]);
-    process.stdout.write(`deleted from R2: ${key}\n`);
-  }
+function remove(file) {
+  for (let index = 0; index < file.parts; index++)
+    wrangler([
+      "r2",
+      "object",
+      "delete",
+      `${bucket}/${partKey(file.key, index)}`,
+      "--remote",
+    ]);
+  process.stdout.write(`deleted from R2: ${file.key}\n`);
 }
 
 async function live(key, size) {
@@ -152,7 +144,14 @@ async function live(key, size) {
   return response.ok && Number(response.headers.get("content-length")) === size;
 }
 
-const previous = readReleases();
+if (!process.env.GITHUB_ACTIONS) {
+  process.stderr.write(
+    "Deploys run only on GitHub Actions, one at a time. Use `pnpm run deploy`, or `pnpm run deploy -- -f commit=<sha>` to roll back.\n",
+  );
+  process.exit(1);
+}
+
+const stored = readStored();
 run("pnpm", ["run", "build"]);
 
 const big = files(dist)
@@ -169,12 +168,20 @@ for (const key of big) {
 
 writeFileSync(path.join(dist, ".assetsignore"), `${big.join("\n")}\n`);
 writeFileSync(path.join(dist, "_headers"), headers);
-wrangler(["deploy"]);
-
-const release = big.map((key) => ({
+const current = big.map((key) => ({
   key,
   parts: Math.ceil(statSync(path.join(dist, key)).size / partSize),
 }));
-const releases = [...previous, release].slice(-keptReleases);
-prune(previous, releases);
-writeReleases(releases);
+const used = new Set(big);
+const old = stored.filter((file) => !used.has(file.key));
+writeStored([...old, ...current]);
+wrangler(["deploy"]);
+
+if (old.length > 0) {
+  process.stdout.write(
+    `waiting ${oldFilesGrace / 60000} minutes for pages still loading the old files\n`,
+  );
+  await sleep(oldFilesGrace);
+  for (const file of old) remove(file);
+}
+writeStored(current);

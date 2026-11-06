@@ -473,8 +473,8 @@ function reverseSteps(p: Place): Step[] {
 
 function reversedLongEnough(s: TutorialSample, c: Context): boolean {
   const moving = s.gear < 0 && s.speed > reverseMoving;
-  if (moving && c.reverseAt !== null) c.reversed += s.now - c.reverseAt;
-  c.reverseAt = moving ? s.now : null;
+  if (moving && c.reverseAt !== null) c.reversed += s.raceTime - c.reverseAt;
+  c.reverseAt = moving ? s.raceTime : null;
   return c.reversed >= reverseTime;
 }
 

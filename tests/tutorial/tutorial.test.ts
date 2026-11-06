@@ -77,7 +77,8 @@ class Drive {
 
   frame(): void {
     this.now += dt;
-    const running = !this.tutorial.holding && !this.tutorial.frozen;
+    const running =
+      !this.tutorial.holding && !this.tutorial.frozen && !this.menu;
     if (running) this.raceTime += dt;
     if (running && this.raceTime >= 0) this.move();
     const lap = Math.floor(this.travel / length) + 1;
@@ -735,6 +736,25 @@ describe("driving school", () => {
     expect(drive.now - reversingFrom).toBeGreaterThan(4.9);
     expect(drive.now - reversingFrom).toBeLessThan(5.3);
     expect(drive.events.at(-1)).toEqual({ kind: "tick" });
+  });
+
+  test("time in the pause menu while backing up does not count towards the five seconds of reversing", () => {
+    const drive = new Drive();
+    drive.until("reversing", cooperative());
+    drive.drive((d) => {
+      d.input = { steer: 0, throttle: 0, brake: d.speed > 0 ? 1 : 0 };
+    }, 8);
+    drive.drive(brakeOnly, 1);
+    expect(drive.gear).toBe(-1);
+    drive.menu = true;
+    drive.drive(brakeOnly, 10);
+    drive.menu = false;
+    drive.frame();
+    expect(drive.id).toBe("reversing");
+    drive.drive(brakeOnly, 3.5);
+    expect(drive.id).toBe("reversing");
+    drive.until("phone", brakeOnly, 1);
+    expect(drive.id).toBe("phone");
   });
 
   test("the phone lesson spotlights the P key, then shows nothing over the code, and goes on once the code is closed", () => {

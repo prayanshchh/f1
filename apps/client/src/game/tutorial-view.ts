@@ -94,7 +94,7 @@ export class TutorialScreen {
   }
 
   render(view: TutorialView, now: number): void {
-    this.root.dataset["mode"] = view.card ? view.mode : "idle";
+    this.root.dataset["mode"] = view.mode;
     this.root.dataset["step"] = view.id;
     this.root.classList.toggle("low", view.card?.low === true);
     this.root.classList.toggle("high", view.card?.high === true);

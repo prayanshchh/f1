@@ -8,6 +8,7 @@ import { releaseOnceUploaded } from "./preload.ts";
 import { surface } from "./road.ts";
 import { carFile } from "./teams.ts";
 import {
+  treadOf,
   type TyreLook,
   tyreAttribute,
   tyreLook,
@@ -371,6 +372,8 @@ export class PitCrew {
   setCompounds(fitted: number, fresh: number): void {
     this.fitted.compound.set((compounds[fitted] ?? compounds[1]).colour);
     this.fresh.compound.set((compounds[fresh] ?? compounds[1]).colour);
+    this.fitted.tread = treadOf(fitted);
+    this.fresh.tread = treadOf(fresh);
   }
 
   setAnchor(x: number, y: number, z: number, heading: number): void {

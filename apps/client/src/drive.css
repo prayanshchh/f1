@@ -66,6 +66,7 @@ button {
 .hud.no-inputs .part-inputs,
 .hud.no-help .part-help,
 .hud.no-map .part-map,
+.hud.no-proximity .part-proximity,
 .hud.no-sectors .part-sectors {
   display: none;
 }
@@ -73,6 +74,27 @@ button {
 .hud > * {
   position: absolute;
   scale: var(--s);
+}
+
+.proximity {
+  top: 67.5%;
+  width: 60px;
+  height: 80px;
+  translate: -50% -50%;
+  color: #e3132f;
+  opacity: 0;
+  transition: opacity 0.15s linear;
+  filter: drop-shadow(0 0 2px rgb(0 0 0 / 0.35));
+}
+
+.proximity-left {
+  left: 24.5%;
+  transform: scaleX(-1) rotate(var(--tilt, 0deg));
+}
+
+.proximity-right {
+  left: 75.5%;
+  transform: rotate(var(--tilt, 0deg));
 }
 
 .tower {

@@ -136,6 +136,7 @@ function cracks(lateral: FloatNode, along: FloatNode) {
 export interface AsphaltDetail {
   tone: FloatNode;
   roughness: FloatNode;
+  mottle: FloatNode;
 }
 
 export function screenBump(
@@ -160,9 +161,7 @@ export function asphaltDetail(grain: THREE.Texture): AsphaltDetail {
   const blotch = vertexStage(
     mx_noise_float(world.mul(blotchScale).add(0.5)),
   ).mul(blotchStrength);
-  const mottle = mx_noise_float(world.mul(mottleScale).add(3.3)).mul(
-    mottleStrength,
-  );
+  const mottle = mx_noise_float(world.mul(mottleScale).add(3.3));
   const coarse = texture(grain, vec2(uv().y, uv().x.negate()).mul(coarseScale))
     .rgb.dot(vec3(1 / 3))
     .div(0.0152);
@@ -170,7 +169,7 @@ export function asphaltDetail(grain: THREE.Texture): AsphaltDetail {
   const crack = cracks(lateral, along);
   const tone = float(1)
     .add(blotch)
-    .add(mottle)
+    .add(mottle.mul(mottleStrength))
     .mul(mix(float(1), coarse, coarseContrast))
     .mul(mix(float(1), float(patchTone), inside))
     .mul(float(1).sub(seam.mul(0.35)))
@@ -178,6 +177,7 @@ export function asphaltDetail(grain: THREE.Texture): AsphaltDetail {
   return {
     tone,
     roughness: mix(float(1), float(crackRoughness / 0.8), crack),
+    mottle,
   };
 }
 

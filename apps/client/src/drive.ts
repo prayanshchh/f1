@@ -1225,12 +1225,14 @@ async function main(): Promise<void> {
   ) => {
     const title = level === "ultra" ? "Ultra graphics" : "Low graphics";
     hud.notify(title, detail, performance.now() / 1000);
+    const asked = settings.graphics;
+    const current = () => chosen && settings.graphics === asked;
     graphics.switchTo(level).then(
       (switched) => {
-        if (switched && chosen) keepGraphics(level);
+        if (switched && current()) keepGraphics(level);
       },
       () => {
-        if (chosen) keepGraphics(graphics.level);
+        if (current()) keepGraphics(graphics.level);
         hud.notify(
           "Ultra unavailable",
           "This computer has no graphics card that can draw Ultra",
@@ -1611,7 +1613,8 @@ async function main(): Promise<void> {
     scene.update(frame);
     incident.prepare(frame);
   };
-  if (wantsBuildUp(settings, setup, autostart, seek)) {
+  const introSeek = buildUpSeek(params, graphics.low);
+  if (wantsBuildUp(settings, setup, autostart, introSeek)) {
     buildingUp = true;
     sound.mute(true);
     await runBuildUp({
@@ -1621,7 +1624,7 @@ async function main(): Promise<void> {
       engine,
       settings,
       seat,
-      seek,
+      seek: introSeek,
       kind: stage === "race" ? "race" : "practice",
       slot: gridSlot(setup, scene),
       field,

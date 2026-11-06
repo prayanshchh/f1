@@ -144,6 +144,7 @@ const statusBar = new LoadBar(
 );
 const hudRoot = document.querySelector<HTMLElement>("[data-testid=hud]");
 const autostartKey = "revracers.autostart";
+const redeployKey = "revracers.redeploy";
 
 function element(selector: string): HTMLElement {
   const found = document.querySelector<HTMLElement>(selector);
@@ -171,6 +172,24 @@ function toHub(): void {
 function restart(autostart: boolean): void {
   if (autostart) sessionStorage.setItem(autostartKey, "1");
   location.reload();
+}
+
+function entryScript(html: string): string | undefined {
+  return /<script type="module"[^>]*\ssrc="([^"]+)"/.exec(html)?.[1];
+}
+
+async function redeployed(tutorial: boolean): Promise<boolean> {
+  const ours = entryScript(document.documentElement.outerHTML);
+  const live = await fetch("/", { cache: "no-store" })
+    .then((response) => (response.ok ? response.text() : ""))
+    .catch(() => "");
+  const theirs = entryScript(live);
+  if (!ours || !theirs || ours === theirs) return false;
+  if (sessionStorage.getItem(redeployKey) === theirs) return false;
+  sessionStorage.setItem(redeployKey, theirs);
+  if (tutorial) armTutorial();
+  restart(true);
+  return true;
 }
 
 function cell(text: string, className = ""): HTMLTableCellElement {
@@ -836,6 +855,7 @@ async function enter(
   const entry = consumeTutorial(params)
     ? { driver: await currentDriver(), tutorial: true }
     : await signIn(autostart, renderer, settings, menu, music);
+  if (await redeployed(entry.tutorial)) return new Promise(() => undefined);
   return { ...entry, autostart: autostart || entry.tutorial };
 }
 

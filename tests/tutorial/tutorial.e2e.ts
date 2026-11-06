@@ -42,6 +42,26 @@ test("onboarded drivers find Driving School in the hub and are not dropped into 
 });
 
 if (!softwareGpu) {
+  test("Main Menu in the pause menu of a race opened with ?autostart goes to the hub instead of starting the race again", async ({
+    page,
+    context,
+  }) => {
+    test.setTimeout(480_000);
+    await seedPlayer(context);
+    await page.goto("/?autostart");
+    await page.waitForFunction(
+      () => document.body.dataset["driveStatus"] === "running",
+      null,
+      { timeout: 360_000 },
+    );
+    await page.waitForTimeout(800);
+    await page.keyboard.press("Escape");
+    await expect(page.locator("[data-menu=quit]")).toBeVisible();
+    await page.keyboard.press("m");
+    await expect(page.locator(".front-hub")).toBeVisible({ timeout: 120_000 });
+    expect(new URL(page.url()).searchParams.has("autostart")).toBe(false);
+  });
+
   test("a new player lands straight in Driving School, and skipping it leads to naming and is remembered", async ({
     page,
   }) => {

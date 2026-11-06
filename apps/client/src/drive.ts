@@ -164,11 +164,16 @@ function setStatus(text: string): void {
 function toHub(): void {
   const url = new URL(location.href);
   url.searchParams.delete("tutorial");
+  url.searchParams.delete("autostart");
   location.assign(url);
 }
 
 function restart(autostart: boolean): void {
-  if (autostart) sessionStorage.setItem(autostartKey, "1");
+  if (!autostart) {
+    toHub();
+    return;
+  }
+  sessionStorage.setItem(autostartKey, "1");
   location.reload();
 }
 

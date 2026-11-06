@@ -13,10 +13,12 @@ function countPageLoads(page: Page): () => number {
   return () => loads;
 }
 
-async function raceLoaded(page: Page): Promise<void> {
-  await expect(page.getByTestId("drive-status")).toBeHidden({
-    timeout: 120_000,
-  });
+async function pastTheMenu(page: Page): Promise<void> {
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-drive-status",
+    /^(running|error)$/,
+    { timeout: 120_000 },
+  );
 }
 
 test.describe("a page left open across a deploy", () => {
@@ -43,7 +45,7 @@ test.describe("a page left open across a deploy", () => {
     );
 
     await page.goto(`/?autostart&team=${asha.team}`);
-    await raceLoaded(page);
+    await pastTheMenu(page);
 
     expect(loads()).toBe(2);
   });
@@ -56,7 +58,7 @@ test.describe("a page left open across a deploy", () => {
     const loads = countPageLoads(page);
 
     await page.goto(`/?autostart&team=${asha.team}`);
-    await raceLoaded(page);
+    await pastTheMenu(page);
 
     expect(loads()).toBe(1);
   });

@@ -407,7 +407,7 @@ export class Scene {
       light.afternoon,
       light.night,
     ).then((sky) => {
-      sky.refreshEnvironment(renderer, 0);
+      sky.refreshEnvironment(renderer, 0, 1);
       return sky;
     });
     const envLoad = skyLoad.then((sky) => ({
@@ -669,7 +669,11 @@ export class Scene {
   }
 
   renderAuxiliary(renderer: THREE.WebGPURenderer): void {
-    this.skyBox.refreshEnvironment(renderer, Math.max(0, this.overcast));
+    this.skyBox.refreshEnvironment(
+      renderer,
+      Math.max(0, this.overcast),
+      this.skyBox.overcastLight.value,
+    );
     this.sunlight.freeze();
     if (this.warming) this.crew.root.visible = true;
     this.car.renderAuxiliary(renderer, this.scene);

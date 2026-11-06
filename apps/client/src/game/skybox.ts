@@ -160,9 +160,11 @@ export class SkyBox {
 
   readonly environment: THREE.Texture;
   private readonly envOvercast = uniform(0);
+  private readonly envLight = uniform(1);
   private readonly envBlend: THREE.QuadMesh;
   private readonly envTarget: THREE.RenderTarget;
   private envShown = -1;
+  private envLightShown = -1;
 
   private constructor(
     private readonly sky: THREE.Texture,
@@ -198,7 +200,11 @@ export class SkyBox {
         .mul(this.horizonLevel),
       smoothstep(-0.05, 0.02, up),
     );
-    const dayLight = mix(clearLight, overcastLight, this.envOvercast);
+    const dayLight = mix(
+      clearLight,
+      overcastLight.mul(this.envLight),
+      this.envOvercast,
+    );
     blend.colorNode =
       nightShare > 0
         ? mix(dayLight, this.nightEnvironment(up), this.night)
@@ -272,14 +278,21 @@ export class SkyBox {
     );
   }
 
-  refreshEnvironment(renderer: THREE.WebGPURenderer, overcast: number): void {
+  refreshEnvironment(
+    renderer: THREE.WebGPURenderer,
+    overcast: number,
+    light: number,
+  ): void {
     const level = Math.round(overcast / envStep) * envStep;
-    if (level === this.envShown) return;
+    const shade = Math.round(light / envStep) * envStep;
+    if (level === this.envShown && shade === this.envLightShown) return;
     this.envShown = level;
+    this.envLightShown = shade;
     this.envOvercast.value = level;
+    this.envLight.value = shade;
     if (this.nightShare > 0)
       useNightAmbient(this.nightAmbient(true), this.nightAmbient(false));
-    setAmbientOvercast(level, this.horizonLevel);
+    setAmbientOvercast(level, this.horizonLevel * shade);
     const previous = renderer.getRenderTarget();
     const { toneMapping, outputColorSpace } = renderer;
     renderer.toneMapping = THREE.NoToneMapping;

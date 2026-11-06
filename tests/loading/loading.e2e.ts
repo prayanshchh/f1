@@ -19,7 +19,7 @@ function sampleLoadBars(): void {
   window.loadSamples = [];
   const record = (box: Element | null) => {
     const bar = box?.querySelector("[role=progressbar]");
-    if (!box || !bar) return;
+    if (!box?.isConnected || !bar) return;
     const fill = bar.querySelector("i");
     window.loadSamples.push({
       label:
@@ -37,15 +37,15 @@ function sampleLoadBars(): void {
         document.querySelector(".front-car-loading"),
     );
   }, 40);
-  new MutationObserver((changes) => {
-    for (const change of changes)
-      if (change.target instanceof Element)
-        record(change.target.closest(".status:not([hidden])"));
-  }).observe(document, {
-    subtree: true,
-    attributes: true,
-    attributeFilter: ["aria-valuenow"],
-  });
+  const setAttribute = Object.getOwnPropertyDescriptor(
+    Element.prototype,
+    "setAttribute",
+  )?.value as (this: Element, name: string, value: string) => void;
+  Element.prototype.setAttribute = function (name, value) {
+    setAttribute.call(this, name, value);
+    if (name === "aria-valuenow")
+      record(this.closest(".status:not([hidden]), .front-car-loading"));
+  };
 }
 
 async function slowNetwork(page: Page, megabits: number): Promise<void> {

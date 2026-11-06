@@ -3,6 +3,7 @@ const swallowed = ["keydown", "keyup", "keypress"] as const;
 
 export class Intro {
   readonly done: Promise<void>;
+  readonly shown: boolean;
   private finish: () => void = () => undefined;
   private left = false;
   private readonly video: HTMLVideoElement | null;
@@ -14,7 +15,8 @@ export class Intro {
     });
     this.video = box?.querySelector("video") ?? null;
     this.hint = box?.querySelector<HTMLElement>("[data-intro-sound]") ?? null;
-    if (!box?.isConnected || !this.video) {
+    this.shown = box?.isConnected === true && this.video !== null;
+    if (!this.shown || !box || !this.video) {
       this.left = true;
       this.finish();
       return;

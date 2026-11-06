@@ -19,7 +19,7 @@ for (const kind of android) {
       baseURL,
       viewport: { width: 1280, height: 720 },
     });
-    await page.goto("/?tutorial");
+    await page.goto("/?tutorial&intro=off");
     await page.waitForFunction(
       () => document.body.dataset["driveStatus"] === "running",
       null,

@@ -131,6 +131,7 @@ import {
 import { WeekendFlow } from "./game/weekend-flow.ts";
 import { LoadBar } from "./game/load-bar.ts";
 import { Intro } from "./game/intro.ts";
+import { LoadShow } from "./game/load-show.ts";
 import { showActions } from "./game/weekend-ui.ts";
 
 const canvas = document.querySelector<HTMLCanvasElement>(
@@ -147,6 +148,10 @@ const hudRoot = document.querySelector<HTMLElement>("[data-testid=hud]");
 const autostartKey = "revracers.autostart";
 const redeployKey = "revracers.redeploy";
 const intro = Intro.take();
+const loadShow = status && intro.shown ? new LoadShow(status) : null;
+void intro.done.then(() => {
+  loadShow?.arm();
+});
 
 function element(selector: string): HTMLElement {
   const found = document.querySelector<HTMLElement>(selector);
@@ -156,6 +161,17 @@ function element(selector: string): HTMLElement {
 
 function padLink(): PadLink {
   return new PadLink(element("[data-pad=panel]"), element("[data-pad=badge]"));
+}
+
+function scoreLoadShow(music: Music): void {
+  loadShow?.attach({
+    get blocked() {
+      return music.blocked;
+    },
+    start: () => {
+      if (!music.cue) music.play("menu");
+    },
+  });
 }
 
 function setStatus(text: string): void {
@@ -952,6 +968,7 @@ async function main(): Promise<void> {
   const interventions = params.has("interventions");
   const menu = new Menu(source, settings, interventions);
   const music = new Music(() => settings.musicVolume / 100);
+  scoreLoadShow(music);
 
   const entry = await enter(params, renderer, settings, menu, music);
   const { driver, autostart } = entry;

@@ -23,6 +23,8 @@ const sizes = JSON.parse(
 ) as Record<string, number>;
 let expectedBytes = 0;
 let receivedBytes = 0;
+let planned = false;
+const declared = new Set<string>();
 const plainFetch = globalThis.fetch.bind(globalThis);
 const storeName = "revracers-assets";
 let store: Promise<Cache | null> | null = null;
@@ -93,9 +95,12 @@ globalThis.fetch = async (input, init) => {
   const response = buildAsset(url, input, init)
     ? await keptFetch(url, input, init)
     : await plainFetch(input, init);
-  const size = url.origin === location.origin ? expectedSize(url, response) : 0;
+  const size =
+    url.origin === location.origin && url.protocol === location.protocol
+      ? expectedSize(url, response)
+      : 0;
   if (!response.ok || !response.body || size <= 0) return response;
-  expectedBytes += size;
+  if (!declared.delete(url.pathname)) expectedBytes += size;
   const counted = new TransformStream<Uint8Array, Uint8Array>({
     transform(chunk, controller) {
       receivedBytes += chunk.byteLength;
@@ -116,6 +121,25 @@ export function downloadsFromNow(): () => number {
     expectedBytes > expected
       ? (receivedBytes - received) / (expectedBytes - expected)
       : 0;
+}
+
+export function expectDownloads(urls: string[]): void {
+  planned = true;
+  for (const url of urls) {
+    const path = new URL(url, location.href).pathname;
+    const size = sizes[path];
+    if (size === undefined || declared.has(path)) continue;
+    declared.add(path);
+    expectedBytes += size;
+  }
+}
+
+export function downloadTotals(): {
+  received: number;
+  expected: number;
+  planned: boolean;
+} {
+  return { received: receivedBytes, expected: expectedBytes, planned };
 }
 
 export function loaded(): Promise<void> {

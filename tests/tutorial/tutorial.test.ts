@@ -413,6 +413,23 @@ describe("driving school", () => {
     expect(drive.raceTime).toBeGreaterThan(raceTime);
   });
 
+  test("with a phone connected, the screens lesson still tells the player to keep pressing Y and names the phone's Display button", () => {
+    const drive = new Drive();
+    drive.phone = true;
+    drive.until("screens", cooperative());
+    drive.drive(() => undefined, 1);
+    expect(drive.id).toBe("screens");
+    expect(drive.tutorial.view.control).toBe("phone");
+    expect(drive.tutorial.view.card?.body).toMatch(/keep pressing Y/i);
+    expect(drive.tutorial.view.card?.body).toMatch(/Display on your phone/);
+
+    drive.mfd = "wear";
+    drive.frame();
+    expect(drive.tutorial.view.card?.actions).toEqual(["mfd", "confirm"]);
+    expect(drive.tutorial.view.card?.body).toMatch(/keep pressing Y/i);
+    expect(drive.tutorial.view.card?.body).toMatch(/Display on your phone/);
+  });
+
   test("the camera lesson stops time without dimming the picture, keeps asking for more views after the first C, and lets go on Enter", () => {
     const drive = pastTurnOne();
     drive.until("camera", cooperative());

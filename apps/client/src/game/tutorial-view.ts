@@ -37,7 +37,6 @@ const phonePrompts: Partial<Record<Action, Prompt>> = {
   brake: ["Brake", "Hold"],
   left: ["Tilt", "Tilt left"],
   right: ["Tilt", "Tilt right"],
-  mfd: ["Display", "Next screen"],
   confirm: ["Brake", "Continue"],
   finish: ["Brake", "Finish"],
   boost: ["Boost", "Tap"],

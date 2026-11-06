@@ -442,8 +442,8 @@ function viewSteps(p: Place): Step[] {
               "Screens",
               by(
                 c,
-                "Keep pressing Y for the weather, tyre temperatures, wear and pressures.",
-                "Keep tapping Display for the weather, tyre temperatures, wear and pressures.",
+                "Keep pressing Y to see more screens.",
+                "Keep pressing Y, or Display on your phone, to see more screens.",
               ),
               ["mfd", "confirm"],
               { spot: "mfd" },
@@ -452,8 +452,8 @@ function viewSteps(p: Place): Step[] {
               "Screens",
               by(
                 c,
-                "Press Y to change the screen at the bottom right. Keep pressing Y to see them all.",
-                "Tap Display to change the screen at the bottom right. Keep tapping to see them all.",
+                "Press Y to change the screen at the bottom right. Keep pressing Y to see more screens.",
+                "Press Y, or Display on your phone, to change the screen at the bottom right. Keep pressing Y to see more screens.",
               ),
               ["mfd"],
               { spot: "mfd" },

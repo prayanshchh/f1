@@ -3,6 +3,7 @@ import {
   closeSync,
   mkdtempSync,
   openSync,
+  readFileSync,
   readSync,
   readdirSync,
   rmSync,
@@ -19,6 +20,8 @@ const bucket = "revracers-assets";
 const assetLimit = 25 * 1024 * 1024;
 const partSize = 16 * 1024 * 1024;
 const uploadTries = 4;
+const releasesKey = "releases.json";
+const keptReleases = 2;
 const headers = `/*
   Cross-Origin-Opener-Policy: same-origin
   Cross-Origin-Embedder-Policy: require-corp
@@ -28,12 +31,18 @@ function run(command, args) {
   execFileSync(command, args, { cwd: root, stdio: "inherit" });
 }
 
+function wrangler(args, stdio = "inherit") {
+  execFileSync("pnpm", ["exec", "wrangler", ...args], { cwd: root, stdio });
+}
+
+function partKey(key, index) {
+  return `${key}/${String(index).padStart(3, "0")}`;
+}
+
 function upload(key, file) {
   for (let attempt = 1; ; attempt++) {
     try {
-      run("pnpm", [
-        "exec",
-        "wrangler",
+      wrangler([
         "r2",
         "object",
         "put",
@@ -59,7 +68,7 @@ function uploadInParts(key, file) {
       if (read === 0) return;
       const part = path.join(scratch, String(index));
       writeFileSync(part, buffer.subarray(0, read));
-      upload(`${key}/${String(index).padStart(3, "0")}`, part);
+      upload(partKey(key, index), part);
       rmSync(part);
     }
   } finally {
@@ -75,6 +84,64 @@ function files(dir) {
   });
 }
 
+function readReleases() {
+  const scratch = mkdtempSync(path.join(tmpdir(), "revracers-releases-"));
+  const file = path.join(scratch, releasesKey);
+  try {
+    wrangler(
+      [
+        "r2",
+        "object",
+        "get",
+        `${bucket}/${releasesKey}`,
+        "--file",
+        file,
+        "--remote",
+      ],
+      ["ignore", "ignore", "pipe"],
+    );
+    return JSON.parse(readFileSync(file, "utf8"));
+  } catch (error) {
+    if (String(error.stderr).includes("The specified key does not exist"))
+      return [];
+    throw error;
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+}
+
+function writeReleases(releases) {
+  const scratch = mkdtempSync(path.join(tmpdir(), "revracers-releases-"));
+  const file = path.join(scratch, releasesKey);
+  try {
+    writeFileSync(file, JSON.stringify(releases));
+    upload(releasesKey, file);
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+}
+
+function prune(previous, releases) {
+  const kept = new Set(releases.flat().map((file) => file.key));
+  const stale = new Map(
+    previous
+      .flat()
+      .filter((file) => !kept.has(file.key))
+      .map((file) => [file.key, file.parts]),
+  );
+  for (const [key, parts] of stale) {
+    for (let index = 0; index < parts; index++)
+      wrangler([
+        "r2",
+        "object",
+        "delete",
+        `${bucket}/${partKey(key, index)}`,
+        "--remote",
+      ]);
+    process.stdout.write(`deleted from R2: ${key}\n`);
+  }
+}
+
 async function live(key, size) {
   const response = await fetch(`${site}/${key}`).catch((error) => {
     throw new Error(`cannot reach ${site} to check ${key}; check the network`, {
@@ -85,6 +152,7 @@ async function live(key, size) {
   return response.ok && Number(response.headers.get("content-length")) === size;
 }
 
+const previous = readReleases();
 run("pnpm", ["run", "build"]);
 
 const big = files(dist)
@@ -101,4 +169,12 @@ for (const key of big) {
 
 writeFileSync(path.join(dist, ".assetsignore"), `${big.join("\n")}\n`);
 writeFileSync(path.join(dist, "_headers"), headers);
-run("pnpm", ["exec", "wrangler", "deploy"]);
+wrangler(["deploy"]);
+
+const release = big.map((key) => ({
+  key,
+  parts: Math.ceil(statSync(path.join(dist, key)).size / partSize),
+}));
+const releases = [...previous, release].slice(-keptReleases);
+prune(previous, releases);
+writeReleases(releases);

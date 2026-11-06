@@ -17,6 +17,7 @@ import {
   type RaceControlInfo,
   type SessionInfo,
 } from "./engine.ts";
+import { ProximityArrows } from "./proximity.ts";
 import { Tower } from "./tower.ts";
 import { type Entrant, segmentNames } from "./weekend.ts";
 import type { LapResult, LapTrace, SectorState } from "./laptrace.ts";
@@ -287,6 +288,7 @@ export class Hud {
   private readonly lights: HTMLElement[] = [];
   private readonly sectorCells: HTMLElement[] = [];
   private readonly mfd: Mfd;
+  private readonly arrows: ProximityArrows;
   private readonly rows: {
     root: HTMLElement;
     pos: HTMLElement;
@@ -358,6 +360,10 @@ export class Hud {
     }
     this.start = options.start;
     this.mfd = new Mfd(this.find("mfd"), this.find);
+    this.arrows = new ProximityArrows(
+      this.find("proximity-left"),
+      this.find("proximity-right"),
+    );
     putText(this.find("steward-logo"), federation.short);
     putText(this.find("session"), options.session);
     putText(
@@ -415,6 +421,10 @@ export class Hud {
     if (this.options.qualifying)
       this.find("session").textContent = segmentNames[info.segment] ?? "Q";
     this.minimap.field(cars);
+  }
+
+  updateProximity(cars: Float64Array): void {
+    this.arrows.update(cars);
   }
 
   setParts(parts: Record<HudPart, boolean>): void {

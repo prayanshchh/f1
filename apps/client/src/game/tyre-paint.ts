@@ -5,9 +5,12 @@ import {
   dFdx,
   dFdy,
   float,
+  fract,
+  fwidth,
   mix,
   sign,
   smoothstep,
+  step,
   texture,
   uniform,
   vec2,
@@ -18,6 +21,8 @@ import { carFile } from "./teams.ts";
 import { releaseOnceUploaded } from "./preload.ts";
 import { screenBump } from "./track-surface.ts";
 import { compounds } from "./tyres.ts";
+
+type FloatNode = THREE.Node<"float">;
 
 export const tyreAttribute = "tyre";
 const wallFrom = 0.224;
@@ -42,19 +47,90 @@ const averagedTo = 0.35;
 const shutter = 0.5;
 const cleanPickup = 0.4;
 const reflection = 0.5;
+const interSipes = 30;
+const wetSipes = 38;
+const interSlant = 1.4;
+const wetSlant = 0.9;
+const interSipeWidth = 0.16;
+const wetSipeWidth = 0.22;
+const ringWidth = 0.025;
+const grooveShade = 0.45;
+const grooveDepth = 0.6;
+const wetRoughness = 0.45;
+const wetCoat = 0.3;
+const wetCoatRoughness = 0.5;
 
 export interface TyreLook {
   compound: THREE.Color;
   blur: number;
   wear: number;
+  tread: number;
 }
+
+export const tyreWetness = uniform(0);
 
 export function tyreLook(): TyreLook {
   return {
     compound: new THREE.Color(compounds[1].colour),
     blur: 0,
     wear: 0,
+    tread: 0,
   };
+}
+
+export function treadOf(compound: number): number {
+  const id = compounds[compound]?.id;
+  if (id === "wet") return 2;
+  return id === "inter" ? 1 : 0;
+}
+
+function band(phase: THREE.Node<"float">, width: number, smear: FloatNode) {
+  const centre = fract(phase).sub(0.5).abs();
+  const edge = fwidth(phase).add(smear).max(1e-4);
+  const sharp = smoothstep(
+    float(width / 2).add(edge),
+    float(width / 2).sub(edge),
+    centre,
+  );
+  return mix(sharp, float(width), smoothstep(0.2, 0.6, edge));
+}
+
+function grooves(
+  angle: FloatNode,
+  across: FloatNode,
+  tread: FloatNode,
+  blur: FloatNode,
+): FloatNode {
+  const wet = step(1.5, tread);
+  const inter = step(0.5, tread).mul(float(1).sub(wet));
+  const sipePitch = mix(float(interSipes), float(wetSipes), wet);
+  const sipeSlant = mix(float(interSlant), float(wetSlant), wet);
+  const phase = angle.mul(sipePitch).add(across.mul(sipeSlant));
+  const smear = blur.mul(sipePitch);
+  const sipe = mix(
+    band(phase, interSipeWidth, smear),
+    band(phase, wetSipeWidth, smear),
+    wet,
+  );
+  const inside = smoothstep(
+    mix(float(0.26), float(0.1), wet),
+    mix(float(0.34), float(0.16), wet),
+    across,
+  ).mul(
+    smoothstep(
+      mix(float(0.8), float(0.9), wet),
+      mix(float(0.72), float(0.84), wet),
+      across,
+    ),
+  );
+  const ring = (centre: number) =>
+    smoothstep(
+      float(ringWidth).add(fwidth(across)),
+      float(ringWidth).sub(fwidth(across)).max(0),
+      across.sub(centre).abs(),
+    );
+  const rings = ring(0.37).max(ring(0.7)).mul(wet);
+  return sipe.mul(inside).max(rings).mul(wet.add(inter));
 }
 
 export function spinBlur(radiansPerSecond: number, seconds: number): number {
@@ -124,12 +200,16 @@ function lookUniforms() {
   wear.onObjectUpdate(({ object }) => {
     wear.value = lookOf(object).wear;
   });
-  return { compound, blur, wear };
+  const pattern = uniform(0);
+  pattern.onObjectUpdate(({ object }) => {
+    pattern.value = lookOf(object).tread;
+  });
+  return { compound, blur, wear, pattern };
 }
 
 function buildMaterial(map: THREE.Texture): THREE.MeshPhysicalNodeMaterial {
   const material = new THREE.MeshPhysicalNodeMaterial({ name: "tyre" });
-  const { compound, blur, wear } = lookUniforms();
+  const { compound, blur, wear, pattern } = lookUniforms();
   const local = attribute<"vec4">(tyreAttribute, "vec4");
   const axial = local.x;
   const radial = vec2(local.y, local.z);
@@ -183,6 +263,7 @@ function buildMaterial(map: THREE.Texture): THREE.MeshPhysicalNodeMaterial {
   ).rgb;
   const onTread = float(1).sub(smoothstep(0.86, 0.97, across));
   const onWall = float(1).sub(onTread);
+  const groove = grooves(angle, across, pattern, blur).mul(onTread);
   const paint = vec3(
     wall.r.mul(onWall),
     wall.g.mul(onWall),
@@ -202,7 +283,11 @@ function buildMaterial(map: THREE.Texture): THREE.MeshPhysicalNodeMaterial {
     grain.mul(0.12).add(1),
   );
   const rubber = mix(float(wallRubber), scrubbed, onTread);
-  const base = vec3(mix(rubber, float(pickupRubber), pickup));
+  const base = vec3(
+    mix(rubber, float(pickupRubber), pickup).mul(
+      float(1).sub(groove.mul(1 - grooveShade)),
+    ),
+  );
   const coloured = compound.mul(paintGain);
   const withCompound = mix(base, coloured, paint.r);
   material.colorNode = mix(withCompound, vec3(whitePaint), paint.g);
@@ -212,14 +297,23 @@ function buildMaterial(map: THREE.Texture): THREE.MeshPhysicalNodeMaterial {
     float(treadRoughness).add(wear.mul(0.12)),
     onTread,
   );
-  material.roughnessNode = mix(
+  const dryRoughness = mix(
     mix(surface, float(paintRoughness), painted),
     float(pickupRoughness),
     pickup,
   );
+  material.roughnessNode = mix(
+    dryRoughness,
+    dryRoughness.min(wetRoughness),
+    tyreWetness,
+  );
   material.metalnessNode = float(0);
+  material.clearcoatNode = tyreWetness
+    .mul(wetCoat)
+    .mul(float(1).sub(groove.mul(0.6)));
+  material.clearcoatRoughnessNode = float(wetCoatRoughness);
   material.normalNode = screenBump(
-    paint.b.add(pickup.mul(0.25)),
+    paint.b.add(pickup.mul(0.25)).sub(groove.mul(grooveDepth)),
     reliefStrength,
   );
   return material;

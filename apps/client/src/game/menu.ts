@@ -6,6 +6,7 @@ import { compounds } from "./tyres.ts";
 import { raceLapOptions, raceLaps } from "./weekend.ts";
 import {
   autoFuelLaps,
+  applyWeather,
   carOf,
   cars,
   choices,
@@ -20,6 +21,8 @@ import {
   stageOf,
   trackOf,
   tracks,
+  weatherOf,
+  weatherPresets,
 } from "./settings.ts";
 
 export type MenuAction =
@@ -749,12 +752,7 @@ export class Menu {
     this.find("strip-right").replaceChildren(
       stat("Car", car.label),
       stat("Time", label(choices.timeOfDay, s.timeOfDay)),
-      stat(
-        "Weather",
-        s.rain === "none"
-          ? label(choices.clouds, s.clouds)
-          : label(choices.rain, s.rain),
-      ),
+      stat("Weather", weatherOf(s).label),
     );
   }
 
@@ -962,21 +960,12 @@ export class Menu {
         },
       ),
       this.choice(
-        "Clouds",
-        "Sets the cloud cover over the circuit.",
-        choices.clouds,
-        () => s.clouds,
+        "Weather",
+        "Sets the weather for the session. Light Cloud breaks the sky up with sunny spells, Overcast covers it in grey cloud, and the three wet settings bring more rain, more spray and less grip. Dynamic weather changes through the session and follows the forecast in the multi-function display.",
+        weatherPresets,
+        () => weatherOf(s).id,
         (id) => {
-          s.clouds = id as Settings["clouds"];
-        },
-      ),
-      this.choice(
-        "Rain",
-        "Sets the amount of rain. Wet weather reduces grip, and the racing line dries first once the rain stops. Dynamic weather changes through the session and follows the forecast in the multi-function display.",
-        choices.rain,
-        () => s.rain,
-        (id) => {
-          s.rain = id as Settings["rain"];
+          applyWeather(s, id);
         },
       ),
       this.choice(
@@ -1243,6 +1232,8 @@ export class Menu {
       sectors:
         "Shows the sector strip above the lap timer. Purple marks a best sector, yellow a slower one.",
       map: "Shows the track map with sectors and your position.",
+      proximity:
+        "Shows a red arrow on the left or right when a car is alongside or close behind you.",
       lights: "Shows the start lights on the on-screen display.",
       fuel: "Shows the battery gauge and fuel status on the dashboard.",
       tyres:

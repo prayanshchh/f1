@@ -100,6 +100,7 @@ import {
   type Settings,
   stageOf,
   trackOf,
+  weatherOf,
 } from "./game/settings.ts";
 import type { CourseTurn } from "./game/tutorial.ts";
 import {
@@ -774,19 +775,12 @@ function weatherFor(settings: Settings, rain: number): Weather {
     autumn: 26,
     winter: 15,
   };
-  const skies: Record<string, string> = {
-    "no cloud": "Clear",
-    "few clouds": "Light Cloud",
-    "scarce clouds": "Light Cloud",
-    "many clouds": "Cloudy",
-    "full cover": "Overcast",
-  };
   const wet = rain > 0;
   const overcast = ["many clouds", "full cover"].includes(settings.clouds);
   return {
     temperature:
       (seasonal[settings.season] ?? 27) - rain * 3 - (overcast ? 2 : 0),
-    label: wet ? "Rain (Wet)" : `${skies[settings.clouds] ?? "Clear"} (Dry)`,
+    label: `${weatherOf(settings).label} (${wet ? "Wet" : "Dry"})`,
     icon: wet ? "rain" : overcast ? "cloud" : "sun",
   };
 }
@@ -991,6 +985,7 @@ async function main(): Promise<void> {
     settings.racingLine,
     rivalCars(field),
     lights,
+    settings.clouds,
   );
   const draw = drawer(renderer, scene);
   debugHooks(params, engine, scene, renderer);

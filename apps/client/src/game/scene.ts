@@ -7,8 +7,8 @@ import roadUrl from "../../../../content/tracks/hill-country/road.glb?url";
 import { FieldCars } from "./field-cars.ts";
 import { frameIndex, type Engine, type HudInfo } from "./engine.ts";
 import type { WeatherInfo } from "./weather.ts";
-import { RainStreaks, Spray } from "./rain.ts";
-import { rainLight } from "./carpaint.ts";
+import { farRain, nearRain, RainStreaks, Spray } from "./rain.ts";
+import { carWetness, rainLight } from "./carpaint.ts";
 import { Debris, partCount, updateLook } from "./car-damage.ts";
 import { carField, carStride } from "./frame-layout.ts";
 import { GltfCar, placeOnTrack, type TrackFrame } from "./gltf.ts";
@@ -37,8 +37,18 @@ import { SafetyCar } from "./safety-car.ts";
 import type { StartLights } from "./start-lights.ts";
 import { SdSky } from "./sky.ts";
 import { SkyBox } from "./skybox.ts";
+import { sessionLight, type SessionLight } from "./daylight.ts";
+import {
+  floodMap,
+  Floodlights,
+  inWorld,
+  layoutPoles,
+  type TrackPoint,
+} from "./floodlights.ts";
+import { useFloodAmbient } from "./sky-ambient.ts";
 import { Crowd } from "./crowd.ts";
 import { TyreSmoke } from "./tyre-smoke.ts";
+import { tyreWetness } from "./tyre-paint.ts";
 import { frustumContains, WorldCuller } from "./world-culler.ts";
 import type { TyreInfo } from "./tyres.ts";
 
@@ -52,13 +62,15 @@ const cinematicNear = 0.5;
 const cinematicFar = 41000;
 const upAxis = new THREE.Vector3(0, 0, 1);
 const clearVisibility = 16000;
-const rainVisibility = 650;
+const rainVisibility = 150;
+const rainFogCurve = 1.5;
 const overcastSun = 0.86;
 const overcastExposure = 0.3;
 const overcastAmbient = 0.4;
-const rainDarkening = 0.4;
-const overcastHaze = 0.72;
-const chaseLens = 0.4;
+const rainDarkening = 0.65;
+const overcastHaze = 0.96;
+const chaseLens = 0.75;
+const rainMist = 0.1;
 const lensSpeed = 65;
 const sprayLight = 0.75;
 const streakLight = 0.6;
@@ -67,6 +79,65 @@ const cloudsFromWater = 1.6;
 const cloudSeconds = 25;
 const rainLightHertz = 4;
 const rainLightWater = 0.12;
+const mirrorWater = 0.05;
+const tyreWater = 0.12;
+const bodyRain = 0.25;
+const bodySeconds = 20;
+const floodColour = new THREE.Color(1, 0.97, 0.92);
+const floodIntensity = 2.4;
+const floodElevation = (66 * Math.PI) / 180;
+const floodAmbientUp = new THREE.Color(0.05, 0.05, 0.05);
+const floodAmbientDown = new THREE.Color(0.1, 0.1, 0.095);
+const nightGlare = 1.5;
+const nightAir = 0.06;
+const nightGlowMirror = 8;
+const roadSheen = 2.5;
+const cloudCover: Record<string, number> = {
+  "no cloud": 0,
+  "few clouds": 0.3,
+  "scarce clouds": 0.45,
+  "many clouds": 0.65,
+  "full cover": 1,
+};
+const overcastFrom = 0.9;
+const overcastDry = 0.85;
+const brokenSun = 0.18;
+
+function coverOf(clouds: string): number {
+  const known = cloudCover[clouds];
+  if (known !== undefined) return known;
+  const all = Object.values(cloudCover);
+  return all[Math.floor(Math.random() * all.length)] ?? 0;
+}
+
+interface TrackData {
+  length: number;
+  grid: GridSlot[];
+  centerline: TrackPoint[];
+  pitLane: { entry: number; exit: number };
+}
+
+function buildFloodlights(
+  data: TrackData,
+  frame: TrackFrame,
+  start: [number, number, number],
+): Floodlights {
+  const poles = layoutPoles(data.centerline, data.pitLane);
+  const holder = new THREE.Group();
+  const placed = placeOnTrack(holder, frame, start);
+  const toWorld = placed.matrix;
+  const track = data.centerline.map((p) =>
+    new THREE.Vector3(p.x, p.y, p.z).applyMatrix4(toWorld),
+  );
+  const lights = new Floodlights(
+    poles,
+    floodMap(track, inWorld(poles, toWorld)),
+  );
+  holder.add(lights.root);
+  lights.placed = placed;
+  return lights;
+}
+
 const dryWeather: WeatherInfo = {
   rain: 0,
   lineWater: 0,
@@ -77,6 +148,58 @@ const dryWeather: WeatherInfo = {
   interLimit: 0,
   forecast: [],
 };
+
+interface SessionLighting {
+  colour: THREE.Color;
+  intensity: number;
+  elevation: number;
+  haze: THREE.Color;
+  sunGlow: number;
+  glare: number;
+  glowMirror: number;
+  sheen: number;
+  air: THREE.Color | null;
+  cloudLight: number;
+}
+
+function sessionLighting(skyBox: SkyBox, night: boolean): SessionLighting {
+  if (night)
+    return {
+      colour: floodColour.clone(),
+      intensity: floodIntensity,
+      elevation: floodElevation,
+      haze: skyBox.nightHaze,
+      sunGlow: 0,
+      glare: nightGlare,
+      glowMirror: nightGlowMirror,
+      sheen: 0,
+      air: floodColour.clone().multiplyScalar(nightAir),
+      cloudLight: 0,
+    };
+  const [sr = 1, sg = 1, sb = 1] = skyBox.meta.sunColor;
+  const [hr = 1, hg = 1, hb = 1] = skyBox.meta.horizon;
+  return {
+    colour: new THREE.Color(sr, sg, sb),
+    intensity: skyBox.sunIntensity,
+    elevation: skyBox.meta.elevation,
+    haze: new THREE.Color(hr, hg, hb),
+    sunGlow: sunGlow * skyBox.sunStrength,
+    glare: 1,
+    glowMirror: 0,
+    sheen: roadSheen,
+    air: null,
+    cloudLight: 1,
+  };
+}
+
+function eased(current: number, target: number, step: number): number {
+  return current < 0 ? target : current + (target - current) * step;
+}
+
+function rainLightLevel(weather: WeatherInfo, time: number): number {
+  if (weather.rain <= 0.05 && weather.lineWater <= rainLightWater) return 0;
+  return Math.sin(time * Math.PI * 2 * rainLightHertz) > 0 ? 1 : 0.12;
+}
 
 function presentRoots(
   ...items: ({ root: THREE.Object3D } | null)[]
@@ -112,13 +235,15 @@ export class Scene {
   private cinematic: CameraPose | null = null;
   private readonly sunlight: Sunlight;
   private readonly smoke = new TyreSmoke();
-  private readonly rain = new RainStreaks();
+  private readonly rain = new RainStreaks(nearRain);
+  private readonly farRain = new RainStreaks(farRain);
   private readonly spray = new Spray();
   private readonly debris = new Debris();
   private readonly damageMatrix = new THREE.Matrix4();
   private readonly damageVelocity = new THREE.Vector3();
   private weather = dryWeather;
   private overcast = -1;
+  private bodyWater = -1;
   private weatherTime = 0;
   private cars: Float64Array | null = null;
   private readonly baseHaze = new THREE.Color();
@@ -126,6 +251,8 @@ export class Scene {
   private readonly streakColour = new THREE.Color();
   private readonly sprayColour = new THREE.Color();
   private baseExposure = 1;
+  private readonly cloudLight: number;
+  private readonly airLight: THREE.Color | null;
   private readonly moving: THREE.Object3D[];
   private readonly safetyCar = new SafetyCar();
   private signalAt = 0;
@@ -161,9 +288,14 @@ export class Scene {
     exposure: 1,
     visibility: clearVisibility,
     lensWater: 0,
+    reflections: 0,
+    mist: 0,
     airflow: 0,
     time: 0,
     detail: false,
+    glare: 1,
+    glowMirror: 0,
+    sheen: 0,
   };
 
   private constructor(
@@ -180,6 +312,9 @@ export class Scene {
     private readonly lapScale: number,
     private readonly field: FieldCars | null,
     private lights: StartLights,
+    light: SessionLight,
+    floodlights: Floodlights | null,
+    private readonly cover: number,
   ) {
     this.camera.matrixAutoUpdate = false;
     this.camera.matrixWorldAutoUpdate = false;
@@ -191,37 +326,31 @@ export class Scene {
       car.root,
       this.smoke.root,
       this.rain.mesh,
+      this.farRain.mesh,
       this.spray.root,
       this.debris.root,
       ...extras,
     );
-    const { sunColor, horizon } = skyBox.meta;
-    const colour = new THREE.Color(
-      sunColor[0] ?? 1,
-      sunColor[1] ?? 1,
-      sunColor[2] ?? 1,
-    );
+    const night = light.night >= 1;
+    const lit = sessionLighting(skyBox, night);
+    this.cloudLight = lit.cloudLight;
+    this.airLight = lit.air;
     this.sunlight = new Sunlight(
       this.scene,
-      skyBox.sunIntensity,
-      colour,
-      skyBox.meta.elevation,
+      lit.intensity,
+      lit.colour,
+      lit.elevation,
     );
-    this.atmosphere.sun.copy(colour).multiplyScalar(sunGlow);
-    this.atmosphere.haze.setRGB(
-      horizon[0] ?? 1,
-      horizon[1] ?? 1,
-      horizon[2] ?? 1,
-    );
+    this.placeFloodlights(floodlights, track, light.lamps, night);
+    this.atmosphere.sun.copy(lit.colour).multiplyScalar(lit.sunGlow);
+    this.atmosphere.glare = lit.glare;
+    this.atmosphere.glowMirror = lit.glowMirror;
+    this.atmosphere.sheen = lit.sheen;
+    this.atmosphere.haze.copy(lit.haze);
     this.atmosphere.exposure = skyBox.exposure;
     this.baseExposure = skyBox.exposure;
     this.baseHaze.copy(this.atmosphere.haze);
-    const grey =
-      (0.2126 * (horizon[0] ?? 1) +
-        0.7152 * (horizon[1] ?? 1) +
-        0.0722 * (horizon[2] ?? 1)) *
-      overcastHaze;
-    this.greyHaze.setRGB(grey * 0.95, grey * 0.98, grey);
+    this.greyHaze.copy(skyBox.overcastHorizon).multiplyScalar(overcastHaze);
     this.scene.add(
       this.marks.mesh,
       this.crew.root,
@@ -244,6 +373,20 @@ export class Scene {
     culler.bake();
   }
 
+  private placeFloodlights(
+    floodlights: Floodlights | null,
+    track: THREE.Object3D,
+    lamps: number,
+    night: boolean,
+  ): void {
+    if (!floodlights) return;
+    floodlights.glow.value = lamps;
+    if (floodlights.placed) track.add(floodlights.placed);
+    if (!night) return;
+    this.sunlight.floodlit(floodlights.cover);
+    useFloodAmbient(floodlights.cover, floodAmbientUp, floodAmbientDown);
+  }
+
   static async load(
     engine: Engine,
     team: string,
@@ -251,15 +394,22 @@ export class Scene {
     lineMode: RacingLineMode,
     rivals: string[],
     lights: StartLights,
+    clouds: string,
   ): Promise<Scene> {
     const anisotropy = renderer.getMaxAnisotropy();
     const textureLimit =
       (renderer.backend as { device?: GPUDevice }).device?.limits
         .maxTextureDimension2D ?? defaultTextureLimit;
     const local = engine.trackLocal();
-    const hours = local.timeOfDay / 3600;
-    const elevation = ((90 - 15 * Math.abs(hours - 12)) * Math.PI) / 180;
-    const skyLoad = SkyBox.load(elevation, hours > 12);
+    const light = sessionLight(local.timeOfDay / 3600);
+    const skyLoad = SkyBox.load(
+      light.elevation,
+      light.afternoon,
+      light.night,
+    ).then((sky) => {
+      sky.refreshEnvironment(renderer, 0, 1);
+      return sky;
+    });
     const envLoad = skyLoad.then((sky) => ({
       texture: sky.environment,
       rotation: sky.environmentRotation,
@@ -286,7 +436,7 @@ export class Scene {
           PitCrew.load(crewUrl, anisotropy, loaded, team),
         ),
         envLoad.then((loaded) => GltfCar.load(team, renderer, loaded)),
-        fetchJson<{ length: number; grid: GridSlot[] }>(trackUrl),
+        fetchJson<TrackData>(trackUrl),
       ]);
     const lengthScale = engine.trackLength() / gridData.length;
     const grid =
@@ -307,6 +457,8 @@ export class Scene {
     const placed = placeOnTrack(road, frame, start);
     placed.updateMatrixWorld(true);
     const culler = new WorldCuller(road, cascadeLayers);
+    const floodlights =
+      light.lamps > 0 ? buildFloodlights(gridData, frame, start) : null;
     const track = new THREE.Group();
     track.add(
       placed,
@@ -327,6 +479,9 @@ export class Scene {
       data.length / engine.trackLength(),
       field,
       lights,
+      light,
+      floodlights,
+      coverOf(clouds),
     );
   }
 
@@ -392,44 +547,64 @@ export class Scene {
     const time = frame[frameIndex.time] ?? 0;
     const rain = w.rain;
     const coming = Math.max(rain, (w.forecast[0] ?? 0) * forecastShare);
+    const overcastFloor = this.cover >= overcastFrom ? overcastDry : 0;
     const target = Math.min(
       1,
-      Math.max(coming * 4, w.offWater * cloudsFromWater),
+      Math.max(coming * 4, w.offWater * cloudsFromWater, overcastFloor),
     );
     const dt = Math.max(0, Math.min(1, time - this.weatherTime));
     this.weatherTime = time;
-    this.overcast =
-      this.overcast < 0
-        ? target
-        : this.overcast +
-          (target - this.overcast) * Math.min(1, dt / cloudSeconds);
+    this.overcast = eased(
+      this.overcast,
+      target,
+      Math.min(1, dt / cloudSeconds),
+    );
     const overcast = this.overcast;
     this.skyBox.overcast.value = overcast;
-    this.skyBox.overcastLight.value = 1 - rainDarkening * rain;
+    this.skyBox.overcastLight.value = 1 - rainDarkening * rain * rain;
     this.skyBox.cloudTime.value = time;
-    this.sunlight.dim(1 - overcastSun * overcast);
-    this.scene.environmentIntensity = 1 - overcastAmbient * overcast;
+    const broken = this.cover < overcastFrom ? this.cover : 0;
+    this.skyBox.broken.value = broken;
+    const shaded = overcast * this.cloudLight;
+    this.sunlight.dim(
+      (1 - overcastSun * shaded) * (1 - brokenSun * broken * this.cloudLight),
+    );
+    this.scene.environmentIntensity = 1 - overcastAmbient * shaded;
     this.atmosphere.exposure =
-      this.baseExposure * (1 + overcastExposure * overcast);
-    this.atmosphere.haze.copy(this.baseHaze).lerp(this.greyHaze, overcast);
+      this.baseExposure * (1 + overcastExposure * shaded);
+    this.atmosphere.haze
+      .copy(this.baseHaze)
+      .lerp(this.greyHaze, overcast)
+      .multiplyScalar(this.skyBox.overcastLight.value);
     this.atmosphere.visibility =
-      clearVisibility +
-      (rainVisibility - clearVisibility) * Math.pow(rain, 0.6);
+      1 /
+      (1 / clearVisibility +
+        (1 / rainVisibility - 1 / clearVisibility) *
+          Math.pow(rain, rainFogCurve));
     const speed = Math.abs(frame[frameIndex.speed] ?? 0);
     this.atmosphere.lensWater = rain * (onboard ? 1 : chaseLens);
+    this.atmosphere.mist = rainMist * Math.sqrt(rain);
     this.atmosphere.airflow = Math.min(1, speed / lensSpeed);
     this.atmosphere.time = time;
     setWetness(w.lineWater, w.offWater);
-    const wet = w.rain > 0.05 || w.lineWater > rainLightWater;
-    rainLight.value = wet
-      ? Math.sin(time * Math.PI * 2 * rainLightHertz) > 0
-        ? 1
-        : 0.12
-      : 0;
-    const haze = this.atmosphere.haze;
-    this.streakColour.copy(haze).multiplyScalar(streakLight);
-    this.sprayColour.copy(haze).multiplyScalar(sprayLight);
+    tyreWetness.value = Math.min(1, Math.max(w.carWater, rain) / tyreWater);
+    const soaked = Math.min(1, rain / bodyRain);
+    this.bodyWater = eased(
+      this.bodyWater,
+      soaked,
+      Math.min(1, dt / bodySeconds),
+    );
+    carWetness.value = this.bodyWater;
+    this.atmosphere.reflections = Math.min(
+      1,
+      Math.max(w.lineWater, w.offWater) / mirrorWater,
+    );
+    rainLight.value = rainLightLevel(w, time);
+    const air = this.airLight ?? this.atmosphere.haze;
+    this.streakColour.copy(air).multiplyScalar(streakLight);
+    this.sprayColour.copy(air).multiplyScalar(sprayLight);
     this.rain.update(rain, this.eye, time, this.streakColour);
+    this.farRain.update(rain, this.eye, time, this.streakColour);
     this.spray.update(
       time,
       { rain, water: (w.lineWater + w.offWater) / 2 },
@@ -494,6 +669,11 @@ export class Scene {
   }
 
   renderAuxiliary(renderer: THREE.WebGPURenderer): void {
+    this.skyBox.refreshEnvironment(
+      renderer,
+      Math.max(0, this.overcast),
+      this.skyBox.overcastLight.value,
+    );
     this.sunlight.freeze();
     if (this.warming) this.crew.root.visible = true;
     this.car.renderAuxiliary(renderer, this.scene);

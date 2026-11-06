@@ -57,6 +57,23 @@
           stroke-linejoin="round"
         />
       </symbol>
+      <symbol id="proximity-arrow" viewBox="0 0 48 64">
+        <path
+          d="M12 19 29 32 12 45Z"
+          fill="currentColor"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linejoin="round"
+        />
+        <path
+          d="M19 5 35 23Q42 32 35 41L19 59"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="7"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </symbol>
     </svg>
 
     <div class="hud" data-testid="hud" hidden>
@@ -129,6 +146,20 @@
         </div>
       </section>
 
+      <svg
+        class="proximity proximity-left part-proximity"
+        data-hud="proximity-left"
+        aria-hidden="true"
+      >
+        <use href="#proximity-arrow" />
+      </svg>
+      <svg
+        class="proximity proximity-right part-proximity"
+        data-hud="proximity-right"
+        aria-hidden="true"
+      >
+        <use href="#proximity-arrow" />
+      </svg>
       <div class="lights part-lights" data-hud="lights"></div>
       <div class="start-hint part-lights" data-hud="start-hint">
         Wait for lights out<span>Moving early is a jump start penalty</span>

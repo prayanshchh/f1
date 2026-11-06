@@ -7,22 +7,26 @@ import {
   float,
   fwidth,
   materialEmissive,
+  materialNormal,
   materialRoughness,
   mix,
   mx_noise_float,
+  cameraWorldMatrix,
   normalView,
+  normalViewGeometry,
   positionViewDirection,
   positionWorld,
-  reflectVector,
   renderGroup,
   smoothstep,
   step,
   materialColor,
+  output,
   texture,
   uniform,
   uv,
   vec2,
   vec3,
+  vec4,
 } from "three/tsl";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { CSMShadowNode } from "three/examples/jsm/csm/CSMShadowNode.js";
@@ -36,6 +40,7 @@ import grainUrl from "../../../../content/tracks/hill-country/textures/source/as
 import { frustumContains, type SphereTest } from "./world-culler.ts";
 import {
   asphaltDetail,
+  type AsphaltDetail,
   lushGrass,
   mownAlong,
   mownWorld,
@@ -71,24 +76,49 @@ const startLampRed = vec3(2, 0.02, 0.012);
 const rubberWidth = 1.3;
 const lineHalfWidth = 1.0;
 const lineBlend = 1.2;
+const trackAcross = 1.1;
+const trackAlong = 0.024;
+const trackWidth = 0.18;
+const trackReach = 2.6;
+const trackFloor = 0.3;
+const trackDrying = 0.12;
 const wetFrom = 0.015;
 const wetFull = 0.28;
-const wetDarkening = 0.5;
+const wetDarkening = 0.75;
 const wetRoughness = 0.55;
 const puddleScale = 0.055;
 const puddleFrom = 0.38;
+const puddleGrowth = 0.22;
 const puddleDarkening = 0.55;
-const puddleRoughness = 0.06;
-const reflectionWet = 0.09;
-const reflectionPuddle = 0.38;
+const puddleRoughness = 0.12;
+const paintGlint = 0.025;
+const filmFrom = 0.3;
+const filmFull = 0.85;
+const filmRoughness = 0.4;
+const filmFlattening = 0.85;
+const pondGain = 3;
+const pondBias = 0.1;
+const pondReach = 0.6;
+const toneRelief = 0.4;
+const pondMottle = 0.4;
+const pondScale = 0.6;
+const dampShare = 0.3;
 const fresnelBase = 0.04;
+const mirrorWet = 0.3;
+const mirrorPuddle = 0.72;
+const horizonFrom = 0.04;
+const horizonTo = 0.24;
+const surroundShade = 0.35;
+const mirrorPaint = 0.22;
 const kerbWetDarkening = 0.3;
-const grassWetDarkening = 0.2;
+const grassWetDarkening = 0.1;
+const sealedWetDarkening = 0.42;
 const rubberDarkening = 0.42;
 const rubberSmoothing = 0.3;
 const shadowMapSize = 2048;
 const shadowDistance = 4000;
 const shadowSoftness = 1.5;
+const floodShadow = 0.45;
 const cascadeEnds = [24, 90, 340, 1600];
 const cascadePeriods = [1, 2, 4, 8];
 const cascadePixels = [4096, 4096, 2048, 2048];
@@ -260,6 +290,8 @@ const withTyreSunlight = ((shadow: ReturnType<typeof tyreSunlight>) =>
 
 const wetLine = uniform(0).setGroup(renderGroup);
 const wetOff = uniform(0).setGroup(renderGroup);
+const sealedShare = new WeakMap<THREE.Material, THREE.Node<"float">>();
+const asphaltDetails = new WeakMap<THREE.Material, AsphaltDetail>();
 
 export function setWetness(line: number, off: number): void {
   wetLine.value = line;
@@ -278,9 +310,9 @@ function wetOf(water: THREE.Node<"float">) {
 
 const trackWet = wetLine.max(wetOff).greaterThan(wetFrom);
 
-function whenWet(wet: () => THREE.Node<"vec3">): THREE.Node<"vec3"> {
+function whenWet(wet: () => THREE.Node<"vec4">): THREE.Node<"vec4"> {
   return Fn(() => {
-    const result = vec3(0).toVar();
+    const result = vec4(0).toVar();
     If(trackWet, () => {
       result.assign(wet());
     });
@@ -297,27 +329,108 @@ function lineWater() {
   return mix(wetOff, wetLine, share);
 }
 
+function tyreTracks() {
+  const lateral = uv(1).x;
+  const field = mx_noise_float(
+    vec2(lateral.mul(trackAcross), uv().y.mul(trackAlong)),
+  );
+  const soft = fwidth(field).add(trackWidth);
+  const line = smoothstep(soft, 0, field.abs()).mul(
+    soft.reciprocal().mul(trackWidth),
+  );
+  const reach = exp(lateral.div(trackReach).pow(2).negate());
+  return line.mul(mix(float(trackFloor), float(1), reach));
+}
+
+function trackedWater() {
+  return lineWater().mul(float(1).sub(tyreTracks().mul(trackDrying)));
+}
+
 function puddles(water: THREE.Node<"float">) {
-  const noise = mx_noise_float(vec3(positionWorld.xy.mul(puddleScale), 0.0));
-  const depth = water.sub(puddleFrom).mul(2.2);
+  const noise = mx_noise_float(positionWorld.xy.mul(puddleScale));
+  const depth = water.sub(puddleFrom).mul(puddleGrowth);
   return smoothstep(0.15, 0.45, noise.mul(0.5).add(depth));
+}
+
+function filmFresnel() {
+  const facing = dot(normalViewGeometry, positionViewDirection)
+    .abs()
+    .oneMinus();
+  return float(fresnelBase).add(float(1 - fresnelBase).mul(facing.pow(5)));
+}
+
+function mirrorShare(
+  material: THREE.MeshStandardNodeMaterial,
+  share: THREE.Node<"float">,
+): void {
+  material.outputNode = vec4(
+    output.rgb,
+    float(1).sub(share.mul(filmFresnel()).clamp(0, 0.98)),
+  );
+}
+
+class HorizonEnvironment extends THREE.EnvironmentNode {
+  constructor(
+    envNode: THREE.Node | null,
+    private readonly shade: THREE.Node<"float">,
+  ) {
+    super(envNode);
+  }
+
+  override setup(builder: THREE.NodeBuilder): undefined {
+    const context = builder.context as { radiance: THREE.Node<"vec3"> };
+    const radiance = context.radiance;
+    const own = vec3(0).toVar();
+    context.radiance = own;
+    super.setup(builder);
+    context.radiance = radiance;
+    radiance.addAssign(own.mul(this.shade));
+    return undefined;
+  }
+}
+
+class GroundMaterial extends THREE.MeshStandardNodeMaterial {
+  horizon: THREE.Node<"float"> | null = null;
+
+  override setupEnvironment(
+    builder: THREE.NodeBuilder,
+  ): THREE.EnvironmentNode | null {
+    const base = super.setupEnvironment(builder);
+    if (!base || !this.horizon) return base;
+    return new HorizonEnvironment(base.envNode, this.horizon);
+  }
+}
+
+function shadeHorizon(
+  material: THREE.MeshStandardNodeMaterial,
+  wet: THREE.Node<"float">,
+): void {
+  if (!(material instanceof GroundMaterial)) return;
+  const up = positionViewDirection
+    .negate()
+    .reflect(normalView)
+    .transformDirection(cameraWorldMatrix).z;
+  const open = smoothstep(horizonFrom, horizonTo, up);
+  material.horizon = mix(
+    float(1),
+    mix(float(surroundShade), float(1), open),
+    wet,
+  );
 }
 
 function skyGlint(sky: SkyRadiance | null, strength: THREE.Node<"float">) {
   if (!sky) return vec3(0);
   return Fn(() => {
     const result = vec3(0).toVar();
-    const facing = dot(normalView, positionViewDirection)
-      .abs()
-      .oneMinus()
+    const fresnel = filmFresnel().toVar();
+    const mirrored = positionViewDirection
+      .negate()
+      .reflect(normalViewGeometry)
+      .transformDirection(cameraWorldMatrix)
       .toVar();
-    const direction = reflectVector.toVar();
     const amount = strength.toVar();
     If(trackWet, () => {
-      const fresnel = float(fresnelBase).add(
-        float(1 - fresnelBase).mul(facing.pow(5)),
-      );
-      result.assign(sky(direction).mul(fresnel).mul(amount));
+      result.assign(sky(mirrored).mul(fresnel).mul(amount));
     });
     return result;
   })();
@@ -329,27 +442,55 @@ function wetAsphalt(
   sky: SkyRadiance | null,
   pooled: boolean,
 ): void {
+  const detail = asphaltDetails.get(material);
   const state = whenWet(() => {
     const level = water();
-    return vec3(wetOf(level), pooled ? puddles(level) : float(0), 0);
+    return vec4(
+      wetOf(level),
+      pooled ? puddles(level) : float(0),
+      smoothstep(filmFrom, filmFull, level),
+      detail ? float(0) : mx_noise_float(positionWorld.xy.mul(pondScale)),
+    );
   });
   const wet = state.x;
   const pool = state.y;
+  const mottle = detail?.mottle ?? state.w;
+  const relief = detail ? mix(float(1), detail.tone, toneRelief) : float(1);
+  const standing = state.z
+    .mul(pondReach)
+    .add(float(1).sub(relief).add(mottle.mul(pondMottle)).mul(pondGain))
+    .sub(pondBias)
+    .clamp(0, 1)
+    .mul(wet);
   const shade = mix(float(1), float(1 - wetDarkening), wet).mul(
     mix(float(1), float(1 - puddleDarkening), pool),
   );
   material.colorNode = (material.colorNode ?? materialColor).mul(shade);
   const rough = material.roughnessNode ?? materialRoughness;
   material.roughnessNode = mix(
-    mix(rough as ReturnType<typeof float>, float(wetRoughness), wet),
+    mix(
+      mix(rough as ReturnType<typeof float>, float(wetRoughness), wet),
+      float(filmRoughness),
+      standing,
+    ),
     float(puddleRoughness),
     pool,
   );
-  const glint = skyGlint(
-    sky,
-    wet.mul(reflectionWet).add(pool.mul(reflectionPuddle - reflectionWet)),
-  );
-  material.emissiveNode = emissiveOf(material).add(glint);
+  if (material.normalMap)
+    material.normalNode = mix(
+      materialNormal,
+      normalView,
+      standing.mul(filmFlattening).max(pool),
+    ).normalize();
+  if (sky)
+    mirrorShare(
+      material,
+      wet
+        .mul(mirrorWet)
+        .mul(mix(float(dampShare), float(1), standing))
+        .add(pool.mul(mirrorPuddle - mirrorWet)),
+    );
+  shadeHorizon(material, wet);
 }
 
 function wetPaint(
@@ -367,14 +508,33 @@ function wetPaint(
     wet,
   );
   material.emissiveNode = emissiveOf(material).add(
-    skyGlint(sky, wet.mul(reflectionWet * 0.7)),
+    skyGlint(sky, wet.mul(paintGlint)),
   );
+  if (sky) mirrorShare(material, wet.mul(mirrorPaint));
+  shadeHorizon(material, wet);
 }
 
-function wetGrass(material: THREE.MeshStandardNodeMaterial): void {
+function wetGrass(
+  material: THREE.MeshStandardNodeMaterial,
+  sky: SkyRadiance | null,
+): void {
+  const wet = wetOf(wetOff);
+  const sealed = sealedShare.get(material);
+  const darkening = sealed
+    ? mix(float(grassWetDarkening), float(sealedWetDarkening), sealed)
+    : float(grassWetDarkening);
   material.colorNode = (material.colorNode ?? materialColor).mul(
-    mix(float(1), float(1 - grassWetDarkening), wetOf(wetOff)),
+    float(1).sub(darkening.mul(wet)),
   );
+  if (!sealed) return;
+  const soaked = wet.mul(sealed);
+  const rough = material.roughnessNode ?? materialRoughness;
+  material.roughnessNode = mix(
+    rough as ReturnType<typeof float>,
+    float(filmRoughness),
+    soaked,
+  );
+  if (sky) mirrorShare(material, soaked.mul(mirrorWet));
 }
 
 function applyWetness(
@@ -383,12 +543,13 @@ function applyWetness(
   sky: SkyRadiance | null,
 ): void {
   const name = source.name;
-  if (name.endsWith("road asphalt")) wetAsphalt(material, lineWater, sky, true);
+  if (name.endsWith("road asphalt"))
+    wetAsphalt(material, trackedWater, sky, true);
   else if (name.endsWith("asphalt"))
     wetAsphalt(material, () => wetOff, sky, !name.includes("pit"));
   else if (/(road paint|road kerb|pit strip|pit red)$/.test(name))
     wetPaint(material, sky);
-  else if (/(road grass|terrain)$/.test(name)) wetGrass(material);
+  else if (/(road grass|terrain)$/.test(name)) wetGrass(material, sky);
 }
 
 export interface BakedGround {
@@ -429,6 +590,7 @@ function shadeRoad(
   );
   const band = rubber();
   const detail = asphaltDetail(baked.grain);
+  asphaltDetails.set(material, detail);
   material.colorNode = asphaltGrain(source)
     .mul(tone)
     .mul(detail.tone)
@@ -505,6 +667,7 @@ function shadeApron(
   color = mix(color, paintWhite.mul(hard), white);
   material.colorNode = color;
   const sealed = concrete.max(paved).max(teal).max(blue).max(red).max(white);
+  sealedShare.set(material, sealed);
   material.roughnessNode = mix(
     float(grassRoughness),
     float(paintRoughness),
@@ -598,7 +761,7 @@ export function surface(
   if (source.name === "track start lamps") return startLampMaterial();
   const offset = depthOffsets[source.name] ?? 0;
   const Material = skyReflecting.test(source.name)
-    ? THREE.MeshStandardNodeMaterial
+    ? GroundMaterial
     : SkyLitMaterial;
   const material = new Material({
     name: source.name,
@@ -759,6 +922,8 @@ function startLampMaterial(): THREE.MeshStandardNodeMaterial {
 
 export class Sunlight {
   readonly sun = new THREE.DirectionalLight(0xffffff, 1);
+  private readonly tint = uniform(new THREE.Color());
+  private flooded = false;
   readonly direction = new THREE.Vector3();
   private readonly cascades: CSMShadowNode;
   private tick = 0;
@@ -811,6 +976,12 @@ export class Sunlight {
 
   dim(scale: number): void {
     this.scale = scale;
+  }
+
+  floodlit(cover: THREE.Node<"float">): void {
+    (this.sun as { colorNode?: THREE.Node }).colorNode = this.tint.mul(cover);
+    this.sun.shadow.intensity = floodShadow;
+    this.flooded = true;
   }
 
   refit(): void {
@@ -885,6 +1056,8 @@ export class Sunlight {
       .multiplyScalar(shadowDistance)
       .add(this.sun.target.position);
     this.sun.intensity = this.intensity * this.scale;
+    if (this.flooded)
+      this.tint.value.copy(this.sun.color).multiplyScalar(this.sun.intensity);
     this.schedule();
   }
 }

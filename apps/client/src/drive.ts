@@ -63,7 +63,7 @@ import { LapTrace } from "./game/laptrace.ts";
 import { Menu } from "./game/menu.ts";
 import type { CarStatus } from "./game/mfd.ts";
 import { type PadCommands, PadLink } from "./game/pad.ts";
-import { PlayerError, playerMessage } from "./game/player-error.ts";
+import { playerMessage } from "./game/player-error.ts";
 import { readyCard } from "./game/ready-card.ts";
 import { Atmosphere } from "./game/atmosphere.ts";
 import { RaceLog } from "./game/race-log.ts";
@@ -284,8 +284,12 @@ function fitStage(): void {
   document.documentElement.style.setProperty("--s", String(scale));
 }
 
+async function gpuAdapter(): Promise<GPUAdapter | null> {
+  return "gpu" in navigator ? navigator.gpu.requestAdapter() : null;
+}
+
 async function softwareAdapter(): Promise<boolean> {
-  const adapter = await navigator.gpu.requestAdapter();
+  const adapter = await gpuAdapter();
   if (!adapter) return true;
   const info = adapter.info;
   return (
@@ -636,7 +640,7 @@ function poseOf(frame: Float64Array) {
 async function createRenderer(
   target: HTMLCanvasElement,
 ): Promise<THREE.WebGPURenderer> {
-  const adapter = await navigator.gpu.requestAdapter();
+  const adapter = await gpuAdapter();
   const renderer = new THREE.WebGPURenderer({
     canvas: target,
     reversedDepthBuffer: true,
@@ -1011,8 +1015,6 @@ async function main(): Promise<void> {
   if (!canvas || !hudRoot) throw new Error("drive page markup is missing");
   fitStage();
   window.addEventListener("resize", fitStage);
-  if (!("gpu" in navigator))
-    throw new PlayerError("This page needs WebGPU (Chrome 113 or newer).");
 
   const renderer = await createRenderer(canvas);
 

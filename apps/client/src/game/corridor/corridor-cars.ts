@@ -145,6 +145,7 @@ export class CorridorCars {
   private readonly ids = new Map<string, number>();
   private readonly wheels = new Map<string, GeometryData>();
   private readonly placed: Placed[] = [];
+  private readonly propPlaced: Placed[] = [];
   private readonly shadowTexture: number;
 
   private constructor(
@@ -293,6 +294,32 @@ export class CorridorCars {
         last: (object.material as THREE.Material).transparent,
       });
     for (const child of object.children) this.collect(child, team);
+  }
+
+  props(root: THREE.Object3D): Placed[] {
+    this.propPlaced.length = 0;
+    if (!root.visible) return this.propPlaced;
+    root.updateMatrixWorld(true);
+    root.traverse((object) => {
+      if (!drawable(object) || !object.visible) return;
+      this.propPlaced.push({
+        mesh: this.propId(object),
+        matrix: object.matrixWorld,
+        last: false,
+      });
+    });
+    return this.propPlaced;
+  }
+
+  private propId(mesh: THREE.Mesh): number {
+    const material = mesh.material as THREE.MeshStandardMaterial;
+    return this.cached(`${mesh.geometry.uuid}:prop:${material.uuid}`, () => {
+      const colour = srgbColour(material.color);
+      return this.flatId(
+        mesh,
+        flatMesh(geometryData(mesh.geometry), () => colour),
+      );
+    });
   }
 
   update(cars: Float64Array, camera: THREE.Camera): Placed[] {

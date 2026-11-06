@@ -270,6 +270,14 @@ const headerStampOf = (dir) =>
 const sharedStamp = headerStampOf(path.join(glue, "include"));
 const glueStamp = headerStampOf(glue);
 
+const optionsFile = path.join(objects, "options.json");
+const options = JSON.stringify({ flags, defines, includes });
+if (!existsSync(optionsFile) || readFileSync(optionsFile, "utf8") !== options) {
+  rmSync(objects, { recursive: true, force: true });
+  mkdirSync(objects, { recursive: true });
+  writeFileSync(optionsFile, options);
+}
+
 const objectFiles = [];
 for (const source of sources) {
   const object = path.join(

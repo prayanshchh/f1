@@ -144,9 +144,21 @@ export class CorridorView {
     ]);
     module._cr_init(threads);
     const view = new CorridorView(module, manifest, base);
-    await view.loadShared();
-    await view.loadTrack();
+    try {
+      await view.loadShared();
+      await view.loadTrack();
+    } catch (error) {
+      view.dispose();
+      throw error;
+    }
     return view;
+  }
+
+  dispose(): void {
+    this.module.PThread.terminateAllThreads();
+    this.worker.terminate();
+    this.presenter.terminate();
+    this.canvas.remove();
   }
 
   get memory(): WebAssembly.Memory {

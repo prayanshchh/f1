@@ -25,6 +25,21 @@ export async function corridorDrawer(
 ): Promise<CorridorDraw> {
   const threads = Math.max(2, (navigator.hardwareConcurrency || 4) - 1);
   const view = await CorridorView.load(base, threads);
+  try {
+    return await assemble(view, scene, engine, teams, gpuCanvas);
+  } catch (error) {
+    view.dispose();
+    throw error;
+  }
+}
+
+async function assemble(
+  view: CorridorView,
+  scene: Scene,
+  engine: Engine,
+  teams: string[],
+  gpuCanvas: HTMLCanvasElement,
+): Promise<CorridorDraw> {
   const wall = (await (
     await fetch(`${base}tyre-wall.json`)
   ).json()) as TyreWall;
@@ -76,7 +91,11 @@ export async function corridorDrawer(
       view.render(
         scene.trackMatrix,
         scene.camera,
-        [...cars.update(engine.cars(), scene.camera), ...line.update(scene)],
+        [
+          ...cars.update(engine.cars(), scene.camera),
+          ...cars.props(scene.safetyCarRoot),
+          ...line.update(scene),
+        ],
         light,
       );
     },

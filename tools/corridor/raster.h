@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <cstring>
 #include <functional>
+#include <limits>
 #include <mutex>
 #include <thread>
 #include <vector>
@@ -792,8 +793,7 @@ class Renderer {
         const f4 b = w1 + t.e1[0] * xs;
         const f4 c = w2 + t.e2[0] * xs;
         const f4 qs = q0 + t.q[0] * xs;
-        f4 old;
-        std::memcpy(&old, depthRow + x, sizeof old);
+        const f4 old = depthGroup(depthRow, x, x1);
         const f4 held = qs * t.bias;
         const i4 mask = (a >= 0.0f) & (b >= 0.0f) & (c >= 0.0f) & (held > old) & (xs <= limit);
         if (!(mask[0] | mask[1] | mask[2] | mask[3])) continue;
@@ -848,6 +848,16 @@ class Renderer {
     }
   }
 
+  static lanes depthGroup(const float* row, int x, int x1) {
+    lanes old;
+    if (x + 3 <= x1) {
+      std::memcpy(&old, row + x, sizeof old);
+      return old;
+    }
+    for (int l = 0; l < 4; l++) old[l] = x + l <= x1 ? row[x + l] : std::numeric_limits<float>::infinity();
+    return old;
+  }
+
   static int mipLevel(const Triangle& t, const Texture& tex, float u, float v, float iq) {
     const float texW = float(tex.width[0]), texH = float(tex.height[0]);
     const float dux = (t.u[0] - u * t.q[0]) * iq * texW, dvx = (t.v[0] - v * t.q[0]) * iq * texH;
@@ -899,8 +909,7 @@ class Renderer {
         const f4 b = w1 + t.e1[0] * xs;
         const f4 c = w2 + t.e2[0] * xs;
         const f4 qs = q0 + t.q[0] * xs;
-        f4 old;
-        std::memcpy(&old, depthRow + x, sizeof old);
+        const f4 old = depthGroup(depthRow, x, x1);
         const i4 mask = (a >= 0.0f) & (b >= 0.0f) & (c >= 0.0f) & (qs * t.bias > old) & (xs <= limit);
         if (!(mask[0] | mask[1] | mask[2] | mask[3])) continue;
         for (int l = 0; l < 4; l++) {

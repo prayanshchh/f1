@@ -516,6 +516,10 @@ export class Scene {
     return this.sunlight.sun;
   }
 
+  get safetyCarRoot(): THREE.Object3D {
+    return this.safetyCar.root;
+  }
+
   get trackMatrix(): THREE.Matrix4 {
     return this.road.matrixWorld;
   }

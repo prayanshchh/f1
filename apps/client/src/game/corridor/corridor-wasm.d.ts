@@ -1,6 +1,7 @@
 declare module "*/wasm/corridor.js" {
   export interface CorridorModule {
     wasmMemory: WebAssembly.Memory;
+    PThread: { terminateAllThreads(): void };
     _malloc(bytes: number): number;
     _free(pointer: number): void;
     _cr_init(threads: number): void;

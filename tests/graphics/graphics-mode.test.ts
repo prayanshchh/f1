@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import {
   type GraphicsLevel,
   GraphicsMode,
@@ -109,6 +109,50 @@ describe("graphics mode", () => {
     expect(low.shown).toBe(true);
     expect(await mode.switchTo("ultra")).toBe(true);
     expect([low.shown, ultra.shown]).toEqual([false, true]);
+  });
+
+  test("a race that cannot start in Ultra starts in Low instead of failing", async () => {
+    const low = probe();
+    const changes: GraphicsLevel[] = [];
+    const mode = new GraphicsMode(
+      "ultra",
+      (level) =>
+        level === "ultra"
+          ? Promise.reject(new Error("no graphics card"))
+          : Promise.resolve(low.view),
+      (level) => changes.push(level),
+    );
+    await mode.start();
+    expect(mode.level).toBe("low");
+    expect(mode.target).toBe("low");
+    expect(low.shown).toBe(true);
+    expect(changes).toEqual(["low"]);
+  });
+
+  test("a switch that finishes loading during a replay waits for the replay to close", async () => {
+    vi.useFakeTimers();
+    try {
+      const ultra = probe();
+      const low = probe();
+      let replaying = true;
+      const mode = new GraphicsMode(
+        "ultra",
+        (level) => Promise.resolve(level === "ultra" ? ultra.view : low.view),
+        () => undefined,
+      );
+      mode.holdSwapsWhile(() => replaying);
+      await mode.start();
+      const switching = mode.switchTo("low");
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(mode.level).toBe("ultra");
+      expect([ultra.shown, low.shown]).toEqual([true, false]);
+      replaying = false;
+      await vi.advanceTimersByTimeAsync(200);
+      expect(await switching).toBe(true);
+      expect([ultra.shown, low.shown]).toEqual([false, true]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test("Ultra is judged too slow from the median frame after the opening frames", () => {

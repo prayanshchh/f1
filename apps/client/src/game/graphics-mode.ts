@@ -14,6 +14,7 @@ const detectedKey = "revracers.graphics.detected";
 const slowFrameMs = 22;
 const judgeFrames = 240;
 const settleFrames = 120;
+const swapPollMs = 100;
 
 export function detectedLevel(): GraphicsLevel {
   try {
@@ -46,6 +47,7 @@ export class GraphicsMode {
   private frames: number[] = [];
   private lastFrame = 0;
   private judged = false;
+  private busy: () => boolean = () => false;
 
   constructor(
     public level: GraphicsLevel,
@@ -63,8 +65,18 @@ export class GraphicsMode {
     return this.wanted;
   }
 
+  holdSwapsWhile(busy: () => boolean): void {
+    this.busy = busy;
+  }
+
   async start(): Promise<void> {
-    this.current = await this.viewOf(this.level);
+    this.current = await this.viewOf(this.level).catch((error: unknown) => {
+      if (this.level === "low") throw error;
+      this.views.delete(this.level);
+      this.level = "low";
+      this.wanted = "low";
+      return this.viewOf("low");
+    });
     this.current.show(true);
     this.changed(this.level);
   }
@@ -85,6 +97,8 @@ export class GraphicsMode {
       if (this.wanted === level) this.wanted = this.level;
       throw error;
     });
+    while (this.busy())
+      await new Promise((resolve) => setTimeout(resolve, swapPollMs));
     if (this.wanted !== level || level === this.level) return false;
     this.current?.show(false);
     view.show(true);

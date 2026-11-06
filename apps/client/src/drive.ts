@@ -326,6 +326,21 @@ async function softwareAdapter(): Promise<boolean> {
   );
 }
 
+function startReason(
+  graphics: GraphicsMode,
+  start: { level: GraphicsLevel; reason: LowReason | null },
+  settings: Settings,
+  menu: Menu,
+): LowReason | null {
+  if (graphics.level === start.level) return start.reason;
+  rememberDetected("low");
+  if (settings.graphics !== "auto") {
+    settings.graphics = "low";
+    menu.save();
+  }
+  return "no-gpu";
+}
+
 async function probeGraphics(): Promise<boolean> {
   const software = await softwareAdapter();
   if (software) rememberDetected("low");
@@ -354,6 +369,9 @@ function viewBuilder(
 ): (level: GraphicsLevel) => Promise<GraphicsView> {
   return async (level) => {
     if (level === "ultra") {
+      const backend = renderer.backend as { isWebGPUBackend?: boolean };
+      if (backend.isWebGPUBackend !== true)
+        throw new Error("Ultra needs a WebGPU graphics card");
       const draw = drawer(renderer, scene);
       await scene.warmUp(renderer, draw);
       return {
@@ -1195,22 +1213,35 @@ async function main(): Promise<void> {
     else if (coach) coach.skip();
     else restart(false);
   };
-  const switchGraphics = (level: GraphicsLevel, detail: string) => {
+  const keepGraphics = (level: GraphicsLevel) => {
+    if (settings.graphics === "auto" && level === detectedLevel()) return;
+    settings.graphics = level;
+    menu.save();
+  };
+  const switchGraphics = (
+    level: GraphicsLevel,
+    detail: string,
+    chosen: boolean,
+  ) => {
     const title = level === "ultra" ? "Ultra graphics" : "Low graphics";
     hud.notify(title, detail, performance.now() / 1000);
-    graphics.switchTo(level).catch(() => {
-      hud.notify(
-        "Ultra unavailable",
-        "This computer has no graphics card that can draw Ultra",
-        performance.now() / 1000,
-      );
-    });
+    graphics.switchTo(level).then(
+      (switched) => {
+        if (switched && chosen) keepGraphics(level);
+      },
+      () => {
+        if (chosen) keepGraphics(graphics.level);
+        hud.notify(
+          "Ultra unavailable",
+          "This computer has no graphics card that can draw Ultra",
+          performance.now() / 1000,
+        );
+      },
+    );
   };
   const chooseGraphics = (level: GraphicsLevel) => {
     if (level === graphics.target) return;
-    settings.graphics = level;
-    menu.save();
-    switchGraphics(level, "Press G to switch back");
+    switchGraphics(level, "Press G to switch back", true);
   };
   const watchGraphics = (now: number) => {
     const forced = params.has("corridor") || params.has("autostart");
@@ -1220,7 +1251,12 @@ async function main(): Promise<void> {
       graphics.switchTo("low").catch(() => {
         note.hide();
       });
-    else switchGraphics("low", "Your graphics card is busy. Press G for Ultra");
+    else
+      switchGraphics(
+        "low",
+        "Your graphics card is busy. Press G for Ultra",
+        false,
+      );
   };
   const pause = () => {
     if (paused || finished()) return;
@@ -1302,7 +1338,9 @@ async function main(): Promise<void> {
   setStatus("Preparing circuit…");
   statusBar.followDownloads(0.85, 0.99);
   await graphics.start();
+  const lowReason = startReason(graphics, start, settings, menu);
   setStatus("");
+  graphics.holdSwapsWhile(() => replay?.active === true);
   replay = new InstantReplay({
     engine,
     scene,
@@ -1631,7 +1669,7 @@ async function main(): Promise<void> {
     if (frameStale) draw();
     frameStale = false;
   };
-  if (start.reason) note.show(start.reason);
+  if (lowReason) note.show(lowReason);
   const ahead = frameAhead();
   const racingNow = () => flow?.finished !== true && !paused && !ended;
   const launchNext = (now: number, racing: boolean) => {

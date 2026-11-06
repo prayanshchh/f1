@@ -67,7 +67,7 @@ const runoffAsphalt = vec3(0.14, 0.135, 0.13);
 const paintRoughness = 0.62;
 const grassRoughness = 0.95;
 const startLampRows = 2;
-const startLampRed = vec3(6, 0.15, 0.05);
+const startLampRed = vec3(2, 0.02, 0.012);
 const rubberWidth = 1.3;
 const lineHalfWidth = 1.0;
 const lineBlend = 1.2;
@@ -750,7 +750,9 @@ function startLampMaterial(): THREE.MeshStandardNodeMaterial {
     side: THREE.DoubleSide,
   });
   const lamp = uv();
-  const on = step(lamp.x, startLightsLit).mul(step(startLampRows, lamp.y));
+  const on = step(lamp.x, startLightsLit).mul(
+    step(startLampRows, float(1).sub(lamp.y)),
+  );
   material.emissiveNode = startLampRed.mul(on);
   return material;
 }

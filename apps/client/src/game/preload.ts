@@ -21,8 +21,16 @@ DefaultLoadingManager.itemEnd = (url: string) => {
 const sizes = JSON.parse(
   document.querySelector("[data-asset-sizes]")?.textContent ?? "{}",
 ) as Record<string, number>;
+interface DownloadTotals {
+  received: number;
+  expected: number;
+  plans: number;
+}
+
 let expectedBytes = 0;
 let receivedBytes = 0;
+let phase: DownloadTotals = { received: 0, expected: 0, plans: 0 };
+const declared = new Set<string>();
 const plainFetch = globalThis.fetch.bind(globalThis);
 const storeName = "revracers-assets";
 let store: Promise<Cache | null> | null = null;
@@ -89,16 +97,24 @@ if (Object.keys(sizes).length > 0)
   }, 10_000);
 
 globalThis.fetch = async (input, init) => {
+  const mine = phase;
   const url = requestUrl(input);
   const response = buildAsset(url, input, init)
     ? await keptFetch(url, input, init)
     : await plainFetch(input, init);
-  const size = url.origin === location.origin ? expectedSize(url, response) : 0;
+  const size =
+    url.origin === location.origin && url.protocol === location.protocol
+      ? expectedSize(url, response)
+      : 0;
   if (!response.ok || !response.body || size <= 0) return response;
-  expectedBytes += size;
+  if (!declared.delete(url.pathname)) {
+    expectedBytes += size;
+    mine.expected += size;
+  }
   const counted = new TransformStream<Uint8Array, Uint8Array>({
     transform(chunk, controller) {
       receivedBytes += chunk.byteLength;
+      mine.received += chunk.byteLength;
       controller.enqueue(chunk);
     },
   });
@@ -116,6 +132,26 @@ export function downloadsFromNow(): () => number {
     expectedBytes > expected
       ? (receivedBytes - received) / (expectedBytes - expected)
       : 0;
+}
+
+export function expectDownloads(urls: string[]): void {
+  phase.plans += 1;
+  for (const url of urls) {
+    const path = new URL(url, location.href).pathname;
+    const size = sizes[path];
+    if (size === undefined || declared.has(path)) continue;
+    declared.add(path);
+    expectedBytes += size;
+    phase.expected += size;
+  }
+}
+
+export function startDownloadPhase(): void {
+  phase = { received: 0, expected: 0, plans: 0 };
+}
+
+export function downloadTotals(): DownloadTotals {
+  return { ...phase };
 }
 
 export function loaded(): Promise<void> {

@@ -45,7 +45,7 @@ test.describe("driver onboarding", () => {
     baseURL,
   }) => {
     await skippedSchool(context);
-    await page.goto("/");
+    await page.goto("/?intro=off");
     const name = page.locator("[data-front=name]");
     await expect(name).toBeVisible({ timeout: 60_000 });
     await page.keyboard.press("Enter");
@@ -92,7 +92,7 @@ test.describe("driver onboarding", () => {
     await context.close();
     const restarted = await freshBrowser(browser, baseURL, saved);
     const again = restarted.page;
-    await again.goto("/");
+    await again.goto("/?intro=off");
     await again.mouse.move(1, 1);
     await expect(again.locator(".front-hub-driver")).toContainText("RAO", {
       ignoreCase: true,
@@ -143,7 +143,7 @@ test.describe("driver onboarding", () => {
       },
     });
 
-    await page.goto("/");
+    await page.goto("/?intro=off");
     await page.mouse.move(1, 1);
     await expect(page.locator(".front-hub")).toBeVisible({ timeout: 60_000 });
     await page.getByRole("button", { name: /Lap Records/ }).click();
@@ -168,14 +168,14 @@ test.describe("driver onboarding", () => {
     baseURL,
   }) => {
     await seedPlayer(context);
-    await page.goto("/");
+    await page.goto("/?intro=off");
     await page.mouse.move(1, 1);
     await expect(page.locator(".front-hub")).toBeVisible({ timeout: 60_000 });
     await expect(page.getByRole("button", { name: /Sign Out/ })).toHaveCount(0);
 
     const other = await freshBrowser(browser, baseURL);
     await skippedSchool(other.context);
-    await other.page.goto("/");
+    await other.page.goto("/?intro=off");
     await expect(other.page.locator("[data-front=name]")).toBeVisible({
       timeout: 60_000,
     });
@@ -190,7 +190,7 @@ test.describe("driver onboarding", () => {
   }) => {
     await skippedSchool(context);
     await page.route("**/api/players", (route) => route.abort());
-    await page.goto("/");
+    await page.goto("/?intro=off");
     await expect(page.locator("[data-front=retry]")).toBeVisible({
       timeout: 60_000,
     });

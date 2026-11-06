@@ -66,6 +66,10 @@ export class Music {
     return this.wanted;
   }
 
+  get blocked(): boolean {
+    return this.waiting;
+  }
+
   opening(): void {
     const played = sessionStorage.getItem(introKey) === "1";
     sessionStorage.setItem(introKey, "1");

@@ -130,6 +130,8 @@ import {
 } from "./game/weekend.ts";
 import { WeekendFlow } from "./game/weekend-flow.ts";
 import { LoadBar } from "./game/load-bar.ts";
+import { intro } from "./game/intro.ts";
+import { LoadShow } from "./game/load-show.ts";
 import { showActions } from "./game/weekend-ui.ts";
 
 const canvas = document.querySelector<HTMLCanvasElement>(
@@ -145,6 +147,10 @@ const statusBar = new LoadBar(
 const hudRoot = document.querySelector<HTMLElement>("[data-testid=hud]");
 const autostartKey = "revracers.autostart";
 const redeployKey = "revracers.redeploy";
+const loadShow = status && intro.shown ? new LoadShow(status) : null;
+void intro.done.then(() => {
+  loadShow?.arm();
+});
 
 function element(selector: string): HTMLElement {
   const found = document.querySelector<HTMLElement>(selector);
@@ -156,9 +162,29 @@ function padLink(): PadLink {
   return new PadLink(element("[data-pad=panel]"), element("[data-pad=badge]"));
 }
 
+function menuMusic(music: Music): void {
+  void intro.done.then(() => {
+    music.play("menu");
+  });
+}
+
+function scoreLoadShow(music: Music): void {
+  loadShow?.attach({
+    get blocked() {
+      return music.blocked;
+    },
+    start: () => {
+      if (!music.cue) music.play("menu");
+    },
+  });
+}
+
 function setStatus(text: string): void {
   if (text === "") statusBar.set(1);
-  else if (status?.hidden === true) statusBar.reset();
+  else if (status?.hidden === true) {
+    statusBar.reset();
+    loadShow?.restart();
+  }
   if (status) status.hidden = text === "";
   if (statusText && text) statusText.textContent = text;
 }
@@ -804,7 +830,9 @@ async function enterGame(
   const studio = new Studio(renderer);
   const front = new FrontEnd(element("[data-front=root]"), studio);
   front.open();
-  music.opening();
+  void intro.done.then(() => {
+    music.opening();
+  });
   void studio.preloadTeams();
   setStatus("");
   let driver = known ?? (await front.welcome());
@@ -815,7 +843,7 @@ async function enterGame(
   };
   for (;;) {
     if (!driver.onboarded) {
-      music.play("menu");
+      menuMusic(music);
       driver = await front.onboard(driver);
     }
     rememberDriver(driver);
@@ -825,7 +853,7 @@ async function enterGame(
     settings.car = driver.team ?? settings.car;
     if (choice.action === "tutorial") return leave(true);
     front.close();
-    music.play("menu");
+    menuMusic(music);
     const action = await menu.run(false);
     if (action === "start") return leave(false);
     front.open();
@@ -948,6 +976,7 @@ async function main(): Promise<void> {
   const interventions = params.has("interventions");
   const menu = new Menu(source, settings, interventions);
   const music = new Music(() => settings.musicVolume / 100);
+  scoreLoadShow(music);
 
   const entry = await enter(params, renderer, settings, menu, music);
   const { driver, autostart } = entry;
@@ -1136,6 +1165,7 @@ async function main(): Promise<void> {
   statusBar.followDownloads(0.85, 0.99);
   await scene.warmUp(renderer, draw);
   setStatus("");
+  await intro.done;
   replay = new InstantReplay({
     engine,
     scene,
@@ -1482,6 +1512,7 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
+  intro.stop();
   document.body.dataset["driveStatus"] = "error";
   statusBar.reset();
   setStatus(

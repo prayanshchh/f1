@@ -56,6 +56,12 @@ jobs:
         if: steps.tip.outputs.stale != 'true'
         with:
           emscripten: "true"
+      - uses: actions/cache@v6.1.0
+        if: steps.tip.outputs.stale != 'true'
+        with:
+          path: apps/client/node_modules/.vite/revracers-assets
+          key: packed-assets-${{ hashFiles('.lfs-files', 'apps/client/asset-codec.ts', 'apps/client/asset-pack.ts') }}
+          restore-keys: packed-assets-
       - run: node tools/deploy.mjs
         if: steps.tip.outputs.stale != 'true'
         env:

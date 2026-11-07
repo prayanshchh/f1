@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import { apiServer } from "./api-server.ts";
+import { assetPack } from "./asset-pack.ts";
 import { assetSizes } from "./asset-sizes.ts";
 import { engineBuild } from "./engine-build.ts";
 import { phoneTunnel } from "./phone-tunnel.ts";
@@ -11,7 +12,13 @@ const headers = {
 };
 
 export default defineConfig({
-  plugins: [engineBuild(), phoneTunnel(), apiServer(), assetSizes()],
+  plugins: [
+    assetPack(),
+    engineBuild(),
+    phoneTunnel(),
+    apiServer(),
+    assetSizes(),
+  ],
   server: {
     headers,
     allowedHosts: [".trycloudflare.com"],

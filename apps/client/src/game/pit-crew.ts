@@ -1,8 +1,8 @@
 import * as THREE from "three/webgpu";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { clone as cloneRig } from "three/examples/jsm/utils/SkeletonUtils.js";
 import type { CarEnvironment } from "./carpaint.ts";
 import { gltfToSdWorld } from "./gltf.ts";
+import { gltfLoader } from "./gltf-loader.ts";
 import { mergedMesh, placedCopy } from "./merge.ts";
 import { releaseOnceUploaded } from "./preload.ts";
 import { surface } from "./road.ts";
@@ -199,7 +199,7 @@ export class PitCrew {
     team: string,
   ): Promise<PitCrew> {
     const [gltf, kit] = await Promise.all([
-      new GLTFLoader().loadAsync(url),
+      gltfLoader().loadAsync(url),
       new THREE.TextureLoader().loadAsync(carFile(team, "crew.jpg")),
     ]);
     kit.flipY = false;

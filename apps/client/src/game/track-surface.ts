@@ -52,10 +52,15 @@ const kerbGroove = 0.012;
 const kerbWidth = 1.5;
 const kerbTile = 5;
 const kerbGrainScale = 0.9;
-const kerbNose = 0.12;
-const kerbLip = 0.1;
-const kerbRise = 0.03;
 const kerbGrooveDepth = 0.006;
+const kerbFoot = 0.025;
+const kerbFootShade = 0.6;
+const kerbFace = 0.004;
+const kerbJoint = 0.035;
+const kerbJointShade = 0.22;
+const kerbFaceShade = 0.3;
+const kerbFaceGrime = vec3(0.09, 0.085, 0.08);
+const kerbFaceRoughness = 0.85;
 const kerbGrainDepth = 0.0012;
 const kerbPaintRoughness = 0.5;
 const kerbRubberRoughness = 0.72;
@@ -211,24 +216,29 @@ export function shadeKerb(
     ridden.mul(0.8).add(0.2),
   );
   const seam = float(1).sub(smoothstep(0, kerbSeam, across));
+  const foot = float(1).sub(smoothstep(kerbFoot * 0.4, kerbFoot, across));
+  const face = smoothstep(1, 1 + kerbFace, across);
+  const joint = smoothstep(1 - kerbJoint, 1, across);
   const paint = mix(kerbRed, kerbWhite, white).mul(speck);
   const marked = mix(paint, paint.mul(1 - kerbRubber), rubber);
-  material.colorNode = marked
-    .mul(float(1).sub(seam.mul(0.55)))
-    .mul(float(1).sub(groove.mul(0.4)));
+  const top = marked
+    .mul(float(1).sub(seam.mul(0.35)))
+    .mul(float(1).sub(groove.mul(0.4)))
+    .mul(float(1).sub(foot.mul(kerbFootShade)))
+    .mul(float(1).sub(joint.mul(1 - kerbJointShade)));
+  material.colorNode = mix(
+    top,
+    mix(paint.mul(kerbFaceShade), kerbFaceGrime, 0.5),
+    face,
+  );
   material.roughnessNode = mix(
-    float(kerbPaintRoughness),
-    float(kerbRubberRoughness),
-    rubber,
+    mix(float(kerbPaintRoughness), float(kerbRubberRoughness), rubber),
+    float(kerbFaceRoughness),
+    face,
   );
-  const metres = across.mul(kerbWidth);
-  const nose = smoothstep(0, kerbNose, metres).mul(kerbRise);
-  const lip = smoothstep(kerbWidth - kerbLip, kerbWidth, metres).mul(
-    kerbRise * 0.6,
-  );
-  const height = nose
-    .sub(lip)
-    .sub(groove.mul(kerbGrooveDepth))
+  const height = groove
+    .mul(kerbGrooveDepth)
+    .negate()
     .add(concrete.mul(kerbGrainDepth));
   material.normalNode = screenBump(height, 1);
 }

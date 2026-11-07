@@ -47,6 +47,7 @@ import {
   shadeKerb,
 } from "./track-surface.ts";
 import { releaseOnceUploaded } from "./preload.ts";
+import { reliefKerbs } from "./kerb-relief.ts";
 
 const asphaltDark = 0.088;
 const asphaltLight = 0.118;
@@ -111,6 +112,7 @@ const horizonTo = 0.24;
 const surroundShade = 0.35;
 const mirrorPaint = 0.22;
 const kerbWetDarkening = 0.3;
+const kerbMaterial = "track road kerb";
 const grassWetDarkening = 0.1;
 const sealedWetDarkening = 0.42;
 const rubberDarkening = 0.42;
@@ -849,6 +851,8 @@ export async function loadRoad(
   ]);
   gltf.scene.traverse((object) => {
     if (!(object instanceof THREE.Mesh)) return;
+    if ((object.material as THREE.Material).name === kerbMaterial)
+      object.geometry = reliefKerbs(object.geometry as THREE.BufferGeometry);
     object.material = surface(
       object.material as THREE.MeshStandardMaterial,
       anisotropy,

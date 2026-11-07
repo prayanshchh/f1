@@ -223,9 +223,12 @@ export class GltfCar {
   private contacts: { centre: THREE.Vector3; axis: THREE.Vector3 }[] = [];
   private lift = 0;
   private heave = 0;
+  private pitch = 0;
   private roll = 0;
   private wheelsOff = false;
-  private readonly rollMatrix = new THREE.Matrix4();
+  private readonly bounce = new THREE.Matrix4();
+  private readonly unbounce = new THREE.Matrix4();
+  private readonly bounceTurn = new THREE.Matrix4();
   private readonly basisY = new THREE.Vector3();
   private readonly basisZ = new THREE.Vector3();
   private readonly compoundColour = new THREE.Color(compounds[1].colour);
@@ -393,9 +396,17 @@ export class GltfCar {
     if (this.driverHead) this.driverHead.visible = driver;
   }
 
-  setRumble(heave: number, roll: number): void {
+  setRumble(heave: number, pitch: number, roll: number): void {
     this.heave = heave;
+    this.pitch = pitch;
     this.roll = roll;
+  }
+
+  bodyBounce(share: number, out: THREE.Matrix4): THREE.Matrix4 {
+    return out
+      .makeTranslation(0, 0, this.heave * share)
+      .multiply(this.bounceTurn.makeRotationY(this.pitch * share))
+      .multiply(this.bounceTurn.makeRotationX(this.roll * share));
   }
 
   setPitService(lift: number, wheelsOff: boolean): void {
@@ -509,8 +520,9 @@ export class GltfCar {
 
   pose(frame: Float64Array): void {
     this.root.matrix.fromArray(frame, frameIndex.posMat);
-    this.root.matrix.elements[14] += this.lift + this.heave;
-    this.root.matrix.multiply(this.rollMatrix.makeRotationX(this.roll));
+    this.root.matrix.elements[14] += this.lift;
+    this.root.matrix.multiply(this.bodyBounce(1, this.bounce));
+    this.unbounce.copy(this.bounce).invert();
     this.root.matrixWorldNeedsUpdate = true;
     const wheel = (i: number, k: number) =>
       frame[frameIndex.wheels + i * 7 + k] ?? 0;
@@ -533,10 +545,17 @@ export class GltfCar {
     this.wheels.forEach((w, i) => {
       w.restZ ??= wheel(i, 2);
       const squash = tyreSquash(this.deflation[i] ?? 0);
+      const back = this.unbounce.elements;
+      const planted =
+        back[2] * wheel(i, 0) +
+        back[6] * wheel(i, 1) +
+        (back[10] - 1) * wheel(i, 2) +
+        back[14];
       w.pivot.position.set(
         w.rest.x,
         w.rest.y +
-          (wheel(i, 2) - w.restZ) -
+          (wheel(i, 2) - w.restZ) +
+          planted -
           (1 - squash) * (this.radii[i] ?? 0),
         w.rest.z,
       );

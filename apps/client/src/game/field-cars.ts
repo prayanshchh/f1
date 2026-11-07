@@ -93,9 +93,12 @@ interface FieldCar {
   wheelPieces: WheelPiece[];
   lost: boolean[];
   spinning: boolean;
+  staticWheels: THREE.Object3D[];
 }
 
 const scratch = new THREE.Matrix4();
+const sdToGltf = gltfToSdCar.clone().invert();
+const staticWheelsName = "static-wheels";
 const noSlump = wheelSlump(0, true, true);
 
 function wheelOf(x: number, y: number): number {
@@ -165,7 +168,9 @@ function wheelShapes(model: THREE.Object3D): WheelShape[] {
     const centre = box.getCenter(new THREE.Vector3());
     const size = box.getSize(new THREE.Vector3());
     for (const mesh of meshes)
-      mesh.geometry.translate(-centre.x, -centre.y, -centre.z);
+      mesh.geometry
+        .translate(-centre.x, -centre.y, -centre.z)
+        .applyMatrix4(sdToGltf);
     return {
       meshes,
       centre,
@@ -234,6 +239,7 @@ function staticWheels(wheels: WheelShape[], error: number): THREE.Mesh[] {
       const material = mesh.material as THREE.Material;
       const placed = mesh.geometry
         .clone()
+        .applyMatrix4(gltfToSdCar)
         .translate(shape.centre.x, shape.centre.y, shape.centre.z);
       groups.set(material, [...(groups.get(material) ?? []), placed]);
     }
@@ -242,7 +248,9 @@ function staticWheels(wheels: WheelShape[], error: number): THREE.Mesh[] {
     for (const part of parts) part.dispose();
     const welded = mergeVertices(merged);
     merged.dispose();
-    return new THREE.Mesh(simplified(welded, error), material);
+    const mesh = new THREE.Mesh(simplified(welded, error), material);
+    mesh.name = staticWheelsName;
+    return mesh;
   });
 }
 
@@ -331,6 +339,11 @@ export class FieldCars {
         if (material?.name === "tyre") object.userData = { tyre: look };
       });
     for (const level of levels) level.visible = false;
+    const staticWheels: THREE.Object3D[] = [];
+    for (const level of levels)
+      level.traverse((object) => {
+        if (object.name === staticWheelsName) staticWheels.push(object);
+      });
     model.add(body, ...levels, contact);
     root.add(model);
     const looks = template.wheels.map(() => tyreLook());
@@ -367,11 +380,12 @@ export class FieldCars {
       pieces: template.pieces,
       lost: looks.map(() => false),
       spinning: true,
+      staticWheels,
       wheelPieces: template.wheels.map((shape, i) => ({
         parts: shape.meshes.map((mesh) => ({
           geometry: mesh.geometry,
           material: mesh.material as THREE.Material,
-          matrix: new THREE.Matrix4(),
+          matrix: gltfToSdCar.clone(),
           userData:
             (mesh.material as THREE.Material).name === "tyre"
               ? { tyre: looks[i] ?? look }
@@ -391,6 +405,8 @@ export class FieldCars {
     const spin = matrix();
     for (const mesh of shape.meshes) {
       const copy = mesh.clone();
+      copy.matrixAutoUpdate = false;
+      copy.matrix.copy(gltfToSdCar);
       if ((mesh.material as THREE.Material).name === "tyre")
         copy.userData = { tyre: look };
       spin.add(copy);
@@ -427,7 +443,9 @@ export class FieldCars {
       const w = (k: number) =>
         data[at + carWheel.from + i * carWheel.stride + k] ?? 0;
       const slump = car.slumps[i] ?? noSlump;
-      const sag = car.looks[i]?.sag ?? 0;
+      const look = car.looks[i];
+      const sag = look?.sag ?? 0;
+      look?.down.set(-Math.cos(w(4)), Math.sin(w(4)));
       wheel.spin.matrix.makeRotationY(w(4));
       wheel.pivot.matrix
         .makeTranslation(
@@ -506,8 +524,10 @@ export class FieldCars {
   }
 
   private showWheels(car: FieldCar): void {
+    const missing = car.lost.includes(true);
+    for (const wheels of car.staticWheels) wheels.visible = !missing;
     car.wheels.forEach((wheel, i) => {
-      wheel.pivot.visible = car.spinning && car.lost[i] !== true;
+      wheel.pivot.visible = (car.spinning || missing) && car.lost[i] !== true;
     });
   }
 

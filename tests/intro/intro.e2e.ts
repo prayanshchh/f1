@@ -3,6 +3,36 @@ import { expect, type Page, test } from "@playwright/test";
 import { playerKeyName, seedPlayer } from "../support/player.ts";
 import { slowNetwork } from "../support/slow-network.ts";
 
+interface TrailerExit {
+  at: number;
+  length: number;
+  status: string;
+}
+
+declare global {
+  interface Window {
+    trailerExit?: TrailerExit;
+  }
+}
+
+function recordTrailerExit(): void {
+  new MutationObserver((_, observer) => {
+    const box = document.querySelector("[data-intro]");
+    if (!box?.classList.contains("leaving")) return;
+    const video = box.querySelector("video");
+    window.trailerExit = {
+      at: video?.currentTime ?? -1,
+      length: video?.duration ?? -1,
+      status: document.body.dataset["driveStatus"] ?? "",
+    };
+    observer.disconnect();
+  }).observe(document, {
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["class"],
+  });
+}
+
 function trailer(page: Page) {
   return page.evaluate(() => {
     const video =
@@ -91,21 +121,22 @@ test.describe("loading trailer", () => {
   test.setTimeout(240_000);
 
   if (process.platform !== "linux") {
-    test("a new player watches the trailer while Driving School loads, and the lesson waits for it", async ({
+    test("a new player watches the trailer while Driving School loads, and it fades out as soon as the circuit is ready", async ({
       page,
     }) => {
+      await page.addInitScript(recordTrailerExit);
       await page.goto("/");
       await playing(page);
       await page.keyboard.press("Enter");
       expect((await trailer(page)).muted).toBe(false);
 
-      await expect(page.getByTestId("drive-status")).toBeHidden({
+      await expect(page.getByTestId("intro")).toHaveCount(0, {
         timeout: 180_000,
       });
-      await page.waitForTimeout(1500);
-      expect((await trailer(page)).status).toBe("loading");
-
-      await seekToEnd(page);
+      const exit = await page.evaluate(() => window.trailerExit);
+      expect(exit?.status).toBe("loading");
+      expect(exit?.at).toBeGreaterThan(1);
+      expect(exit?.at).toBeLessThan((exit?.length ?? 0) - 5);
       await expect
         .poll(async () => (await trailer(page)).status)
         .toBe("running");
@@ -171,7 +202,7 @@ test.describe("loading trailer", () => {
       expect(rising(samples.map((sample) => sample.received))).toBe(true);
       expect(rising(samples.map((sample) => sample.bar))).toBe(true);
       const totals = samples.map((sample) => sample.total);
-      expect(Math.max(...totals)).toBeGreaterThan(100);
+      expect(Math.max(...totals)).toBeGreaterThan(50);
       expect(Math.max(...totals) / Math.min(...totals)).toBeLessThan(1.1);
       const last = samples.at(-1);
       expect(last?.bar).toBe(100);

@@ -17,8 +17,10 @@
   ],
   "assets": {
     "directory": "apps/client/dist",
+    "binding": "ASSETS",
     "html_handling": "auto-trailing-slash",
     "not_found_handling": "none",
+    "run_worker_first": ["/assets/*.glb", "/assets/*.hdr", "/assets/*.bin"],
   },
   "r2_buckets": [
     {

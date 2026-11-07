@@ -1165,7 +1165,7 @@ async function main(): Promise<void> {
   statusBar.followDownloads(0.85, 0.99);
   await scene.warmUp(renderer, draw);
   setStatus("");
-  await intro.done;
+  await intro.fadeOut();
   replay = new InstantReplay({
     engine,
     scene,

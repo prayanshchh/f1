@@ -28,8 +28,8 @@ import {
   vec3,
   vec4,
 } from "three/tsl";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { CSMShadowNode } from "three/examples/jsm/csm/CSMShadowNode.js";
+import { gltfLoader } from "./gltf-loader.ts";
 import { SkyLitMaterial } from "./sky-ambient.ts";
 import type { SkyState } from "./sky.ts";
 import apronAUrl from "../../../../content/tracks/hill-country/textures/baked/apron_a.png?url";
@@ -843,7 +843,7 @@ export async function loadRoad(
   skyLoad: Promise<SkyRadiance | null> | SkyRadiance | null = null,
 ): Promise<THREE.Object3D> {
   const [gltf, baked, sky] = await Promise.all([
-    new GLTFLoader().loadAsync(url),
+    gltfLoader().loadAsync(url),
     loadBaked(anisotropy, textureLimit),
     skyLoad,
   ]);

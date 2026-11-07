@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import {
   closeSync,
+  existsSync,
   mkdtempSync,
   openSync,
   readFileSync,
@@ -159,8 +160,9 @@ run("pnpm", ["run", "build"]);
 const big = files(dist)
   .filter((file) => statSync(file).size > assetLimit)
   .map((file) => path.relative(dist, file).split(path.sep).join("/"));
+const served = big.filter((key) => !existsSync(path.join(dist, `${key}.br`)));
 
-for (const key of big) {
+for (const key of served) {
   if (await live(key, statSync(path.join(dist, key)).size)) {
     process.stdout.write(`already in R2: ${key}\n`);
     continue;
@@ -170,11 +172,11 @@ for (const key of big) {
 
 writeFileSync(path.join(dist, ".assetsignore"), `${big.join("\n")}\n`);
 writeFileSync(path.join(dist, "_headers"), headers);
-const current = big.map((key) => ({
+const current = served.map((key) => ({
   key,
   parts: Math.ceil(statSync(path.join(dist, key)).size / partSize),
 }));
-const used = new Set(big);
+const used = new Set(served);
 const old = stored.filter((file) => !used.has(file.key));
 writeStored([...old, ...current]);
 wrangler(["deploy"]);

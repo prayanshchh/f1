@@ -21,6 +21,9 @@ DefaultLoadingManager.itemEnd = (url: string) => {
 const sizes = JSON.parse(
   document.querySelector("[data-asset-sizes]")?.textContent ?? "{}",
 ) as Record<string, number>;
+const wire = JSON.parse(
+  document.querySelector("[data-asset-wire]")?.textContent ?? "{}",
+) as Record<string, number>;
 interface DownloadTotals {
   received: number;
   expected: number;
@@ -38,6 +41,12 @@ let store: Promise<Cache | null> | null = null;
 function requestUrl(input: RequestInfo | URL): URL {
   if (input instanceof Request) return new URL(input.url);
   return new URL(input, location.href);
+}
+
+function wireShare(path: string): number {
+  const size = sizes[path];
+  const sent = wire[path];
+  return size && sent ? sent / size : 1;
 }
 
 function expectedSize(url: URL, response: Response): number {
@@ -107,14 +116,15 @@ globalThis.fetch = async (input, init) => {
       ? expectedSize(url, response)
       : 0;
   if (!response.ok || !response.body || size <= 0) return response;
+  const share = wireShare(url.pathname);
   if (!declared.delete(url.pathname)) {
-    expectedBytes += size;
-    mine.expected += size;
+    expectedBytes += size * share;
+    mine.expected += size * share;
   }
   const counted = new TransformStream<Uint8Array, Uint8Array>({
     transform(chunk, controller) {
-      receivedBytes += chunk.byteLength;
-      mine.received += chunk.byteLength;
+      receivedBytes += chunk.byteLength * share;
+      mine.received += chunk.byteLength * share;
       controller.enqueue(chunk);
     },
   });
@@ -141,8 +151,8 @@ export function expectDownloads(urls: string[]): void {
     const size = sizes[path];
     if (size === undefined || declared.has(path)) continue;
     declared.add(path);
-    expectedBytes += size;
-    phase.expected += size;
+    expectedBytes += size * wireShare(path);
+    phase.expected += size * wireShare(path);
   }
 }
 

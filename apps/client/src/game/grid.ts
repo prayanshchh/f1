@@ -1,9 +1,9 @@
 import * as THREE from "three/webgpu";
 import { texture, uv } from "three/tsl";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { frameIndex } from "./frame-layout.ts";
 import { type CarEnvironment, useEnvironment } from "./carpaint.ts";
 import { contactShadow, gltfToSdCar, wheelRest } from "./gltf.ts";
+import { gltfLoader } from "./gltf-loader.ts";
 import { mergedMesh, placedCopy } from "./merge.ts";
 import { loaded, releaseOnceUploaded } from "./preload.ts";
 import { carFile, gridTeamOrder, teams } from "./teams.ts";
@@ -75,7 +75,7 @@ interface TeamPart {
 }
 
 async function teamParts(team: string): Promise<TeamPart[]> {
-  const gltf = await new GLTFLoader().loadAsync(carFile(team, "lod.glb"));
+  const gltf = await gltfLoader().loadAsync(carFile(team, "lod.glb"));
   const parts: TeamPart[] = [];
   gltf.scene.traverse((object) => {
     if (!(object instanceof THREE.Mesh)) return;

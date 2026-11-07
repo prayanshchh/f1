@@ -1,6 +1,17 @@
 const leaveMs = 600;
 const swallowed = ["keydown", "keyup", "keypress"] as const;
 
+function quieten(video: HTMLVideoElement, fadeMs: number): void {
+  const start = performance.now();
+  const loud = video.volume;
+  const step = (now: number) => {
+    const left = 1 - (now - start) / fadeMs;
+    video.volume = loud * Math.min(1, Math.max(0, left));
+    if (left > 0) requestAnimationFrame(step);
+  };
+  if (fadeMs > 0 && !video.muted) requestAnimationFrame(step);
+}
+
 class Intro {
   readonly done: Promise<void>;
   readonly shown: boolean;
@@ -30,6 +41,11 @@ class Intro {
 
   stop(): void {
     this.leave(0);
+  }
+
+  fadeOut(): Promise<void> {
+    this.leave(leaveMs);
+    return this.done;
   }
 
   private watch(box: HTMLElement, video: HTMLVideoElement): void {
@@ -81,6 +97,7 @@ class Intro {
     const { box, video } = this;
     box.classList.add("leaving");
     box.style.transitionDuration = `${String(fadeMs)}ms`;
+    if (video) quieten(video, fadeMs);
     this.finish();
     window.setTimeout(() => {
       video?.pause();

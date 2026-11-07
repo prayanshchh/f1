@@ -14,9 +14,19 @@ function bytes(length: number, seed: number): Buffer {
   return out;
 }
 
+function noise(length: number, seed: number): Buffer {
+  const out = Buffer.alloc(length);
+  let state = seed;
+  for (let i = 0; i < length; i++) {
+    state = (Math.imul(state, 1_103_515_245) + 12_345) >>> 0;
+    out[i] = state >>> 24;
+  }
+  return out;
+}
+
 const small = bytes(200_000, 3);
 const plain = bytes(90_000, 5);
-const big = bytes(300_000, 7);
+const big = noise(300_000, 7);
 const smallBrotli = brotliCompressSync(small);
 const bigBrotli = brotliCompressSync(big);
 
@@ -46,6 +56,7 @@ const wrangler = (await import(wranglerModule)) as Wrangler;
 
 let worker: DevWorker;
 let scratch: string;
+let bigParts = 0;
 
 async function seedBucket(persist: string): Promise<void> {
   const proxy = await wrangler.getPlatformProxy({
@@ -53,9 +64,9 @@ async function seedBucket(persist: string): Promise<void> {
     persist: { path: path.join(persist, "v3") },
   });
   try {
-    for (let at = 0, index = 0; at < bigBrotli.length; at += partSize, index++)
+    for (let at = 0; at < bigBrotli.length; at += partSize, bigParts++)
       await proxy.env.BIG_FILES.put(
-        `assets/big.glb.br/${String(index).padStart(3, "0")}`,
+        `assets/big.glb.br/${String(bigParts).padStart(3, "0")}`,
         bigBrotli.subarray(at, at + partSize),
       );
   } finally {
@@ -117,6 +128,7 @@ describe("serving the big game files", () => {
   });
 
   test("a brotli copy stored in parts in R2 is stitched and sent encoded", async () => {
+    expect(bigParts).toBeGreaterThanOrEqual(3);
     const response = await worker.fetch("/assets/big.glb");
     expect(response.status).toBe(200);
     expect(response.headers.get("content-encoding")).toBe("br");

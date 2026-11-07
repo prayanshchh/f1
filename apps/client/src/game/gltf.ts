@@ -18,6 +18,7 @@ import type {
 import { frameIndex } from "./frame-layout.ts";
 import { gltfLoader } from "./gltf-loader.ts";
 import { mergedMesh, placedCopy } from "./merge.ts";
+import { bounceMatrix } from "./rumble.ts";
 import { setTyreShadows, shadowOnlyLayer } from "./road.ts";
 import { carFile } from "./teams.ts";
 import { compounds } from "./tyres.ts";
@@ -222,13 +223,10 @@ export class GltfCar {
   private offsetReady = false;
   private contacts: { centre: THREE.Vector3; axis: THREE.Vector3 }[] = [];
   private lift = 0;
-  private heave = 0;
-  private pitch = 0;
-  private roll = 0;
+  private readonly body = { heave: 0, pitch: 0, roll: 0 };
   private wheelsOff = false;
   private readonly bounce = new THREE.Matrix4();
   private readonly unbounce = new THREE.Matrix4();
-  private readonly bounceTurn = new THREE.Matrix4();
   private readonly basisY = new THREE.Vector3();
   private readonly basisZ = new THREE.Vector3();
   private readonly compoundColour = new THREE.Color(compounds[1].colour);
@@ -397,16 +395,13 @@ export class GltfCar {
   }
 
   setRumble(heave: number, pitch: number, roll: number): void {
-    this.heave = heave;
-    this.pitch = pitch;
-    this.roll = roll;
+    this.body.heave = heave;
+    this.body.pitch = pitch;
+    this.body.roll = roll;
   }
 
   bodyBounce(share: number, out: THREE.Matrix4): THREE.Matrix4 {
-    return out
-      .makeTranslation(0, 0, this.heave * share)
-      .multiply(this.bounceTurn.makeRotationY(this.pitch * share))
-      .multiply(this.bounceTurn.makeRotationX(this.roll * share));
+    return bounceMatrix(this.body, share, out);
   }
 
   setPitService(lift: number, wheelsOff: boolean): void {

@@ -59,6 +59,8 @@ import type { TyreInfo } from "./tyres.ts";
 const gateLead = 30;
 const onboardReach = 3;
 const chaseFollow = 0.5;
+const cameraListSlot = 21;
+const carCameraList = -1;
 const crewReach = 12;
 const flipX = new THREE.Matrix4().makeScale(-1, 1, 1);
 const sunGlow = 2.4;
@@ -783,6 +785,9 @@ export class Scene {
         this.carPosition.setFromMatrixPosition(this.carPose),
       ) <
       onboardReach * onboardReach;
+    const carCamera =
+      frame[frameIndex.camera + cameraListSlot] === carCameraList;
+    if (!onboard && !carCamera) return;
     this.car.bodyBounce(onboard ? 1 : chaseFollow, this.shakeMatrix).invert();
     this.view
       .multiply(this.carPose)

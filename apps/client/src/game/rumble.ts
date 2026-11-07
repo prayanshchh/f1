@@ -1,3 +1,5 @@
+import * as THREE from "three/webgpu";
+
 const fullSpeed = 15;
 const strikeSpeed = 45;
 const grassShare = 0.45;
@@ -19,6 +21,19 @@ const buzzYaw = 0.0004;
 const buzzPitch = 0.0006;
 const front = [0, 1];
 const left = [1, 3];
+
+const turn = new THREE.Matrix4();
+
+export function bounceMatrix(
+  shake: Pick<Shake, "heave" | "pitch" | "roll">,
+  share: number,
+  out: THREE.Matrix4,
+): THREE.Matrix4 {
+  return out
+    .makeTranslation(0, 0, shake.heave * share)
+    .multiply(turn.makeRotationY(-shake.pitch * share))
+    .multiply(turn.makeRotationX(shake.roll * share));
+}
 
 export interface RumbleWheel {
   surface: number;

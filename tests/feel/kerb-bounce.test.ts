@@ -1,5 +1,10 @@
+import * as THREE from "three/webgpu";
 import { describe, expect, test } from "vitest";
-import { Rumble, type Shake } from "../../apps/client/src/game/rumble.ts";
+import {
+  bounceMatrix,
+  Rumble,
+  type Shake,
+} from "../../apps/client/src/game/rumble.ts";
 
 const frame = 1 / 60;
 const cockpitPixelsPerRadian = 1080 / ((48.6 * Math.PI) / 180);
@@ -92,5 +97,18 @@ describe("kerb bounce", () => {
     expect(Math.abs(settled.pitch)).toBeLessThan(1e-4);
     expect(Math.abs(settled.roll)).toBeLessThan(1e-4);
     expect(Math.abs(settled.heave)).toBeLessThan(1e-4);
+  });
+
+  test("a front-left wheel climbing a kerb lifts the nose and the left side", () => {
+    const rumble = new Rumble();
+    const flat = [0, 1, 2, 3].map(() => ({ surface: 0 }));
+    const frontLeft = [0, 1, 2, 3].map((i) => ({ surface: i === 1 ? 1 : 0 }));
+    rumble.update(flat, 55, frame, 10);
+    const shake = rumble.update(frontLeft, 55, frame, 10 + frame);
+    const body = bounceMatrix(shake, 1, new THREE.Matrix4());
+    const height = (x: number, y: number) =>
+      new THREE.Vector3(x, y, 0).applyMatrix4(body).z;
+    expect(height(2, 0)).toBeGreaterThan(height(-2, 0));
+    expect(height(0, 0.8)).toBeGreaterThan(height(0, -0.8));
   });
 });

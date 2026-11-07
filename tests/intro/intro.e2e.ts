@@ -72,31 +72,34 @@ interface LoadScreen {
 }
 
 async function loadScreen(page: Page): Promise<LoadScreen> {
-  const showing = await page
-    .getByTestId("drive-status")
-    .evaluate(
-      (status) =>
-        !status.hasAttribute("hidden") && status.classList.contains("showing"),
-    );
-  const bytes =
-    /([\d.]+) MB \/ ([\d.]+) MB/.exec(
-      (await page.getByTestId("load-bytes").textContent()) ?? "",
-    ) ?? [];
-  const bar = await page.getByTestId("load-line").getAttribute("aria-valuenow");
-  const slides = await page
-    .locator(".show-slide.on")
-    .evaluateAll((images) =>
-      images
-        .filter((image) => (image as HTMLImageElement).naturalWidth > 0)
-        .map((image) => image.getAttribute("src") ?? ""),
-    );
+  const screen = await page.evaluate(() => {
+    const status = document.querySelector("[data-testid=drive-status]");
+    const slides = Array.from(
+      document.querySelectorAll<HTMLImageElement>(".show-slide.on"),
+    ).filter((image) => image.naturalWidth > 0);
+    return {
+      showing:
+        status !== null &&
+        !status.hasAttribute("hidden") &&
+        status.classList.contains("showing"),
+      bytes:
+        document.querySelector("[data-testid=load-bytes]")?.textContent ?? "",
+      bar:
+        document
+          .querySelector("[data-testid=load-line]")
+          ?.getAttribute("aria-valuenow") ?? null,
+      slide: slides[0]?.getAttribute("src") ?? "",
+      music: document.body.dataset["music"] ?? "",
+    };
+  });
+  const bytes = /([\d.]+) MB \/ ([\d.]+) MB/.exec(screen.bytes) ?? [];
   return {
-    showing,
+    showing: screen.showing,
     received: Number(bytes[1] ?? 0),
     total: Number(bytes[2] ?? 0),
-    bar: Number(bar ?? 0),
-    slide: slides[0] ?? "",
-    music: (await trailer(page)).music,
+    bar: Number(screen.bar ?? 0),
+    slide: screen.slide,
+    music: screen.music,
   };
 }
 

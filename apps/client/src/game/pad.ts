@@ -20,6 +20,7 @@ const lostAfter = 3000;
 const roomKey = "revracers.padRoom";
 const roomPattern = /^[A-Za-z0-9_-]{22}$/;
 const inputBytes = 36;
+const packetFloats = 11;
 const siteRetry = 1500;
 const siteTries = 80;
 const openingNote = "Opening a secure link for your phone…";
@@ -75,6 +76,8 @@ export class PadLink {
   private readonly room = padRoom();
   private phone: Phone | null = null;
   private input: PadInput = idle;
+  private steering: number | null = null;
+  private centered: number | null = null;
   private readonly totals: PadCommands = {
     boost: 0,
     ers: 0,
@@ -113,6 +116,14 @@ export class PadLink {
 
   get connected(): boolean {
     return this.linked;
+  }
+
+  get sensitivity(): number | null {
+    return this.phone ? this.steering : null;
+  }
+
+  get centers(): number | null {
+    return this.phone ? this.centered : null;
   }
 
   get panelOpen(): boolean {
@@ -212,6 +223,8 @@ export class PadLink {
     const old = this.phone;
     this.phone = phone;
     this.input = idle;
+    this.steering = null;
+    this.centered = null;
     this.counters = null;
     this.sequence = -1;
     this.receivedAt = -Infinity;
@@ -231,6 +244,8 @@ export class PadLink {
     if (this.phone === phone) {
       this.phone = null;
       this.input = idle;
+      this.steering = null;
+      this.centered = null;
       this.receivedAt = -Infinity;
       this.setConnected(false);
     }
@@ -239,11 +254,14 @@ export class PadLink {
 
   private receive(data: unknown): void {
     if (!(data instanceof ArrayBuffer) || data.byteLength < inputBytes) return;
-    const values = Array.from(new Float32Array(data, 0, inputBytes / 4));
+    const floats = Math.min(packetFloats, Math.floor(data.byteLength / 4));
+    const values = Array.from(new Float32Array(data, 0, floats));
     const value = (i: number) => values[i] ?? 0;
     if (value(8) <= this.sequence) return;
     this.sequence = value(8);
     this.input = { steer: value(0), throttle: value(1), brake: value(2) };
+    this.steering = values[9] ?? null;
+    this.centered = values[10] ?? null;
     this.count(values.slice(3, 8));
     this.receivedAt = performance.now() / 1000;
   }

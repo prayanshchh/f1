@@ -3,9 +3,9 @@ import { MeshoptDecoder } from "meshoptimizer/decoder";
 export interface ImageJob {
   kind: "image";
   id: number;
-  url: string;
-  alpha: string | null;
-  shade: string | null;
+  colour: Blob;
+  alpha: Blob | null;
+  shade: Blob | null;
   posterize: number;
   memory: WebAssembly.Memory;
   pointer: number;
@@ -16,7 +16,7 @@ export interface ImageJob {
 export interface TrackJob {
   kind: "track";
   id: number;
-  url: string;
+  data: Blob;
   millimetre: number;
 }
 
@@ -46,11 +46,10 @@ export interface ImageResult {
 }
 
 async function pixels(
-  url: string,
+  blob: Blob,
   width: number,
   height: number,
 ): Promise<Uint8ClampedArray> {
-  const blob = await (await fetch(url)).blob();
   const bitmap = await createImageBitmap(blob, {
     colorSpaceConversion: "none",
     premultiplyAlpha: "none",
@@ -207,7 +206,7 @@ function posterize(colour: Uint8ClampedArray, count: number): void {
 
 async function image(job: ImageJob): Promise<void> {
   const [colour, alpha, shade] = await Promise.all([
-    pixels(job.url, job.width, job.height),
+    pixels(job.colour, job.width, job.height),
     job.alpha ? pixels(job.alpha, job.width, job.height) : null,
     job.shade ? pixels(job.shade, job.width, job.height) : null,
   ]);
@@ -272,10 +271,8 @@ function group(bytes: Uint8Array, view: DataView, at: number, scale: number) {
 }
 
 async function track(job: TrackJob): Promise<TrackGroup[]> {
-  const response = await fetch(job.url);
-  if (!response.body) throw new Error(`empty ${job.url}`);
   const buffer = await new Response(
-    response.body.pipeThrough(new DecompressionStream("gzip")),
+    job.data.stream().pipeThrough(new DecompressionStream("gzip")),
   ).arrayBuffer();
   await MeshoptDecoder.ready;
   const view = new DataView(buffer);

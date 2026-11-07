@@ -512,6 +512,10 @@ export class Engine {
     this.sd._sdTimeScale(scale);
   }
 
+  slowPlayer(speed: number): void {
+    this.module._sdPlayerSlowTo(speed);
+  }
+
   setPitCompound(compound: number): void {
     this.sd._sdSessionPitCompound(compound);
   }

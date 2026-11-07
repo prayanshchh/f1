@@ -7,6 +7,7 @@ import type {
   TrackResult,
 } from "./loader-worker.ts";
 import { type PresentSetup, shownSlot, shownWords } from "./shown.ts";
+import { fileBlob, fileJson, lowFile } from "./corridor-files.ts";
 import { type TrackManifest, type TrackPart, TrackSet } from "./track-set.ts";
 
 export interface MeshData {
@@ -46,6 +47,11 @@ const groundFrom = 0.004;
 const groundFade = 0.05;
 const maxList = 8192;
 const trackFile = "toon.bin";
+const manifestFile = "manifest.json";
+
+function maybeBlob(url: string | null): Promise<Blob | null> {
+  return url === null ? Promise.resolve(null) : fileBlob(url);
+}
 
 function percentile(values: number[], share: number): number {
   values.sort((a, b) => a - b);
@@ -104,7 +110,6 @@ export class CorridorView {
   private constructor(
     private readonly module: CorridorModule,
     private readonly manifest: TrackManifest,
-    private readonly base: string,
   ) {
     this.canvas.className = "corridor-canvas";
     this.control = module._cr_shown();
@@ -135,15 +140,13 @@ export class CorridorView {
     };
   }
 
-  static async load(base: string, threads: number): Promise<CorridorView> {
+  static async load(threads: number): Promise<CorridorView> {
     const [module, manifest] = await Promise.all([
       createCorridor(),
-      fetch(`${base}manifest.json`).then(
-        (response) => response.json() as Promise<TrackManifest>,
-      ),
+      fileJson<TrackManifest>(lowFile(manifestFile)),
     ]);
     module._cr_init(threads);
-    const view = new CorridorView(module, manifest, base);
+    const view = new CorridorView(module, manifest);
     try {
       await view.loadShared();
       await view.loadTrack();
@@ -197,13 +200,18 @@ export class CorridorView {
     alpha: string | null = null,
     shade: string | null = null,
   ): Promise<number> {
+    const [colour, cutout, carbon] = await Promise.all([
+      fileBlob(url),
+      maybeBlob(alpha),
+      maybeBlob(shade),
+    ]);
     const pointer = this.module._malloc(width * height * 4);
     const result = await this.post({
       kind: "image",
       id: this.nextJob++,
-      url,
-      alpha,
-      shade,
+      colour,
+      alpha: cutout,
+      shade: carbon,
       posterize: 0,
       pointer,
       width,
@@ -222,14 +230,18 @@ export class CorridorView {
     size: number,
     colours: number,
   ): Promise<Uint8Array> {
+    const [colour, carbon] = await Promise.all([
+      fileBlob(url),
+      fileBlob(shade),
+    ]);
     const pointer = this.module._malloc(size * size * 4);
     try {
       const result = await this.post({
         kind: "image",
         id: this.nextJob++,
-        url,
+        colour,
         alpha: null,
-        shade,
+        shade: carbon,
         posterize: colours,
         pointer,
         width: size,
@@ -326,11 +338,11 @@ export class CorridorView {
     await Promise.all(
       Object.entries(textures).map(async ([name, info]) => {
         const id = await this.texture(
-          this.base + info.file,
+          lowFile(info.file),
           info.width,
           info.height,
           info.flags,
-          info.alpha ? this.base + info.alpha : null,
+          info.alpha ? lowFile(info.alpha) : null,
         );
         this.shared.set(name, id);
       }),
@@ -341,7 +353,7 @@ export class CorridorView {
     const result = (await this.post({
       kind: "track",
       id: this.nextJob++,
-      url: this.base + trackFile,
+      data: await fileBlob(lowFile(trackFile)),
       millimetre: this.manifest.millimetre,
     })) as TrackResult;
     if (result.error) throw new Error(result.error);

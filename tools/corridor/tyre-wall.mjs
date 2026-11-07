@@ -6,7 +6,7 @@ const say = (...parts) => process.stdout.write(`${parts.join(" ")}\n`);
 
 const root = path.resolve(import.meta.dirname, "../..");
 const source = path.join(root, "content/cars/shared/tyre.png");
-const out = path.join(root, "apps/client/public/corridor/tyre-wall.json");
+const out = path.join(root, "content/tracks/hill-country/low/tyre-wall.json");
 const blocks = 3;
 const samples = 64;
 const columnStep = 4;

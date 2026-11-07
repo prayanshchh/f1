@@ -8,8 +8,52 @@
     <link rel="stylesheet" href="/src/loader.css" />
   </head>
   <body data-drive-status="loading">
+    <div class="intro" data-intro data-testid="intro">
+      <video
+        src="/intro/trailer.mp4"
+        preload="none"
+        playsinline
+        aria-label="RevRacers trailer"
+      ></video>
+      <p class="intro-sound" data-intro-sound hidden>
+        Click or press a key for sound
+      </p>
+      <button class="intro-skip" type="button" data-intro-skip hidden>
+        Skip
+      </button>
+    </div>
+    <script>
+      (() => {
+        const box = document.querySelector("[data-intro]");
+        const query = new URLSearchParams(location.search);
+        const skip =
+          sessionStorage.getItem("revracers.introPlayed") === "1" ||
+          sessionStorage.getItem("revracers.autostart") === "1" ||
+          query.has("autostart") ||
+          query.get("intro") === "off" ||
+          !("gpu" in navigator);
+        if (skip) {
+          box.remove();
+          return;
+        }
+        sessionStorage.setItem("revracers.introPlayed", "1");
+        const video = box.querySelector("video");
+        video.preload = "auto";
+        video
+          .play()
+          .catch(() => {
+            video.muted = true;
+            return video.play();
+          })
+          .catch(() => undefined);
+      })();
+    </script>
     <canvas data-testid="drive-canvas"></canvas>
     <div class="status" data-testid="drive-status" role="status">
+      <div class="show" aria-hidden="true">
+        <img class="show-slide" src="/loading/01.jpg" alt="" data-show-slide />
+        <img class="show-slide" alt="" data-show-slide />
+      </div>
       <svg class="status-word" aria-hidden="true">
         <use href="#brand-word" />
       </svg>
@@ -17,6 +61,22 @@
         <i></i><i></i><i></i><i></i><i></i>
       </div>
       <p data-status-text>Loading</p>
+      <p class="show-bytes" data-show-bytes data-testid="load-bytes"></p>
+      <p class="show-sound" data-show-sound hidden>
+        Click or press a key for sound
+      </p>
+      <div
+        class="show-line"
+        data-show-line
+        data-testid="load-line"
+        role="progressbar"
+        aria-label="Download"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        aria-valuenow="0"
+      >
+        <i></i>
+      </div>
     </div>
     <svg width="0" height="0" aria-hidden="true">
       <symbol id="brand-word" viewBox="0 -0.2 122 15.4">
@@ -533,6 +593,6 @@
       </p>
       <p class="pad-close"><kbd>P</kbd>Close</p>
     </div>
-    <script type="module" src="/src/drive.ts"></script>
+    <script type="module" src="/src/boot.ts"></script>
   </body>
 </html>

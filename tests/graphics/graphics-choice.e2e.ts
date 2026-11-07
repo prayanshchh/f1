@@ -25,7 +25,7 @@ test("the main menu switches graphics between Ultra and Low and remembers it", a
   context,
 }) => {
   await seedPlayer(context);
-  await page.goto("/");
+  await page.goto("/?intro=off");
   await page.mouse.move(1, 1);
   const graphics = page.getByRole("button", { name: /^Graphics/ });
   await expect(graphics).toContainText(/Ultra|Low/, { timeout: 60_000 });
@@ -43,6 +43,34 @@ test("the main menu switches graphics between Ultra and Low and remembers it", a
 });
 
 if (process.platform !== "linux") {
+  test("a new player without a usable graphics card does Driving School in Low", async ({
+    page,
+  }) => {
+    test.setTimeout(420_000);
+    await page.addInitScript(softwareGraphicsCard);
+    await page.goto("/?intro=off");
+    await page.waitForFunction(
+      () => document.body.dataset["driveStatus"] === "running",
+      null,
+      { timeout: 360_000 },
+    );
+    const school = page.locator("[data-tutorial=root]");
+    await expect(school).toHaveAttribute("data-step", "controls", {
+      timeout: 30_000,
+    });
+    await expect(page.getByTestId("corridor-canvas")).toBeVisible();
+    await expect(page.getByTestId("drive-canvas")).toBeHidden();
+    await expect(page.locator("[data-graphics=note]")).toContainText(
+      "No graphics card was found.",
+    );
+    await expect(school.locator(".tut-card")).toContainText(
+      "Phone or keyboard?",
+    );
+    await page.keyboard.press("k");
+    await expect(school).not.toHaveAttribute("data-step", "controls");
+    await expect(page.getByTestId("corridor-canvas")).toBeVisible();
+  });
+
   test("without a usable graphics card the race starts in Low, says why once, and G brings Ultra back", async ({
     page,
   }) => {

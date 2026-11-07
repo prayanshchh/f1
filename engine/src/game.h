@@ -69,6 +69,7 @@ bool sdEnergyOvertakeActive(int index);
 double sdEnergyLastLapFuel(int index);
 void sdServiceCar(int index, int compound);
 void sdCarTeleport(int index, double distance, double lateral);
+void sdCarSlowTo(int index, double speed);
 int sdCarToGrid(int index, int slot);
 void sdCarSetFuel(int index, double litres);
 void sdEnergySetPerformance(int index, double factor);

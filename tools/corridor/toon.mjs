@@ -21,7 +21,7 @@ await MeshoptSimplifier.ready;
 
 const root = path.resolve(import.meta.dirname, "../..");
 const trackDir = path.join(root, "content/tracks/hill-country");
-const site = path.join(root, "apps/client/public/corridor");
+const site = path.join(root, "content/tracks/hill-country/low");
 const work = path.join(root, "build/corridor/toon");
 mkdirSync(work, { recursive: true });
 mkdirSync(site, { recursive: true });

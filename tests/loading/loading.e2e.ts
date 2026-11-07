@@ -1,5 +1,6 @@
 import { expect, type Page, test } from "@playwright/test";
 import { asha, seedPlayer } from "../support/player.ts";
+import { slowNetwork } from "../support/slow-network.ts";
 
 interface Sample {
   label: string;
@@ -46,18 +47,6 @@ function sampleLoadBars(): void {
     if (name === "aria-valuenow")
       record(this.closest(".status:not([hidden]), .front-car-loading"));
   };
-}
-
-async function slowNetwork(page: Page, megabits: number): Promise<void> {
-  const cdp = await page.context().newCDPSession(page);
-  await cdp.send("Network.enable");
-  await cdp.send("Network.setCacheDisabled", { cacheDisabled: true });
-  await cdp.send("Network.emulateNetworkConditions", {
-    offline: false,
-    latency: 10,
-    downloadThroughput: (megabits * 1e6) / 8,
-    uploadThroughput: 1e6,
-  });
 }
 
 function storedAssets(page: Page): Promise<number> {
@@ -117,7 +106,7 @@ test.describe("loading progress", () => {
     await page.addInitScript(() => {
       localStorage.setItem("revracers.tutorial", "skipped");
     });
-    await page.goto("/");
+    await page.goto("/?intro=off");
     await expect(page.locator(".front-hub")).toBeVisible({ timeout: 60_000 });
     await expect(page.locator(".front-car-loading")).toHaveCount(0, {
       timeout: 60_000,
@@ -126,7 +115,7 @@ test.describe("loading progress", () => {
     await page.evaluate(() => caches.delete("revracers-assets"));
     await page.addInitScript(sampleLoadBars);
     await slowNetwork(page, 40);
-    await page.goto("/");
+    await page.goto("/?intro=off");
     await expect(page.locator(".front-hub")).toBeVisible({ timeout: 120_000 });
     await expect(page.locator(".front-car-loading")).toHaveCount(0, {
       timeout: 120_000,
@@ -157,7 +146,7 @@ test.describe("loading progress", () => {
       if (request.resourceType() === "fetch" && pathname.startsWith("/assets/"))
         fetched.push(pathname);
     });
-    await page.goto("/");
+    await page.goto("/?intro=off");
     await hubReady(page);
     let files = 0;
     await expect

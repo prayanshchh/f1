@@ -29,7 +29,11 @@ import type { CameraPose } from "./buildup-shots.ts";
 import type { RacingLineData, RacingLineMode } from "./racing-line.ts";
 import { RacingLineView } from "./racing-line-view.ts";
 import { PitCrew } from "./pit-crew.ts";
-import { releaseUploadedImages, uploadEverything } from "./preload.ts";
+import {
+  expectDownloads,
+  releaseUploadedImages,
+  uploadEverything,
+} from "./preload.ts";
 import { PitGate } from "./pit-gate.ts";
 import type { PitControl, PitLayout } from "./pitstop.ts";
 import { SkidMarks } from "./skidmarks.ts";
@@ -396,6 +400,7 @@ export class Scene {
     lights: StartLights,
     clouds: string,
   ): Promise<Scene> {
+    expectDownloads([roadUrl, crewUrl, frameUrl, racingLineUrl, trackUrl]);
     const anisotropy = renderer.getMaxAnisotropy();
     const textureLimit =
       (renderer.backend as { device?: GPUDevice }).device?.limits
@@ -415,43 +420,58 @@ export class Scene {
       rotation: sky.environmentRotation,
     }));
     const point = engine.trackPoint.bind(engine);
-    const [skyBox, env, frame, people, road, data, crew, car, gridData] =
-      await Promise.all([
-        skyLoad,
-        envLoad,
-        fetchJson<TrackFrame>(frameUrl),
-        Crowd.load(),
-        loadRoad(
-          roadUrl,
-          anisotropy,
-          textureLimit,
-          skyLoad.then(
-            (sky): SkyRadiance =>
-              (direction) =>
-                sky.radiance(direction, false),
-          ),
-        ),
-        fetchJson<RacingLineData>(racingLineUrl),
-        envLoad.then((loaded) =>
-          PitCrew.load(crewUrl, anisotropy, loaded, team),
-        ),
-        envLoad.then((loaded) => GltfCar.load(team, renderer, loaded)),
-        fetchJson<TrackData>(trackUrl),
-      ]);
-    const lengthScale = engine.trackLength() / gridData.length;
-    const grid =
+    const trackLoad = fetchJson<TrackData>(trackUrl);
+    const gridLoad =
       rivals.length > 0
-        ? null
-        : await GridCars.load(
-            team,
-            gridData.grid.map((slot) => ({
-              distance: slot.distance * lengthScale,
-              offset: slot.offset,
-            })),
-            point,
-            env,
-          );
-    const field = rivals.length > 0 ? await FieldCars.load(rivals, env) : null;
+        ? Promise.resolve(null)
+        : Promise.all([trackLoad, envLoad]).then(([gridData, loaded]) => {
+            const lengthScale = engine.trackLength() / gridData.length;
+            return GridCars.load(
+              team,
+              gridData.grid.map((slot) => ({
+                distance: slot.distance * lengthScale,
+                offset: slot.offset,
+              })),
+              point,
+              loaded,
+            );
+          });
+    const fieldLoad =
+      rivals.length > 0
+        ? envLoad.then((loaded) => FieldCars.load(rivals, loaded))
+        : Promise.resolve(null);
+    const [
+      skyBox,
+      frame,
+      people,
+      road,
+      data,
+      crew,
+      car,
+      gridData,
+      grid,
+      field,
+    ] = await Promise.all([
+      skyLoad,
+      fetchJson<TrackFrame>(frameUrl),
+      Crowd.load(),
+      loadRoad(
+        roadUrl,
+        anisotropy,
+        textureLimit,
+        skyLoad.then(
+          (sky): SkyRadiance =>
+            (direction) =>
+              sky.radiance(direction, false),
+        ),
+      ),
+      fetchJson<RacingLineData>(racingLineUrl),
+      envLoad.then((loaded) => PitCrew.load(crewUrl, anisotropy, loaded, team)),
+      envLoad.then((loaded) => GltfCar.load(team, renderer, loaded)),
+      trackLoad,
+      gridLoad,
+      fieldLoad,
+    ]);
     const racingLine = new RacingLineView(data, data.profile, lineMode);
     const start = engine.trackPoint(0, 0);
     const placed = placeOnTrack(road, frame, start);

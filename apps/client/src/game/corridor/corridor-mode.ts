@@ -5,8 +5,9 @@ import { skyIrradiance } from "../sky-ambient.ts";
 import { CorridorCars, type TyreWall } from "./corridor-cars.ts";
 import { CorridorLine } from "./corridor-line.ts";
 import { CorridorView, type Lighting } from "./corridor-view.ts";
+import { expectDownloads } from "../preload.ts";
+import { fileJson, lowFile, lowFiles } from "./corridor-files.ts";
 
-const base = "/corridor/";
 const acesScale = 1 / 0.6;
 
 export interface CorridorDraw {
@@ -24,7 +25,8 @@ export async function corridorDrawer(
   gpuCanvas: HTMLCanvasElement,
 ): Promise<CorridorDraw> {
   const threads = Math.max(2, (navigator.hardwareConcurrency || 4) - 1);
-  const view = await CorridorView.load(base, threads);
+  expectDownloads(lowFiles());
+  const view = await CorridorView.load(threads);
   try {
     return await assemble(view, scene, engine, teams, gpuCanvas);
   } catch (error) {
@@ -40,9 +42,7 @@ async function assemble(
   teams: string[],
   gpuCanvas: HTMLCanvasElement,
 ): Promise<CorridorDraw> {
-  const wall = (await (
-    await fetch(`${base}tyre-wall.json`)
-  ).json()) as TyreWall;
+  const wall = await fileJson<TyreWall>(lowFile("tyre-wall.json"));
   const cars = await CorridorCars.load(view, teams, scene.carEnvironment, wall);
   const line = new CorridorLine(view, scene.atmosphere.exposure);
   const light: Lighting = {

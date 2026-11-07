@@ -32,7 +32,7 @@ test("onboarded drivers find Driving School in the hub and are not dropped into 
   context,
 }) => {
   await seedPlayer(context);
-  await page.goto("/");
+  await page.goto("/?intro=off");
   await page.mouse.move(1, 1);
   await expect(page.locator(".front-hub")).toBeVisible({ timeout: 60_000 });
   await expect(page.locator("[data-tutorial=root]")).toBeHidden();
@@ -66,7 +66,7 @@ if (!softwareGpu) {
     page,
   }) => {
     test.setTimeout(480_000);
-    await page.goto("/");
+    await page.goto("/?intro=off");
     await page.waitForFunction(
       () => document.body.dataset["driveStatus"] === "running",
       null,
@@ -93,7 +93,7 @@ if (!softwareGpu) {
   }) => {
     test.setTimeout(480_000);
     await seedPlayer(context);
-    await page.goto("/?tutorial");
+    await page.goto("/?tutorial&intro=off");
     await page.waitForFunction(
       () => document.body.dataset["driveStatus"] === "running",
       null,
@@ -112,7 +112,7 @@ if (!softwareGpu) {
     page,
   }) => {
     test.setTimeout(480_000);
-    await page.goto("/?debug");
+    await page.goto("/?debug&intro=off");
     await page.waitForFunction(
       () => document.body.dataset["driveStatus"] === "running",
       null,
@@ -125,7 +125,6 @@ if (!softwareGpu) {
     expect(await engineClock(page)).toBe(gridClock);
     expect(gridClock).toBeLessThan(0);
 
-    await page.keyboard.press("Enter");
     await reach(page, "controls");
     await page.keyboard.press("k");
     await reach(page, "steer-left");
@@ -138,10 +137,6 @@ if (!softwareGpu) {
     await hold(page, "ArrowDown", 500);
     await reach(page, "gas-pedal");
     await hold(page, "ArrowUp", 500);
-    await reach(page, "lights");
-    expect(await engineClock(page)).toBe(gridClock);
-    await page.waitForTimeout(800);
-    await page.keyboard.press("Enter");
     await reach(page, "lights-wait");
     await expect.poll(() => engineClock(page)).toBeGreaterThan(gridClock);
 
@@ -153,7 +148,6 @@ if (!softwareGpu) {
     const paused = await engineClock(page);
     await page.waitForTimeout(1200);
     expect(await engineClock(page)).toBe(paused);
-    await page.keyboard.press("Enter");
     await reach(page, "t1-brake", 30_000);
     await expect(step(page)).toHaveAttribute("data-mode", "freeze");
     await page.waitForTimeout(1000);

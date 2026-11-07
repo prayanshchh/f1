@@ -10,4 +10,6 @@ content/cars/**/*.glb filter=lfs diff=lfs merge=lfs -text
 content/cars/**/*.jpg filter=lfs diff=lfs merge=lfs -text
 content/cars/**/*.png filter=lfs diff=lfs merge=lfs -text
 content/music/*.ogg filter=lfs diff=lfs merge=lfs -text
+content/tracks/**/low/*.bin filter=lfs diff=lfs merge=lfs -text
+content/tracks/**/low/*.webp filter=lfs diff=lfs merge=lfs -text
 apps/client/public/intro/*.mp4 filter=lfs diff=lfs merge=lfs -text

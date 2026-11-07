@@ -2,6 +2,7 @@ declare module "*/wasm/speed-dreams.js" {
   export interface SpeedDreamsModule {
     HEAPF64: Float64Array;
     HEAPF32: Float32Array;
+    wasmMemory: WebAssembly.Memory;
     cwrap(
       name: "sdInit",
       returns: "number",
@@ -110,6 +111,10 @@ declare module "*/wasm/speed-dreams.js" {
     _sdPlayerSlowTo(speed: number): void;
     _sdKey(key: number, state: number): void;
     _sdUpdate(now: number): number;
+    _sdPhysicsThread(): number;
+    _sdLaunch(now: number): void;
+    _sdBusy(): number;
+    _sdSettle(): number;
     _sdStep(count: number): number;
     _sdFrame(): number;
     _sdTrackLength(): number;

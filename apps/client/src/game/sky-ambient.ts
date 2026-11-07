@@ -55,6 +55,10 @@ function addRow(
   }
 }
 
+export function skyIrradiance(): { up: THREE.Color; down: THREE.Color } {
+  return { up: irradianceUp.value, down: irradianceDown.value };
+}
+
 export function fitSkyAmbient(
   environment: THREE.Texture,
   grade: THREE.Vector3,

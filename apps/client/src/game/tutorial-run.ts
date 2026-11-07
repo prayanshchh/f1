@@ -24,6 +24,7 @@ export interface TutorialHooks {
   engine: Engine;
   pad: PadLink;
   menuOpen: () => boolean;
+  replays: () => boolean;
   pause: () => void;
   guardMenu: (guard: (event: KeyboardEvent) => boolean) => void;
   mfdPage: () => string;
@@ -240,6 +241,7 @@ export class TutorialRun {
       mfd: this.hooks.mfdPage(),
       cameras: this.cameras,
       rewinds: this.rewinds,
+      replays: this.hooks.replays(),
       pit: live.pit,
       boost: live.boost,
       retired: live.status.retired !== 0,

@@ -59,6 +59,7 @@ interface FieldCar {
   body: THREE.Object3D;
   levels: THREE.Object3D[];
   detail: number;
+  floor: number;
   wheels: WheelNode[];
   look: TyreLook;
   radius: number;
@@ -264,9 +265,15 @@ export class FieldCars {
   private updatedAt = 0;
   private viewHeight = referenceHeight;
 
-  static async load(teams: string[], env: CarEnvironment): Promise<FieldCars> {
+  private constructor(private readonly first: number) {}
+
+  static async load(
+    teams: string[],
+    env: CarEnvironment,
+    first = 1,
+  ): Promise<FieldCars> {
     await MeshoptSimplifier.ready;
-    const field = new FieldCars();
+    const field = new FieldCars(first);
     const unique = [...new Set(teams)];
     const templates = new Map(
       await Promise.all(
@@ -320,6 +327,7 @@ export class FieldCars {
       body,
       levels,
       detail: 0,
+      floor: 0,
       wheels,
       look,
       radius:
@@ -406,6 +414,11 @@ export class FieldCars {
     this.root.visible = !hidden;
   }
 
+  holdDetail(index: number, level: number): void {
+    const car = this.cars[index];
+    if (car) car.floor = level;
+  }
+
   resize(height: number): void {
     this.viewHeight = Math.max(1, height);
   }
@@ -433,7 +446,7 @@ export class FieldCars {
     );
     this.updatedAt = now;
     this.cars.forEach((car, i) => {
-      this.updateCar(car, data, (i + 1) * carStride, seconds, spread);
+      this.updateCar(car, data, (i + this.first) * carStride, seconds, spread);
     });
   }
 
@@ -462,7 +475,10 @@ export class FieldCars {
     car.root.matrixWorldNeedsUpdate = true;
     this.setShadow(car, distance < shadowDistance);
     this.setCompound(car, data[at + carField.compound] ?? 1);
-    this.setDetail(car, detailFor(car.detail, distance * spread));
+    this.setDetail(
+      car,
+      Math.max(car.floor, detailFor(car.detail, distance * spread)),
+    );
     const spinning = car.wheels[0]?.pivot.visible === true;
     if (spinning && distance < wheelDistance)
       this.updateWheels(car, data, at, seconds);

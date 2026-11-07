@@ -19,6 +19,7 @@ export default defineConfig({
   },
   preview: { headers },
   assetsInclude: ["**/*.glb"],
+  worker: { format: "es" },
   build: {
     target: "es2023",
     license: { fileName: "third-party-licenses.md" },

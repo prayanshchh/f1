@@ -49,6 +49,7 @@ class Drive {
   input: Pedals = { steer: 0, throttle: 0, brake: 0 };
   cameras = 0;
   rewinds = 0;
+  replays = true;
   mfd = "quick";
   boost = false;
   offTrack = false;
@@ -100,6 +101,7 @@ class Drive {
       mfd: this.mfd,
       cameras: this.cameras,
       rewinds: this.rewinds,
+      replays: this.replays,
       pit: this.pit,
       boost: this.boost,
       retired: this.retired,
@@ -904,6 +906,22 @@ describe("driving school", () => {
     drive.drive(() => undefined, 2.1);
     expect(drive.tutorial.finished).toBe("done");
     expect(drive.menu).toBe(true);
+  });
+
+  test("in Low graphics, where there are no replays, the tour leaves out Replay & Flashback", () => {
+    const drive = new Drive();
+    drive.replays = false;
+    drive.until("pause", cooperative());
+    drive.drive(() => undefined, 2.1);
+    expect(drive.tutorial.touring).toBe(true);
+    expect(tourSpots(drive)).toEqual([
+      "menu-tabs",
+      "menu-main",
+      "menu-restart",
+      "menu-quit",
+      "menu-resume",
+    ]);
+    expect(drive.id).toBe("finish");
   });
 
   test("closing the menu in the middle of the tour skips the rest of it", () => {

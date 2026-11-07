@@ -258,7 +258,7 @@ const defines = [
   "-D_DEFAULT_SOURCE",
   "-DNDEBUG",
 ];
-const flags = ["-O3", "-sUSE_SDL=2", "-Wno-everything"];
+const flags = ["-O3", "-pthread", "-sUSE_SDL=2", "-Wno-everything"];
 
 const headerStampOf = (dir) =>
   Math.max(
@@ -269,6 +269,14 @@ const headerStampOf = (dir) =>
   );
 const sharedStamp = headerStampOf(path.join(glue, "include"));
 const glueStamp = headerStampOf(glue);
+
+const optionsFile = path.join(objects, "options.json");
+const options = JSON.stringify({ flags, defines, includes });
+if (!existsSync(optionsFile) || readFileSync(optionsFile, "utf8") !== options) {
+  rmSync(objects, { recursive: true, force: true });
+  mkdirSync(objects, { recursive: true });
+  writeFileSync(optionsFile, options);
+}
 
 const objectFiles = [];
 for (const source of sources) {
@@ -412,6 +420,10 @@ const exported = [
   "_sdInputRelease",
   "_sdCarsDamage",
   "_sdViewResize",
+  "_sdPhysicsThread",
+  "_sdLaunch",
+  "_sdBusy",
+  "_sdSettle",
   "_malloc",
   "_free",
 ];
@@ -428,10 +440,12 @@ execFileSync(
     "-sEXPORT_ES6=1",
     "-sEXPORT_NAME=createSpeedDreams",
     "-sALLOW_MEMORY_GROWTH=1",
+    "-sPTHREAD_POOL_SIZE=1",
+    "-Wno-pthreads-mem-growth",
     "-sENVIRONMENT=web,worker,node",
     "-sFORCE_FILESYSTEM=1",
     `-sEXPORTED_FUNCTIONS=${exported.join(",")}`,
-    "-sEXPORTED_RUNTIME_METHODS=ccall,cwrap,UTF8ToString,HEAPF64,HEAPF32,FS",
+    "-sEXPORTED_RUNTIME_METHODS=ccall,cwrap,UTF8ToString,HEAPF64,HEAPF32,FS,wasmMemory",
     "--embed-file",
     `${path.join(data, "sd")}@/sd`,
   ],
@@ -441,3 +455,19 @@ copyFileSync(
   path.join(root, "content/tracks/hill-country/sd-frame.json"),
   path.join(out, "sd-frame.json"),
 );
+
+const corridorSources = ["raster.h", "wasm.cpp", "build-wasm.sh"].map((name) =>
+  path.join(root, "tools/corridor", name),
+);
+const corridorWasm = path.join(out, "corridor.wasm");
+const corridorStale =
+  !existsSync(corridorWasm) ||
+  corridorSources.some(
+    (file) => statSync(file).mtimeMs > statSync(corridorWasm).mtimeMs,
+  );
+if (corridorStale) {
+  process.stdout.write("build apps/client/wasm/corridor.js\n");
+  execFileSync("sh", [path.join(root, "tools/corridor/build-wasm.sh")], {
+    stdio: "inherit",
+  });
+}

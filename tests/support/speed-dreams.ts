@@ -5,6 +5,7 @@ import { repoRoot } from "./repo.ts";
 export interface SpeedDreams {
   HEAPF64: Float64Array;
   HEAPF32: Float32Array;
+  wasmMemory: WebAssembly.Memory;
   cwrap: (
     name: string,
     result: string,
@@ -12,6 +13,9 @@ export interface SpeedDreams {
   ) => (...values: (string | number)[]) => number;
   _malloc: (size: number) => number;
   _sdStep: (count: number) => void;
+  _sdPhysicsThread: () => number;
+  _sdLaunch: (now: number) => void;
+  _sdSettle: () => number;
   _sdTelemetry: (pointer: number) => void;
   _sdAudio: (pointer: number) => void;
   _sdFrame: () => number;

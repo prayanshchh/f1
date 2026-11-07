@@ -45,50 +45,63 @@ describe("flashback history", () => {
   });
 });
 
-describe.runIf(existsSync(wasm))("flashback", () => {
-  test("rewinding the whole field replays the race exactly", async () => {
-    const m = await startField({
-      kind: sessionKind.race,
-      laps: 5,
-      seed: 5,
-      rain: "little",
-    });
-    const out = m._malloc(fieldSize * carStride * 8);
-    const cars = () => {
-      m._sdCars(out);
-      return Array.from(
-        new Float64Array(m.HEAPF64.buffer, out, fieldSize * carStride),
-      );
-    };
-    const history = new HeapHistory(() => new Uint8Array(m.HEAPF64.buffer));
-    let time = 0;
-    const chunk = () => {
-      m._sdStep(stepsPerChunk);
-      time += chunkSeconds;
-      history.tick(time, chunkSeconds, () => time);
-    };
-    while (time < 30) chunk();
-    expect(history.trackedPages).toBeGreaterThan(0);
-    const original: number[][] = [];
-    const mark = time;
-    while (time < mark + 4) {
-      chunk();
-      original.push(cars());
-    }
-    const moment = history.rewind(mark - 6, time);
-    if (!moment) throw new Error("no flashback point was kept");
-    expect(moment.extra).toBe(moment.time);
-    expect(moment.time).toBeGreaterThan(mark - 7);
-    time = moment.time;
-    while (time < mark - 1e-9) {
-      m._sdStep(stepsPerChunk);
-      time += chunkSeconds;
-    }
-    const replayed: number[][] = [];
-    for (let i = 0; i < original.length; i++) {
-      m._sdStep(stepsPerChunk);
-      replayed.push(cars());
-    }
-    expect(replayed).toEqual(original);
+async function rewindReplays(threaded: boolean): Promise<void> {
+  const m = await startField({
+    kind: sessionKind.race,
+    laps: 5,
+    seed: 5,
+    rain: "little",
   });
+  if (threaded) expect(m._sdPhysicsThread()).toBe(1);
+  const out = m._malloc(fieldSize * carStride * 8);
+  const cars = () => {
+    m._sdCars(out);
+    return Array.from(
+      new Float64Array(m.wasmMemory.buffer, out, fieldSize * carStride),
+    );
+  };
+  const history = new HeapHistory(() => new Uint8Array(m.wasmMemory.buffer));
+  let time = 0;
+  const advance = () => {
+    time += chunkSeconds;
+    if (!threaded) {
+      m._sdStep(stepsPerChunk);
+      return;
+    }
+    m._sdLaunch(time);
+    m._sdSettle();
+  };
+  const chunk = () => {
+    advance();
+    history.tick(time, chunkSeconds, () => time);
+  };
+  while (time < 30) chunk();
+  expect(history.trackedPages).toBeGreaterThan(0);
+  const original: number[][] = [];
+  const mark = time;
+  while (time < mark + 4) {
+    chunk();
+    original.push(cars());
+  }
+  expect(original.at(-1)).not.toEqual(original[0]);
+  const moment = history.rewind(mark - 6, time);
+  if (!moment) throw new Error("no flashback point was kept");
+  expect(moment.extra).toBe(moment.time);
+  expect(moment.time).toBeGreaterThan(mark - 7);
+  time = moment.time;
+  while (time < mark - 1e-9) advance();
+  const replayed: number[][] = [];
+  for (let i = 0; i < original.length; i++) {
+    advance();
+    replayed.push(cars());
+  }
+  expect(replayed).toEqual(original);
+}
+
+describe.runIf(existsSync(wasm))("flashback", () => {
+  test("rewinding the whole field replays the race exactly", () =>
+    rewindReplays(false));
+
+  test("rewinding while the physics thread is parked replays the race exactly", () =>
+    rewindReplays(true));
 });

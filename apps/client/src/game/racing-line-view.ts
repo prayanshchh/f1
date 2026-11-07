@@ -42,6 +42,9 @@ export class RacingLineView {
   private readonly colour = new THREE.Color();
   private readonly plan: Cue[];
   private readonly shown: boolean;
+  private readonly mesh: THREE.InstancedMesh;
+  private readonly instance = new THREE.Matrix4();
+  private readonly world = new THREE.Matrix4();
 
   constructor(
     private readonly data: RacingLineData,
@@ -65,6 +68,7 @@ export class RacingLineView {
       this.material(),
       this.tiles.length,
     );
+    this.mesh = mesh;
     const matrix = new THREE.Matrix4();
     const rotation = new THREE.Quaternion();
     const euler = new THREE.Euler();
@@ -96,6 +100,25 @@ export class RacingLineView {
     material.colorNode = tint.xyz;
     material.opacityNode = tint.w.mul(soft);
     return material;
+  }
+
+  forEachShown(
+    visit: (matrix: THREE.Matrix4, colour: THREE.Color, alpha: number) => void,
+  ): void {
+    if (!this.shown || !this.root.visible) return;
+    const array = this.tint.array as Float32Array;
+    for (let i = 0; i < this.tiles.length; i++) {
+      const alpha = array[i * 4 + 3] ?? 0;
+      if (alpha <= 0) continue;
+      this.mesh.getMatrixAt(i, this.instance);
+      this.world.multiplyMatrices(this.root.matrixWorld, this.instance);
+      this.colour.setRGB(
+        array[i * 4] ?? 0,
+        array[i * 4 + 1] ?? 0,
+        array[i * 4 + 2] ?? 0,
+      );
+      visit(this.world, this.colour, alpha);
+    }
   }
 
   update(carDistance: number, carSpeed: number): void {

@@ -231,6 +231,17 @@ function configureRules(module: SpeedDreamsModule, race: RaceSystems): void {
   module._sdRaceControlInterventions(race.rules.interventions ? 1 : 0);
 }
 
+interface Analog {
+  steer: number;
+  throttle: number;
+  brake: number;
+}
+
+interface AnalogInput {
+  analog: Analog | null;
+  direct: boolean;
+}
+
 export class Engine {
   private carsMemory = 0;
   private timingMemory = 0;
@@ -238,11 +249,48 @@ export class Engine {
   private qualifyingMemory = 0;
   private damageMemory = 0;
   private passMemory = 0;
+  private threaded = false;
+  private launched = false;
+  private input: AnalogInput | null = null;
 
   private constructor(
     private readonly module: SpeedDreamsModule,
     readonly carCount: number,
   ) {}
+
+  private get sd(): SpeedDreamsModule {
+    if (this.launched) {
+      this.module._sdSettle();
+      this.launched = false;
+    }
+    return this.module;
+  }
+
+  private memory(): ArrayBufferLike {
+    return this.sd.wasmMemory.buffer;
+  }
+
+  private applyInput(): void {
+    if (!this.input) return;
+    const { analog, direct } = this.input;
+    this.input = null;
+    this.sd._sdInputSteerDirect(direct ? 1 : 0);
+    if (analog)
+      this.sd._sdInputAnalog(1, analog.steer, analog.throttle, analog.brake);
+    else this.sd._sdInputAnalog(0, 0, 0, 0);
+  }
+
+  useThread(): boolean {
+    this.threaded = this.module._sdPhysicsThread() === 1;
+    return this.threaded;
+  }
+
+  launch(now: number): void {
+    if (!this.threaded) return;
+    this.applyInput();
+    this.sd._sdLaunch(now);
+    this.launched = true;
+  }
 
   static start(
     module: SpeedDreamsModule,
@@ -293,24 +341,24 @@ export class Engine {
   }
 
   cars(): Float64Array {
-    this.carsMemory ||= this.module._malloc(
+    this.carsMemory ||= this.sd._malloc(
       this.carCount * carStride * Float64Array.BYTES_PER_ELEMENT,
     );
-    this.module._sdCars(this.carsMemory);
+    this.sd._sdCars(this.carsMemory);
     return new Float64Array(
-      this.module.HEAPF64.buffer,
+      this.memory(),
       this.carsMemory,
       this.carCount * carStride,
     );
   }
 
   session(): SessionInfo {
-    this.sessionMemory ||= this.module._malloc(
+    this.sessionMemory ||= this.sd._malloc(
       sessionFields * Float64Array.BYTES_PER_ELEMENT,
     );
-    this.module._sdSessionInfo(this.sessionMemory);
+    this.sd._sdSessionInfo(this.sessionMemory);
     const v = new Float64Array(
-      this.module.HEAPF64.buffer,
+      this.memory(),
       this.sessionMemory,
       sessionFields,
     );
@@ -332,26 +380,22 @@ export class Engine {
   }
 
   timing(): CarTiming[] {
-    this.timingMemory ||= this.module._malloc(
+    this.timingMemory ||= this.sd._malloc(
       this.carCount * timingStride * Float64Array.BYTES_PER_ELEMENT,
     );
-    this.qualifyingMemory ||= this.module._malloc(
+    this.qualifyingMemory ||= this.sd._malloc(
       3 * Float64Array.BYTES_PER_ELEMENT,
     );
-    this.module._sdTiming(this.timingMemory);
+    this.sd._sdTiming(this.timingMemory);
     const v = new Float64Array(
-      this.module.HEAPF64.buffer,
+      this.memory(),
       this.timingMemory,
       this.carCount * timingStride,
     ).slice();
     return Array.from({ length: this.carCount }, (_, index) => {
       const at = (k: number) => v[index * timingStride + k] ?? 0;
-      this.module._sdQualifyingTimes(index, this.qualifyingMemory);
-      const q = new Float64Array(
-        this.module.HEAPF64.buffer,
-        this.qualifyingMemory,
-        3,
-      );
+      this.sd._sdQualifyingTimes(index, this.qualifyingMemory);
+      const q = new Float64Array(this.memory(), this.qualifyingMemory, 3);
       return {
         index,
         position: at(0),
@@ -381,33 +425,25 @@ export class Engine {
   }
 
   stewardMessages(after: number): StewardMessage[] {
-    const pointer = this.module._malloc(messageBatch * messageFields * 8);
+    const pointer = this.sd._malloc(messageBatch * messageFields * 8);
     const found: StewardMessage[] = [];
     let last = after;
     for (;;) {
-      const count = this.module._sdStewardsMessages(
-        pointer,
-        messageBatch,
-        last,
-      );
+      const count = this.sd._sdStewardsMessages(pointer, messageBatch, last);
       const batch = parseMessages(
-        new Float64Array(
-          this.module.HEAPF64.buffer,
-          pointer,
-          count * messageFields,
-        ).slice(),
+        new Float64Array(this.memory(), pointer, count * messageFields).slice(),
       );
       found.push(...batch);
       last = batch.at(-1)?.id ?? last;
       if (count < messageBatch) break;
     }
-    this.module._free(pointer);
+    this.sd._free(pointer);
     return found;
   }
 
   raceControl(): RaceControlInfo {
     const v = this.doubles(raceControlFields, (p) => {
-      this.module._sdRaceControlInfo(p);
+      this.sd._sdRaceControlInfo(p);
     });
     const at = (i: number) => v[i] ?? 0;
     return {
@@ -427,57 +463,53 @@ export class Engine {
   }
 
   safetyCarPose(): number[] | null {
-    const pointer = this.module._malloc(16 * 8);
-    const shown = this.module._sdSafetyCarPose(pointer) !== 0;
-    const pose = Array.from(
-      new Float64Array(this.module.HEAPF64.buffer, pointer, 16),
-    );
-    this.module._free(pointer);
+    const pointer = this.sd._malloc(16 * 8);
+    const shown = this.sd._sdSafetyCarPose(pointer) !== 0;
+    const pose = Array.from(new Float64Array(this.memory(), pointer, 16));
+    this.sd._free(pointer);
     return shown ? pose : null;
   }
 
   stewardCar(index: number): StewardCar {
     return parseCar(
       this.doubles(carFields, (p) => {
-        this.module._sdStewardsCar(index, p);
+        this.sd._sdStewardsCar(index, p);
       }),
     );
   }
 
   stewardFlags(): number[] {
     return this.doubles(marshalSectors, (p) => {
-      this.module._sdStewardsFlags(p, marshalSectors);
+      this.sd._sdStewardsFlags(p, marshalSectors);
     });
   }
 
   grid(): number[] {
-    const pointer = this.module._malloc(this.carCount * 4);
-    const count = this.module._sdSessionGrid(pointer);
-    const order = Array.from(
-      new Int32Array(this.module.HEAPF64.buffer, pointer, count),
-    );
-    this.module._free(pointer);
+    const pointer = this.sd._malloc(this.carCount * 4);
+    const count = this.sd._sdSessionGrid(pointer);
+    const order = Array.from(new Int32Array(this.memory(), pointer, count));
+    this.sd._free(pointer);
     return order;
   }
 
   pitLaneClear(): boolean {
-    return this.module._sdAiPlayerLaneClear() !== 0;
+    return this.sd._sdAiPlayerLaneClear() !== 0;
   }
 
   advanceSession(): number {
-    return this.module._sdSessionAdvance();
+    return this.sd._sdSessionAdvance();
   }
 
   simulateSession(): void {
-    this.module._sdSessionSimulate();
+    this.sd._sdSessionSimulate();
   }
 
   queuePlayerRun(): boolean {
-    return this.module._sdSessionPlayerRun() !== 0;
+    return this.sd._sdSessionPlayerRun() !== 0;
   }
 
   timeScale(scale: number): void {
-    this.module._sdTimeScale(scale);
+    this.sd._sdTimeScale(scale);
   }
 
   slowPlayer(speed: number): void {
@@ -485,72 +517,63 @@ export class Engine {
   }
 
   setPitCompound(compound: number): void {
-    this.module._sdSessionPitCompound(compound);
+    this.sd._sdSessionPitCompound(compound);
   }
 
   autopilot(on: boolean): void {
-    this.module._sdFieldAutopilot(on ? 1 : 0);
+    this.sd._sdFieldAutopilot(on ? 1 : 0);
   }
 
   playerBox(): number {
-    return this.module._sdFieldPlayerBox();
+    return this.sd._sdFieldPlayerBox();
   }
 
   speedLimit(metresPerSecond: number): void {
-    this.module._sdInputSpeedLimit(metresPerSecond);
+    this.sd._sdInputSpeedLimit(metresPerSecond);
   }
 
   pitHold(on: boolean): void {
-    this.module._sdInputPitHold(on ? 1 : 0);
+    this.sd._sdInputPitHold(on ? 1 : 0);
   }
 
   pitService(fuel: number, frontWing: boolean): void {
-    this.module._sdPitService(fuel, frontWing ? 1 : 0);
+    this.sd._sdPitService(fuel, frontWing ? 1 : 0);
   }
 
   viewKey(code: number, ctrl: boolean): boolean {
-    return this.module._sdViewKey(code, ctrl ? 1 : 0) !== 0;
+    return this.sd._sdViewKey(code, ctrl ? 1 : 0) !== 0;
   }
 
   viewResize(width: number, height: number): void {
-    this.module._sdViewResize(Math.round(width), Math.round(height));
+    this.sd._sdViewResize(Math.round(width), Math.round(height));
   }
 
-  analog(
-    input: { steer: number; throttle: number; brake: number } | null,
-    direct = false,
-  ): void {
-    this.module._sdInputSteerDirect(direct ? 1 : 0);
-    if (input)
-      this.module._sdInputAnalog(1, input.steer, input.throttle, input.brake);
-    else this.module._sdInputAnalog(0, 0, 0, 0);
+  analog(input: Analog | null, direct = false): void {
+    this.input = { analog: input, direct };
+    if (!this.threaded) this.applyInput();
   }
 
   key(code: number, down: boolean): void {
-    this.module._sdKey(code, down ? 1 : 0);
+    this.sd._sdKey(code, down ? 1 : 0);
   }
 
   carsDamage(): Float64Array {
     const parts = 11;
-    this.damageMemory ||= this.module._malloc(this.carCount * parts * 8);
-    const count = this.module._sdCarsDamage(this.damageMemory);
+    this.damageMemory ||= this.sd._malloc(this.carCount * parts * 8);
+    const count = this.sd._sdCarsDamage(this.damageMemory);
     return new Float64Array(
-      this.module.HEAPF64.buffer,
+      this.memory(),
       this.damageMemory,
       this.carCount * count,
     ).slice();
   }
 
   passes(from: number): { total: number; list: Pass[] } {
-    this.passMemory ||= this.module._malloc(passBatch * passFields * 8);
-    const total = this.module._sdSessionPasses(
-      this.passMemory,
-      passBatch,
-      from,
-    );
+    this.passMemory ||= this.sd._malloc(passBatch * passFields * 8);
+    const total = this.sd._sdSessionPasses(this.passMemory, passBatch, from);
     const count = Math.max(0, Math.min(passBatch, total - from));
     const v = new Float64Array(
-      this.module.HEAPF64.buffer,
+      this.memory(),
       this.passMemory,
       count * passFields,
     );
@@ -568,44 +591,46 @@ export class Engine {
   }
 
   heap(): Uint8Array {
-    return new Uint8Array(this.module.HEAPF64.buffer);
+    return new Uint8Array(this.memory());
   }
 
   resync(now: number): void {
     this.resume(now);
-    this.module._sdInputRelease();
+    this.sd._sdInputRelease();
   }
 
   resume(now: number): void {
-    this.module._sdResync(now);
+    this.sd._sdResync(now);
   }
 
   update(now: number): Float64Array {
-    this.module._sdUpdate(now);
+    if (!this.launched) {
+      this.applyInput();
+      this.sd._sdUpdate(now);
+    }
     return this.frame();
   }
 
   frame(): Float64Array {
-    return new Float64Array(
-      this.module.HEAPF64.buffer,
-      this.module._sdFrame(),
+    const view = new Float64Array(
+      this.memory(),
+      this.sd._sdFrame(),
       frameIndex.size,
     );
+    return this.threaded ? view.slice() : view;
   }
 
   private doubles(count: number, fill: (pointer: number) => void): number[] {
-    const pointer = this.module._malloc(count * 8);
+    const pointer = this.sd._malloc(count * 8);
     fill(pointer);
-    const values = Array.from(
-      new Float64Array(this.module.HEAPF64.buffer, pointer, count),
-    );
-    this.module._free(pointer);
+    const values = Array.from(new Float64Array(this.memory(), pointer, count));
+    this.sd._free(pointer);
     return values;
   }
 
   trackLocal(): TrackLocal {
     const v = this.doubles(10, (p) => {
-      this.module._sdTrackInfo(p);
+      this.sd._sdTrackInfo(p);
     });
     const at = (i: number) => v[i] ?? 0;
     return {
@@ -621,7 +646,7 @@ export class Engine {
 
   weather(): WeatherInfo {
     const v = this.doubles(weatherFields, (p) => {
-      this.module._sdWeatherInfo(p);
+      this.sd._sdWeatherInfo(p);
     });
     const at = (i: number) => v[i] ?? 0;
     return {
@@ -638,7 +663,7 @@ export class Engine {
 
   wheelGrip(): WheelGrip[] {
     const v = this.doubles(telemetrySize, (p) => {
-      this.module._sdTelemetry(p);
+      this.sd._sdTelemetry(p);
     });
     return [0, 1, 2, 3].map((i) => {
       const at = (k: number) => v[telemetryWheels + i * 6 + k] ?? 0;
@@ -648,7 +673,7 @@ export class Engine {
 
   carAudio(frame: Float64Array): CarAudio {
     const v = this.doubles(22, (p) => {
-      this.module._sdAudio(p);
+      this.sd._sdAudio(p);
     });
     const at = (i: number) => v[i] ?? 0;
     return {
@@ -673,7 +698,7 @@ export class Engine {
 
   hudInfo(): HudInfo {
     const v = this.doubles(22, (p) => {
-      this.module._sdHudInfo(p);
+      this.sd._sdHudInfo(p);
     });
     const at = (i: number) => v[i] ?? 0;
     const wheels = (o: number) => [0, 1, 2, 3].map((i) => at(o + i));
@@ -693,7 +718,7 @@ export class Engine {
 
   tyreInfo(): TyreInfo {
     const v = this.doubles(44, (p) => {
-      this.module._sdTyresInfo(p);
+      this.sd._sdTyresInfo(p);
     });
     const at = (i: number) => v[i] ?? 0;
     return {
@@ -721,7 +746,7 @@ export class Engine {
 
   carStatus(): CarStatus {
     const v = this.doubles(19, (p) => {
-      this.module._sdCarStatus(p);
+      this.sd._sdCarStatus(p);
     });
     const at = (i: number) => v[i] ?? 0;
     return {
@@ -744,7 +769,7 @@ export class Engine {
 
   energyInfo(): EnergyInfo {
     const v = this.doubles(19, (p) => {
-      this.module._sdEnergyInfo(p);
+      this.sd._sdEnergyInfo(p);
     });
     const at = (i: number) => v[i] ?? 0;
     return {
@@ -768,54 +793,52 @@ export class Engine {
   }
 
   setErsMode(mode: number): void {
-    this.module._sdEnergyMode(mode);
+    this.sd._sdEnergyMode(mode);
   }
 
   setFuelMix(mix: number): void {
-    this.module._sdEnergyFuelMix(mix);
+    this.sd._sdEnergyFuelMix(mix);
   }
 
   armOvertake(): void {
-    this.module._sdEnergyOvertake(1);
+    this.sd._sdEnergyOvertake(1);
   }
 
   setDifferential(percent: number): void {
-    this.module._sdEnergyDifferential(percent);
+    this.sd._sdEnergyDifferential(percent);
   }
 
   armStraight(): void {
-    this.module._sdEnergyStraight(0, 1);
+    this.sd._sdEnergyStraight(0, 1);
   }
 
   setBrakeBias(share: number): void {
-    this.module._sdEnergyBrakeBias(share);
+    this.sd._sdEnergyBrakeBias(share);
   }
 
   trackLength(): number {
-    return this.module._sdTrackLength();
+    return this.sd._sdTrackLength();
   }
 
   sectorBoundaries(): number[] {
-    const pointer = this.module._malloc(16 * 8);
-    const count = this.module._sdTrackSectors(pointer, 16);
-    const values = Array.from(
-      new Float64Array(this.module.HEAPF64.buffer, pointer, count),
-    );
-    this.module._free(pointer);
+    const pointer = this.sd._malloc(16 * 8);
+    const count = this.sd._sdTrackSectors(pointer, 16);
+    const values = Array.from(new Float64Array(this.memory(), pointer, count));
+    this.sd._free(pointer);
     const length = this.trackLength();
     return values.filter((d) => d > 0 && d < length).sort((a, b) => a - b);
   }
 
   trackPoint(toStart: number, toMiddle: number): [number, number, number] {
-    const out = this.module._malloc(12);
-    this.module._sdTrackLocal2Global(toStart, toMiddle, out);
-    const point = new Float32Array(this.module.HEAPF32.buffer, out, 3);
+    const out = this.sd._malloc(12);
+    this.sd._sdTrackLocal2Global(toStart, toMiddle, out);
+    const point = new Float32Array(this.memory(), out, 3);
     const result: [number, number, number] = [
       point[0] ?? 0,
       point[1] ?? 0,
       point[2] ?? 0,
     ];
-    this.module._free(out);
+    this.sd._free(out);
     return result;
   }
 }

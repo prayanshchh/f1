@@ -39,6 +39,7 @@ export interface TutorialSample {
   mfd: string;
   cameras: number;
   rewinds: number;
+  replays: boolean;
   pit: PitPhase;
   boost: boolean;
   retired: boolean;
@@ -588,10 +589,13 @@ function menuSteps(): Step[] {
       ],
       true,
     ),
-    tour("menu-replay", "menu-replay", [
-      "Replay & Flashback",
-      "V shows the last moments again, or rewinds so you can retry.",
-    ]),
+    {
+      ...tour("menu-replay", "menu-replay", [
+        "Replay & Flashback",
+        "V shows the last moments again, or rewinds so you can retry.",
+      ]),
+      skip: (s) => !s.replays,
+    },
     tour("menu-restart", "menu-restart", [
       "Restart",
       "↵ starts this session again from the grid.",
@@ -682,6 +686,7 @@ const idleSample: TutorialSample = {
   mfd: "quick",
   cameras: 0,
   rewinds: 0,
+  replays: true,
   pit: "track",
   boost: false,
   retired: false,

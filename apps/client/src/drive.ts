@@ -1149,6 +1149,7 @@ async function main(): Promise<void> {
     lights,
     settings.clouds,
   );
+  let frameStale = true;
   const graphics = new GraphicsMode(
     startLevel,
     viewBuilder(params, renderer, scene, engine, {
@@ -1156,6 +1157,7 @@ async function main(): Promise<void> {
       canvas,
     }),
     (level) => {
+      frameStale = true;
       menu.setReplays(level === "ultra");
       showReplayHints(level === "ultra");
       if (level === "ultra") note.hide();
@@ -1194,7 +1196,6 @@ async function main(): Promise<void> {
   const pad = padLink();
   const sound = await GameSound.start(audio);
 
-  let frameStale = true;
   const resize = () => {
     frameStale = true;
     const width = canvas.clientWidth;

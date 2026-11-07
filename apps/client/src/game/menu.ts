@@ -270,6 +270,7 @@ export class Menu {
 
   setReplays(on: boolean): void {
     this.replays = on;
+    this.find("replay").hidden = !this.canReplay;
   }
 
   save(): void {

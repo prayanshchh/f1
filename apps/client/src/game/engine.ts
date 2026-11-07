@@ -23,6 +23,7 @@ import { carStride, frameIndex } from "./frame-layout.ts";
 import type { Pass } from "./highlights.ts";
 
 const telemetrySize = 40;
+const barrierValues = 8;
 const weatherFields = 13;
 const telemetryWheels = 8;
 
@@ -237,6 +238,8 @@ export class Engine {
   private sessionMemory = 0;
   private qualifyingMemory = 0;
   private damageMemory = 0;
+  private tyreMemory = 0;
+  private barrierMemory = 0;
   private passMemory = 0;
 
   private constructor(
@@ -541,6 +544,17 @@ export class Engine {
     ).slice();
   }
 
+  carsTyres(): Float64Array {
+    const values = 12;
+    this.tyreMemory ||= this.module._malloc(this.carCount * values * 8);
+    const count = this.module._sdCarsTyres(this.tyreMemory);
+    return new Float64Array(
+      this.module.HEAPF64.buffer,
+      this.tyreMemory,
+      count * values,
+    ).slice();
+  }
+
   passes(from: number): { total: number; list: Pass[] } {
     this.passMemory ||= this.module._malloc(passBatch * passFields * 8);
     const total = this.module._sdSessionPasses(
@@ -809,6 +823,20 @@ export class Engine {
     this.module._free(pointer);
     const length = this.trackLength();
     return values.filter((d) => d > 0 && d < length).sort((a, b) => a - b);
+  }
+
+  groundHeight(x: number, y: number): number {
+    return this.module._sdGroundHeight(x, y);
+  }
+
+  barriers(x: number, y: number): Float64Array {
+    this.barrierMemory ||= this.module._malloc(barrierValues * 8);
+    this.module._sdTrackBarrier(x, y, this.barrierMemory);
+    return new Float64Array(
+      this.module.HEAPF64.buffer,
+      this.barrierMemory,
+      barrierValues,
+    );
   }
 
   trackPoint(toStart: number, toMiddle: number): [number, number, number] {

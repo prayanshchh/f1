@@ -8,15 +8,32 @@ import type { CarEnvironment } from "./carpaint.ts";
 import { detailFor, detailLevels } from "./detail-level.ts";
 import { carField, carStride, carWheel } from "./frame-layout.ts";
 import {
+  armMaterial,
   contactShadow,
   gltfToSdCar,
   makeDamageable,
   wheelRest,
 } from "./gltf.ts";
-import { type DamageLook, newLook } from "./car-damage.ts";
+import {
+  type DamageLook,
+  newLook,
+  partCount,
+  partIndex,
+  tyreState,
+  type WheelSlump,
+  wheelGone,
+  wheelSlump,
+} from "./car-damage.ts";
+import { type CarPieces, type WheelPiece, zonePieces } from "./debris.ts";
 import { teamModel } from "./grid.ts";
 import { compounds } from "./tyres.ts";
-import { spinBlur, treadOf, type TyreLook, tyreLook } from "./tyre-paint.ts";
+import {
+  deflatedSag,
+  spinBlur,
+  treadOf,
+  type TyreLook,
+  tyreLook,
+} from "./tyre-paint.ts";
 
 const wheelCount = 4;
 const drawDistance = 900;
@@ -44,6 +61,7 @@ interface Template {
   body: THREE.Object3D;
   wheels: WheelShape[];
   levels: THREE.Object3D[];
+  pieces: CarPieces;
   axleMid: number;
   wheelHeight: number;
 }
@@ -61,6 +79,8 @@ interface FieldCar {
   detail: number;
   wheels: WheelNode[];
   look: TyreLook;
+  looks: TyreLook[];
+  slumps: WheelSlump[];
   radius: number;
   casters: THREE.Mesh[];
   shadowOn: boolean;
@@ -69,9 +89,14 @@ interface FieldCar {
   axleMid: number;
   wheelHeight: number;
   damage: DamageLook;
+  pieces: CarPieces;
+  wheelPieces: WheelPiece[];
+  lost: boolean[];
+  spinning: boolean;
 }
 
 const scratch = new THREE.Matrix4();
+const noSlump = wheelSlump(0, true, true);
 
 function wheelOf(x: number, y: number): number {
   return (x > 0 ? 0 : 2) + (y > 0 ? 1 : 0);
@@ -238,8 +263,11 @@ async function loadTemplate(
   const wheels = wheelShapes(model);
   makeDamageable(model, newLook(), (mesh) => {
     const name = (mesh.material as THREE.Material).name;
-    return name.endsWith("atlas") || name === "carbon-part";
+    return (
+      name.endsWith("atlas") || name === "carbon-part" || name === armMaterial
+    );
   });
+  const pieces = zonePieces(model);
   const body = matrix();
   body.matrix.copy(gltfToSdCar);
   body.add(model);
@@ -249,6 +277,7 @@ async function loadTemplate(
     body,
     wheels,
     levels: detailModels(body, wheels),
+    pieces,
     axleMid: mean((shape) => shape.centre.x),
     wheelHeight: mean((shape) => shape.centre.z),
   };
@@ -304,8 +333,9 @@ export class FieldCars {
     for (const level of levels) level.visible = false;
     model.add(body, ...levels, contact);
     root.add(model);
-    const wheels = template.wheels.map((shape) =>
-      this.buildWheel(shape, root, look),
+    const looks = template.wheels.map(() => tyreLook());
+    const wheels = template.wheels.map((shape, i) =>
+      this.buildWheel(shape, root, looks[i] ?? look),
     );
     const casters: THREE.Mesh[] = [];
     root.traverse((object) => {
@@ -322,6 +352,8 @@ export class FieldCars {
       detail: 0,
       wheels,
       look,
+      looks,
+      slumps: looks.map(() => wheelSlump(0, true, true)),
       radius:
         template.wheels.reduce((sum, shape) => sum + shape.radius, 0) /
         template.wheels.length,
@@ -332,6 +364,22 @@ export class FieldCars {
       axleMid: template.axleMid,
       wheelHeight: template.wheelHeight,
       damage,
+      pieces: template.pieces,
+      lost: looks.map(() => false),
+      spinning: true,
+      wheelPieces: template.wheels.map((shape, i) => ({
+        parts: shape.meshes.map((mesh) => ({
+          geometry: mesh.geometry,
+          material: mesh.material as THREE.Material,
+          matrix: new THREE.Matrix4(),
+          userData:
+            (mesh.material as THREE.Material).name === "tyre"
+              ? { tyre: looks[i] ?? look }
+              : {},
+        })),
+        radius: shape.radius,
+        width: shape.width,
+      })),
     };
   }
 
@@ -369,18 +417,26 @@ export class FieldCars {
     at: number,
     seconds: number,
   ): void {
-    car.look.blur = spinBlur(
+    const blur = spinBlur(
       (data[at + carField.speed] ?? 0) / car.radius,
       seconds,
     );
+    car.look.blur = blur;
+    for (const look of car.looks) look.blur = blur;
     car.wheels.forEach((wheel, i) => {
       const w = (k: number) =>
         data[at + carWheel.from + i * carWheel.stride + k] ?? 0;
+      const slump = car.slumps[i] ?? noSlump;
+      const sag = car.looks[i]?.sag ?? 0;
       wheel.spin.matrix.makeRotationY(w(4));
       wheel.pivot.matrix
-        .makeTranslation(w(0), w(1), w(2))
-        .multiply(scratch.makeRotationZ(w(5)));
-      wheel.pivot.matrix.multiply(scratch.makeRotationX(w(3)));
+        .makeTranslation(
+          w(0) + slump.back,
+          w(1) + slump.out,
+          w(2) - slump.drop - sag,
+        )
+        .multiply(scratch.makeRotationZ(w(5) + slump.toe));
+      wheel.pivot.matrix.multiply(scratch.makeRotationX(w(3) + slump.camber));
     });
   }
 
@@ -388,8 +444,28 @@ export class FieldCars {
     if (compound === car.compound) return;
     car.compound = compound;
     const colour = this.compoundColours[compound] ?? this.compoundColours[1];
-    if (colour) car.look.compound.copy(colour);
-    car.look.tread = treadOf(compound);
+    for (const look of [car.look, ...car.looks]) {
+      if (colour) look.compound.copy(colour);
+      look.tread = treadOf(compound);
+    }
+  }
+
+  setDamageState(index: number, state: ArrayLike<number>): void {
+    const car = this.cars[index - 1];
+    if (!car) return;
+    car.slumps = car.slumps.map((_, i) =>
+      wheelSlump(state[partIndex.suspension + i] ?? 0, i % 2 === 1, i < 2),
+    );
+    car.lost = car.lost.map((_, i) =>
+      wheelGone(state[partIndex.suspension + i] ?? 0),
+    );
+    this.showWheels(car);
+    car.looks.forEach((look, i) => {
+      const at = partCount + i * tyreState;
+      look.sag = deflatedSag(state[at] ?? 0);
+      look.shred = Math.min(1, Math.max(0, state[at + 1] ?? 0));
+      look.flat = Math.min(1, Math.max(0, state[at + 2] ?? 0));
+    });
   }
 
   private setShadow(car: FieldCar, on: boolean): void {
@@ -400,6 +476,14 @@ export class FieldCars {
 
   damageOf(index: number): DamageLook | null {
     return this.cars[index - 1]?.damage ?? null;
+  }
+
+  piecesOf(index: number): CarPieces | null {
+    return this.cars[index - 1]?.pieces ?? null;
+  }
+
+  wheelPiecesOf(index: number): WheelPiece[] {
+    return this.cars[index - 1]?.wheelPieces ?? [];
   }
 
   hide(hidden: boolean): void {
@@ -417,8 +501,14 @@ export class FieldCars {
     car.levels.forEach((level, i) => {
       level.visible = detail === i + 1;
     });
-    const spinning = detail === 0 || detailLevels[detail - 1]?.spinning;
-    for (const wheel of car.wheels) wheel.pivot.visible = spinning === true;
+    car.spinning = detail === 0 || detailLevels[detail - 1]?.spinning === true;
+    this.showWheels(car);
+  }
+
+  private showWheels(car: FieldCar): void {
+    car.wheels.forEach((wheel, i) => {
+      wheel.pivot.visible = car.spinning && car.lost[i] !== true;
+    });
   }
 
   update(data: Float64Array, camera: THREE.Camera): void {
@@ -463,8 +553,7 @@ export class FieldCars {
     this.setShadow(car, distance < shadowDistance);
     this.setCompound(car, data[at + carField.compound] ?? 1);
     this.setDetail(car, detailFor(car.detail, distance * spread));
-    const spinning = car.wheels[0]?.pivot.visible === true;
-    if (spinning && distance < wheelDistance)
+    if (car.spinning && distance < wheelDistance)
       this.updateWheels(car, data, at, seconds);
   }
 }

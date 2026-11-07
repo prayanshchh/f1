@@ -4,6 +4,7 @@ import { carField, carStride, frameIndex } from "./frame-layout.ts";
 
 const stationSpacing = 170;
 const stationReach = 21;
+const stationBehindWall = 1.5;
 const stationHeight = 4.5;
 const stationLead = 35;
 const stationHold = 95;
@@ -41,6 +42,7 @@ export interface Station {
 export function trackStations(
   length: number,
   point: (distance: number, lateral: number) => [number, number, number],
+  wall: (distance: number, side: number) => number,
 ): Station[] {
   const stations: Station[] = [];
   for (let d = 0; d < length; d += stationSpacing) {
@@ -49,7 +51,8 @@ export function trackStations(
     const [cx, cy] = point(d + 25, 0);
     const turn = (bx - ax) * (cy - by) - (by - ay) * (cx - bx);
     const outside = turn > 0 ? -1 : 1;
-    const [x, y, z] = point(d, outside * stationReach);
+    const reach = Math.min(stationReach, wall(d, outside) + stationBehindWall);
+    const [x, y, z] = point(d, outside * reach);
     stations.push({ distance: d, eye: [x, y, z + stationHeight] });
   }
   return stations;

@@ -9,7 +9,16 @@ import { frameIndex, type Engine, type HudInfo } from "./engine.ts";
 import type { WeatherInfo } from "./weather.ts";
 import { farRain, nearRain, RainStreaks, Spray } from "./rain.ts";
 import { carWetness, rainLight } from "./carpaint.ts";
-import { Debris, partCount, updateLook } from "./car-damage.ts";
+import {
+  carState,
+  type LookChange,
+  partCount,
+  partIndex,
+  tyreState,
+  updateLook,
+} from "./car-damage.ts";
+import { Debris, type Ground, type Walls } from "./debris.ts";
+import { DamageLog } from "./damage-log.ts";
 import { carField, carStride } from "./frame-layout.ts";
 import { GltfCar, placeOnTrack, type TrackFrame } from "./gltf.ts";
 import { GridCars, type GridSlot } from "./grid.ts";
@@ -106,6 +115,11 @@ const cloudCover: Record<string, number> = {
 const overcastFrom = 0.9;
 const overcastDry = 0.85;
 const brokenSun = 0.18;
+
+const shockFrom = 0.3;
+const shockFull = 1.2;
+const shockHold = 2.2;
+const shockFade = 1.6;
 
 function coverOf(clouds: string): number {
   const known = cloudCover[clouds];
@@ -243,6 +257,14 @@ export class Scene {
   private readonly farRain = new RainStreaks(farRain);
   private readonly spray = new Spray();
   private readonly debris = new Debris();
+  private readonly damageLog = new DamageLog();
+  private readonly noDamage = new Float32Array(carState);
+  private readonly noParts = new Float32Array(partCount);
+  private readonly playerParts = new Float64Array(partCount);
+  private damageState = new Float64Array(0);
+  private shockPeak = 0;
+  private shockAt = -Infinity;
+  private pastShown = false;
   private readonly damageMatrix = new THREE.Matrix4();
   private readonly damageVelocity = new THREE.Vector3();
   private weather = dryWeather;
@@ -302,6 +324,7 @@ export class Scene {
     glare: 1,
     glowMirror: 0,
     sheen: 0,
+    shock: 0,
   };
 
   private constructor(
@@ -370,6 +393,7 @@ export class Scene {
       this.safetyCar.root,
       ...extras,
     ];
+    this.addDebrisCars(field);
     culler.narrowViews();
     car.focusMirror = (view) => {
       culler.focus(view);
@@ -487,7 +511,7 @@ export class Scene {
       placeOnTrack(people.root, frame, start),
       placeOnTrack(racingLine.root, frame, start),
     );
-    return new Scene(
+    const scene = new Scene(
       new SdSky(local),
       skyBox,
       people,
@@ -505,6 +529,12 @@ export class Scene {
       floodlights,
       coverOf(clouds),
     );
+    scene.useGround(
+      (x, y) => engine.groundHeight(x, y),
+      (x, y) => engine.barriers(x, y),
+    );
+    engine.barriers(0, 0);
+    return scene;
   }
 
   updateField(cars: Float64Array): void {
@@ -529,16 +559,103 @@ export class Scene {
     return this.cars;
   }
 
-  setDamage(damage: Float64Array, frame: Float64Array): void {
+  setDamage(
+    damage: Float64Array,
+    tyres: Float64Array,
+    frame: Float64Array,
+  ): void {
     const count = Math.floor(damage.length / partCount);
+    const time = frame[frameIndex.time] ?? 0;
+    const quiet = this.pastShown;
+    this.pastShown = false;
+    if (this.damageState.length !== count * carState)
+      this.damageState = new Float64Array(count * carState);
+    const state = this.damageState;
     for (let i = 0; i < count; i++) {
-      const look = i === 0 ? this.car.damage : this.field?.damageOf(i);
-      if (!look) continue;
-      const changes = updateLook(look, damage, i * partCount);
-      if (changes.length > 0 && this.placeDamaged(i, frame))
-        for (const change of changes)
-          this.debris.spawn(this.damageMatrix, this.damageVelocity, change);
+      state.set(
+        damage.subarray(i * partCount, (i + 1) * partCount),
+        i * carState,
+      );
+      state.set(
+        tyres.subarray(i * 4 * tyreState, (i + 1) * 4 * tyreState),
+        i * carState + partCount,
+      );
     }
+    this.damageLog.record(time, state, carState);
+    if (!quiet) this.feelHit(time, state);
+    for (let i = 0; i < count; i++) {
+      const changes = this.applyCar(
+        i,
+        state.subarray(i * carState, (i + 1) * carState),
+      );
+      if (quiet || changes.length === 0 || !this.placeDamaged(i, frame))
+        continue;
+      for (const change of changes)
+        this.debris.spawn(
+          time,
+          i,
+          this.damageMatrix,
+          this.damageVelocity,
+          change,
+        );
+    }
+  }
+
+  private addDebrisCars(field: FieldCars | null): void {
+    this.debris.addCar(0, this.car.pieces);
+    this.debris.addWheels(0, this.car.wheelPieces);
+    for (let i = 1; ; i++) {
+      const pieces = field?.piecesOf(i);
+      if (!pieces) return;
+      this.debris.addCar(i, pieces);
+      this.debris.addWheels(i, field?.wheelPiecesOf(i) ?? []);
+    }
+  }
+
+  private feelHit(time: number, state: Float64Array): void {
+    let hit = 0;
+    for (let k = 0; k < partCount; k++) {
+      const now = state[k] ?? 0;
+      hit += Math.max(0, now - (this.playerParts[k] ?? 0));
+      this.playerParts[k] = now;
+    }
+    if (hit < shockFrom) return;
+    const level = Math.min(
+      1,
+      (hit - shockFrom) / (shockFull - shockFrom) + 0.5,
+    );
+    this.shockPeak = Math.max(this.shockLevel(time), level);
+    this.shockAt = time;
+  }
+
+  private shockLevel(time: number): number {
+    if (this.cinematic) return 0;
+    const age = time - this.shockAt;
+    if (age < 0 || age > shockHold + shockFade) return 0;
+    const fade = Math.min(1, Math.max(0, (age - shockHold) / shockFade));
+    return this.shockPeak * (1 - fade * fade * (3 - 2 * fade));
+  }
+
+  get shock(): number {
+    return this.atmosphere.shock;
+  }
+
+  private applyCar(index: number, state: ArrayLike<number>): LookChange[] {
+    const look = index === 0 ? this.car.damage : this.field?.damageOf(index);
+    if (!look) return [];
+    const changes = updateLook(look, state, 0);
+    const bends = Array.from(
+      { length: 4 },
+      (_, k) => state[partIndex.suspension + k] ?? 0,
+    );
+    if (index === 0) this.car.setSuspension(bends);
+    else this.field?.setDamageState(index, state);
+    return changes;
+  }
+
+  useGround(ground: Ground, walls: Walls): void {
+    this.debris.setGround(ground);
+    this.debris.setWalls(walls);
   }
 
   private placeDamaged(index: number, frame: Float64Array): boolean {
@@ -556,8 +673,21 @@ export class Scene {
     return true;
   }
 
-  clearDebris(): void {
-    this.debris.clear();
+  cutDebris(time: number): void {
+    this.debris.cut(time);
+    this.damageLog.cut(time);
+    this.shockPeak = 0;
+    this.playerParts.set(
+      this.damageLog.partsAt(0, time)?.subarray(0, partCount) ?? this.noParts,
+    );
+  }
+
+  private showPast(time: number): void {
+    this.pastShown = true;
+    for (let i = 0; i < this.damageLog.carCount; i++)
+      this.applyCar(i, this.damageLog.partsAt(i, time) ?? this.noDamage);
+    const wheels = this.damageLog.tyresAt(time);
+    if (wheels) this.car.setTyreCondition(wheels);
   }
 
   setWeather(weather: WeatherInfo): void {
@@ -821,6 +951,8 @@ export class Scene {
 
   update(frame: Float64Array): void {
     this.liveFrame = frame;
+    const time = frame[frameIndex.time] ?? 0;
+    if (this.cinematic) this.showPast(time);
     this.car.update(frame);
     this.updateContact(frame);
     this.racingLine.update(
@@ -844,7 +976,7 @@ export class Scene {
         ) <
       onboardReach * onboardReach;
     this.car.setDraw(shown(19), shown(20), onboard);
-    const time = frame[frameIndex.time] ?? 0;
+    this.atmosphere.shock = this.shockLevel(time);
     const lit = this.lights.lit(time - this.signalAt);
     setStartLights(this.cinematic ? 0 : lit);
     const sky = this.sky.update(time, time, eyeX, eyeY);
@@ -914,6 +1046,7 @@ export class Scene {
     this.car.setCompound(tyres.compound);
     this.compound = tyres.compound;
     this.car.setTyreCondition(tyres.wheels);
+    this.damageLog.recordTyres(frame[frameIndex.time] ?? 0, tyres.wheels);
     this.wear =
       tyres.wheels.reduce((sum, wheel) => sum + wheel.wear, 0) /
       Math.max(1, tyres.wheels.length);

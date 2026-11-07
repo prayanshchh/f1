@@ -25,6 +25,7 @@ import {
 } from "three/tsl";
 import { carFile } from "./teams.ts";
 import { releaseOnceUploaded } from "./preload.ts";
+import { scraped } from "./car-damage.ts";
 
 const envWidth = 512;
 const envHeight = 256;
@@ -298,21 +299,28 @@ function atlasMaterial(
   const pattern = weave();
   const coat = float(1).sub(smoothstep(0.45, 0.6, orm.g));
   const water = beads();
-  material.colorNode = texture(textures.albedo, uv())
-    .rgb.mul(mix(float(1), pattern.mul(1.6), carbon))
-    .max(water.mul(beadGrey));
-  material.roughnessNode = mix(orm.g, orm.g.mul(wetSheen), carWetness);
+  const paint = texture(textures.albedo, uv()).rgb.mul(
+    mix(float(1), pattern.mul(1.6), carbon),
+  );
+  const height = texture(textures.bump, uv()).r;
+  const worn =
+    name === "body"
+      ? scraped({ colour: paint, roughness: orm.g, height, coat })
+      : { colour: paint, roughness: orm.g, height, coat };
+  material.colorNode = worn.colour.max(water.mul(beadGrey));
+  material.roughnessNode = mix(
+    worn.roughness,
+    worn.roughness.mul(wetSheen),
+    carWetness,
+  );
   material.metalnessNode = float(0);
   material.aoNode = orm.r;
-  material.clearcoatNode = coat.max(water);
+  material.clearcoatNode = worn.coat.max(water);
   material.clearcoatRoughnessNode = float(coatRoughness);
   material.clearcoatNormalNode = normalViewGeometry
     .add(skyward.mul(water.mul(beadLift)))
     .normalize();
-  material.normalNode = bumpMap(
-    texture(textures.bump, uv()).r,
-    float(bumpStrength),
-  );
+  material.normalNode = bumpMap(worn.height, float(bumpStrength));
   return material;
 }
 

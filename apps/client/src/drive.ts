@@ -1062,6 +1062,7 @@ async function main(): Promise<void> {
 
   let pitPressed = false;
   let damageClock = 0;
+  let hudFade = 1;
   let replay: InstantReplay | null = null;
   let pitPhase = "track";
   const jumpBack = (school: TutorialRun) => {
@@ -1393,9 +1394,14 @@ async function main(): Promise<void> {
     scene.setWeather(weather);
     if (now - damageClock > damagePeriod) {
       damageClock = now;
-      scene.setDamage(engine.carsDamage(), frame);
+      scene.setDamage(engine.carsDamage(), engine.carsTyres(), frame);
     }
     scene.update(frame);
+    const hudShown = Math.round((1 - Math.min(1, scene.shock * 1.6)) * 20) / 20;
+    if (hudShown !== hudFade) {
+      hudFade = hudShown;
+      hudRoot.style.opacity = hudShown === 1 ? "" : String(hudShown);
+    }
     incident.prepare(frame);
     const info = engine.hudInfo();
     scene.setDash(info);

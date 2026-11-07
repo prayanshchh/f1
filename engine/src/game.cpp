@@ -495,6 +495,7 @@ static void runOneStep(double deltaTimeIncrement)
         sdCarStatusStep(s->cars[i], deltaTimeIncrement);
         manageCar(s->cars[i]);
     }
+    sdCarsTumbleStep(s, deltaTimeIncrement);
     sdStewardsStep(s);
     sdSessionAfterStep(s);
 }
@@ -537,9 +538,7 @@ static void fillFrame()
 {
     tCarElt *car = ReInfo->s->cars[0];
     frame[SD_TIME] = ReInfo->s->currentTime;
-    for (int i = 0; i < 4; i++)
-        for (int j = 0; j < 4; j++)
-            frame[SD_POSMAT + i * 4 + j] = car->_posMat[i][j];
+    sdCarTumblePose(car->index, car, &frame[SD_POSMAT]);
     for (int i = 0; i < 4; i++)
     {
         double *w = &frame[SD_WHEELS + i * 7];
@@ -662,9 +661,7 @@ EMSCRIPTEN_KEEPALIVE void sdCars(double *out)
     {
         tCarElt *car = s->cars[i];
         double *c = &out[i * SD_CAR_STRIDE];
-        for (int a = 0; a < 4; a++)
-            for (int b = 0; b < 4; b++)
-                c[a * 4 + b] = car->_posMat[a][b];
+        sdCarTumblePose(car->index, car, c);
         for (int w = 0; w < 4; w++)
         {
             double *wheel = &c[16 + w * 6];
@@ -702,6 +699,51 @@ EMSCRIPTEN_KEEPALIVE void sdRaceCountdown(double seconds)
     raceCountdown = seconds;
 }
 
+static std::vector<std::pair<tTrackSeg *, t3Dd>> segmentMiddles;
+
+static double segmentExtent(const tTrackSeg *seg)
+{
+    return seg->type == TR_STR ? seg->length : seg->arc;
+}
+
+static void indexSegments()
+{
+    segmentMiddles.clear();
+    tTrackSeg *seg = ReInfo->track->seg;
+    for (int i = 0; i < ReInfo->track->nseg; i++, seg = seg->next)
+    {
+        tTrkLocPos middle = {};
+        middle.seg = seg;
+        middle.type = TR_LPOS_MAIN;
+        middle.toStart = (tdble)(segmentExtent(seg) / 2);
+        middle.toRight = middle.toLeft = seg->width / 2;
+        t3Dd at = {};
+        RtTrackLocal2Global(&middle, &at.x, &at.y, TR_TOMIDDLE);
+        segmentMiddles.push_back({seg, at});
+    }
+}
+
+static tTrackSeg *nearestSegment(double x, double y)
+{
+    tTrackSeg *best = ReInfo->track->seg;
+    double bestGap = INFINITY;
+    for (const auto &[seg, middle] : segmentMiddles)
+    {
+        double gap = hypot(middle.x - x, middle.y - y);
+        if (gap < bestGap)
+        {
+            bestGap = gap;
+            best = seg;
+        }
+    }
+    return best;
+}
+
+static void locate(double x, double y, int type, tTrkLocPos &pos)
+{
+    RtTrackGlobal2Local(nearestSegment(x, y), (tdble)x, (tdble)y, &pos, type);
+}
+
 EMSCRIPTEN_KEEPALIVE int sdInit(const char *trackCategory, const char *trackName, const char *raceFile, const char *carOverride, double now)
 {
     clockNow = now;
@@ -724,6 +766,7 @@ EMSCRIPTEN_KEEPALIVE int sdInit(const char *trackCategory, const char *trackName
     ReInfo->track = TrackBuildv1(buf);
     if (!ReInfo->track)
         return -1;
+    indexSegments();
     sdInitWeather();
 
     tSituation *s = ReInfo->s;
@@ -1087,6 +1130,30 @@ EMSCRIPTEN_KEEPALIVE int sdTrackLocal2Global(double toStart, double toMiddle, fl
     out[1] = y;
     out[2] = RtTrackHeightL(&pos);
     return 0;
+}
+
+EMSCRIPTEN_KEEPALIVE double sdGroundHeight(double x, double y)
+{
+    tTrkLocPos pos;
+    locate(x, y, TR_LPOS_MAIN, pos);
+    return RtTrackHeightL(&pos);
+}
+
+EMSCRIPTEN_KEEPALIVE void sdTrackBarrier(double x, double y, double *out)
+{
+    tTrkLocPos pos;
+    locate(x, y, TR_LPOS_TRACK, pos);
+    const double distances[2] = {pos.toLeft, pos.toRight};
+    const int sides[2] = {TR_SIDE_LFT, TR_SIDE_RGT};
+    for (int k = 0; k < 2; k++)
+    {
+        const tTrackBarrier *barrier = pos.seg ? pos.seg->barrier[sides[k]] : nullptr;
+        bool wall = barrier && barrier->style != TR_NO_BARRIER;
+        out[k * 4] = distances[k];
+        out[k * 4 + 1] = wall ? barrier->normal.x : 0.0;
+        out[k * 4 + 2] = wall ? barrier->normal.y : 0.0;
+        out[k * 4 + 3] = wall ? barrier->height : -1.0;
+    }
 }
 
 }

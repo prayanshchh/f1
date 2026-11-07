@@ -39,7 +39,6 @@ const tyreProfile = [
   [0.27, 0.163],
   [0.232, 0.148],
 ] as const;
-const usedWear = 0.6;
 const kitMaterials = new Set(["crew suit", "crew shell"]);
 const wheelX = [1.49, 1.49, -2.01, -2.01];
 const wheelY = [-0.74, 0.74, -0.74, 0.74];
@@ -226,7 +225,6 @@ export class PitCrew {
   ) {
     this.root.matrixAutoUpdate = false;
     this.root.add(this.live, this.far);
-    this.fitted.wear = usedWear;
     const tyreShape = tyreGeometry();
     wheelX.forEach((x, i) => {
       const y = wheelY[i] ?? 0;
@@ -369,8 +367,9 @@ export class PitCrew {
     this.levers.push({ member, end, mesh });
   }
 
-  setCompounds(fitted: number, fresh: number): void {
+  setCompounds(fitted: number, fresh: number, wear: number): void {
     this.fitted.compound.set((compounds[fitted] ?? compounds[1]).colour);
+    this.fitted.wear = wear;
     this.fresh.compound.set((compounds[fresh] ?? compounds[1]).colour);
     this.fitted.tread = treadOf(fitted);
     this.fresh.tread = treadOf(fresh);

@@ -1,12 +1,15 @@
 import * as THREE from "three";
 import { describe, expect, test } from "vitest";
 import {
-  damageZone,
+  type LookChange,
   newLook,
   partCount,
+  partIndex,
   tagDamageZones,
   updateLook,
+  zoneId,
 } from "../../apps/client/src/game/car-damage.ts";
+import { DamageLog } from "../../apps/client/src/game/damage-log.ts";
 
 function wingStrip(): THREE.BufferGeometry {
   const columns = 40;
@@ -61,7 +64,13 @@ describe("visible car damage", () => {
       seen.add(zone);
     }
     expect(seen).toEqual(
-      new Set([damageZone.none, damageZone.wingLeft, damageZone.wingRight]),
+      new Set([
+        zoneId["wingOuterLeft"],
+        zoneId["wingInnerLeft"],
+        zoneId["wingCentre"],
+        zoneId["wingInnerRight"],
+        zoneId["wingOuterRight"],
+      ]),
     );
     const grown = geometry.getAttribute("position").count - before;
     expect(grown).toBeGreaterThan(0);
@@ -78,27 +87,53 @@ describe("visible car damage", () => {
 
   test("a wing bends with damage, then breaks once and comes back after repair", () => {
     const look = newLook();
-    const wingLeft = 0;
-    const rearWing = 6;
-    expect(updateLook(look, damageOf({ [wingLeft]: 0.1 }), 0)).toEqual([]);
-    expect(updateLook(look, damageOf({ [wingLeft]: 0.4 }), 0)).toEqual([
-      { part: "wingLeft", broke: false },
-    ]);
-    expect(look[0]).toBeGreaterThan(0);
-    expect(look[3]).toBe(0);
+    const wing = (changes: LookChange[], kind: LookChange["kind"]) =>
+      changes
+        .filter((change) => change.kind === kind)
+        .map((change) => change.zone)
+        .sort((a, b) => a - b);
+    const outer = zoneId["wingOuterLeft"] ?? -1;
+    const inner = zoneId["wingInnerLeft"] ?? -1;
+    const flap = zoneId["rearFlap"] ?? -1;
+    const main = zoneId["rearMain"] ?? -1;
+    expect(
+      updateLook(look, damageOf({ [partIndex.wingLeft]: 0.1 }), 0),
+    ).toEqual([]);
+    const bent = updateLook(look, damageOf({ [partIndex.wingLeft]: 0.4 }), 0);
+    expect(wing(bent, "bend")).toEqual([outer, inner]);
+    expect(wing(bent, "break")).toEqual([]);
+    expect(look[outer - 1]).toBeGreaterThan(0);
+    expect(look[(zoneId["wingOuterRight"] ?? 0) - 1]).toBe(0);
     const broken = updateLook(
       look,
-      damageOf({ [wingLeft]: 0.75, [rearWing]: 0.9 }),
+      damageOf({ [partIndex.wingLeft]: 0.75, [partIndex.rearWing]: 0.9 }),
       0,
     );
-    expect(broken).toEqual([
-      { part: "wingLeft", broke: true },
-      { part: "rearWing", broke: true },
-    ]);
-    expect(
-      updateLook(look, damageOf({ [wingLeft]: 0.8, [rearWing]: 0.9 }), 0),
-    ).toEqual([]);
-    updateLook(look, damageOf({}), 0);
-    expect(Array.from(look.slice(0, 6))).toEqual([0, 0, 0, 0, 0, 0]);
+    expect(wing(broken, "break")).toEqual(
+      [outer, inner, flap, main].sort((a, b) => a - b),
+    );
+    const again = updateLook(
+      look,
+      damageOf({ [partIndex.wingLeft]: 0.8, [partIndex.rearWing]: 0.9 }),
+      0,
+    );
+    expect(wing(again, "break")).toEqual([]);
+    expect(updateLook(look, damageOf({}), 0)).toEqual([]);
+    expect(Array.from(look)).toEqual(new Array(look.length).fill(0));
+  });
+
+  test("the replay shows each car's damage as it was at that moment, and a flashback forgets the crash", () => {
+    const log = new DamageLog();
+    const stride = 2;
+    const at = (car: number, time: number) =>
+      Array.from(log.partsAt(car, time) ?? new Float32Array(stride));
+    log.record(1, [0, 0, 0, 0], stride);
+    log.record(5, [0.8, 0, 0, 0.3], stride);
+    log.record(6, [0.8, 0, 0, 0.3], stride);
+    expect(at(0, 3)).toEqual([0, 0]);
+    expect(at(0, 7)).toEqual([Math.fround(0.8), 0]);
+    expect(at(1, 7)).toEqual([0, Math.fround(0.3)]);
+    log.cut(4);
+    expect(at(0, 7)).toEqual([0, 0]);
   });
 });

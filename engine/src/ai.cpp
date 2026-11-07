@@ -52,6 +52,10 @@ const double planStep = 0.22;
 const double accelModel = 9.0;
 const double forecastAccel = 6.0;
 const double offTrackSpeed = 26.0;
+const double offTrackDamaged = 0.45;
+const double limpLeak = 0.6;
+const double limpGrip = 0.5;
+const double limpTopSpeed = 55.0;
 const double firstLapCaution = 0.94;
 const double firstLapDistance = 1100.0;
 const double rivalWindowBehind = 70.0;
@@ -211,6 +215,8 @@ struct Driver
     double wet = 1.0;
     double wetLine = 1.0;
     double wetOff = 1.0;
+    double aero = 1.0;
+    double leak = 0.0;
     double gripClock = 0;
     double weight = 1.0;
 };
@@ -589,6 +595,23 @@ double wetScale(const Driver &driver, double v, double d)
     return sqrt(g * gripFloor / (gripFloor + (1.0 - g) * aero));
 }
 
+bool limping(const Driver &driver)
+{
+    return driver.leak > limpLeak;
+}
+
+double damageScale(const Driver &driver, double lane, double s)
+{
+    bool limp = limping(driver);
+    if (driver.aero >= 1.0 && !limp)
+        return 1.0;
+    double grip = limp ? limpGrip : 1.0;
+    double room = fabs(sampled(model.kappa, s)) - gripAero * driver.aero * grip;
+    double corner = room > 0.0 ? sqrt(gripFloor * grip / room) : 1e9;
+    double cap = limp ? limpTopSpeed : 1e9;
+    return std::min(1.0, std::min(corner, cap) / std::max(1.0, lane));
+}
+
 double driverScale(const Driver &driver)
 {
     if (driver.task == AI_RACE)
@@ -611,7 +634,7 @@ double taskSpeedFactor(const Driver &driver, double s)
 double targetSpeedAt(const Driver &driver, double s, double d)
 {
     double lane = laneSpeedAt(s, d);
-    return lane * wetScale(driver, lane, d) * driverScale(driver) * taskSpeedFactor(driver, s);
+    return lane * wetScale(driver, lane, d) * damageScale(driver, lane, s) * driverScale(driver) * taskSpeedFactor(driver, s);
 }
 
 bool sdFieldPlayerOnAi()
@@ -1872,7 +1895,9 @@ void sdAiDrive(int index, tCarElt *car, tSituation *s)
     if (driver.gripClock <= 0)
     {
         driver.gripClock = 1.0;
-        driver.grip = sdTyresWeakestAxle(index);
+        driver.grip = sdTyresWeakestAxle(index) * sdCarDamageGrip(index);
+        driver.aero = std::max(0.2, std::min(1.0, sdCarAeroShare(index)));
+        driver.leak = sdTyresWorstLeak(index);
         driver.wet = std::max(0.3, std::min(1.0, sdTyresWetShare(index)));
         driver.wetLine = std::max(0.3, std::min(1.0, sdTyresWetShareAt(index, sdWeatherWaterAt(car->_distFromStartLine, sampled(model.line, car->_distFromStartLine)))));
         driver.wetOff = std::max(0.3, std::min(1.0, sdTyresWetShareAt(index, sdWeatherWaterAt(car->_distFromStartLine, sampled(model.line, car->_distFromStartLine) + 9.0))));
@@ -1944,8 +1969,9 @@ void sdAiDrive(int index, tCarElt *car, tSituation *s)
     double upcoming = targetSpeedAt(driver, upcomingDistance, driver.lane) * speedFactor;
     if (beyond > 1.5)
     {
-        target = std::min(target, offTrackSpeed);
-        upcoming = std::min(upcoming, offTrackSpeed);
+        double offSpeed = offTrackSpeed * std::max(offTrackDamaged, driver.aero);
+        target = std::min(target, offSpeed);
+        upcoming = std::min(upcoming, offSpeed);
     }
     if (driver.task == AI_OUT_LAP)
     {

@@ -81,6 +81,7 @@ const int shortRaceLaps = 20;
 const int shortRaceCompound = 1;
 const double missedCompoundPenalty = 30.0;
 const double damagePitLimit = 0.35;
+const double flatPitLimit = 0.6;
 const double defaultReference = 97.5;
 const double lapPerSpeed = 0.33;
 const double lapPerPower = 0.25;
@@ -478,7 +479,7 @@ void raceStrategy(tSituation *s)
         int lapsLeft = totalLaps - car->_laps + 1;
         bool lastsToFlag = wearNow + perLap * lapsLeft * 1.2 < wornFlagLimit;
         bool wornOut = wearNow + perLap * 1.1 > wornPitLimit && !lastsToFlag;
-        bool emergency = lapsLeft > 1 && t.pits <= (int)plan.stints.size() + 1 && (wornOut || sdCarDamageShare(i) > damagePitLimit);
+        bool emergency = lapsLeft > 1 && t.pits <= (int)plan.stints.size() + 1 && (wornOut || sdCarDamageShare(i) > damagePitLimit || sdTyresWorstLeak(i) > flatPitLimit);
         if (!dueNext && !emergency)
             continue;
         int compound = sdTyresCompound(i);

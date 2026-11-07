@@ -159,6 +159,47 @@ describe.runIf(existsSync(wasm))("damage from the engine", () => {
     },
   );
 
+  test("a hard hit on a wheel crushes its tyre, a light one only cuts it", async () => {
+    const m = await startRace();
+    const tyres = tyreReader(m);
+    m._sdStep(5);
+    m._sdCarImpact(1.8, 0.8, -3, -9);
+    m._sdStep(1);
+    expect(tyres().cut(frontLeft)).toBeGreaterThan(0);
+    expect(tyres().shred(frontLeft)).toBe(0);
+    expect(tyres().leak(frontLeft)).toBeLessThan(1);
+    m._sdStep(seconds(0.5));
+    m._sdCarImpact(1.8, 0.8, -6, -34);
+    m._sdStep(1);
+    const crushed = tyres();
+    expect(crushed.leak(frontLeft)).toBe(1);
+    expect(crushed.shred(frontLeft)).toBeGreaterThan(0.3);
+    expect(crushed.shred(frontRight)).toBe(0);
+  });
+
+  test("a massive hit on a wheel tears it off and ends the race, a hard one only breaks it", async () => {
+    const m = await startRace();
+    const status = statusReader(m);
+    const lost = () => {
+      const out = m._malloc(64 * 8);
+      const stride = m._sdCarsDamage(out);
+      return new Float64Array(m.HEAPF64.buffer, out, stride)[
+        suspension + frontLeft
+      ];
+    };
+    m._sdStep(5);
+    m._sdCarImpact(1.8, 0.8, -6, -34);
+    m._sdStep(1);
+    expect(status().part(suspension + frontLeft)).toBeGreaterThan(0.5);
+    expect(lost()).toBeLessThanOrEqual(1);
+    expect(status().retired).toBe(0);
+    m._sdStep(seconds(0.5));
+    m._sdCarImpact(1.8, 0.8, -8, -47);
+    m._sdStep(1);
+    expect(lost()).toBe(2);
+    expect(status().retired).toBeGreaterThan(0);
+  });
+
   test("hitting a real wall damages the side that touched it", async () => {
     const left = await wallCrash(40, 0.04);
     const right = await wallCrash(40, -0.04);
@@ -169,6 +210,37 @@ describe.runIf(existsSync(wasm))("damage from the engine", () => {
     expect(l.part(suspension + frontLeft)).toBeGreaterThan(0);
     expect(r.part(suspension + frontRight)).toBeGreaterThan(0);
   }, 60000);
+
+  test("debris finds the real ground and barriers anywhere on the lap", async () => {
+    const m = (await startRace()) as RaceSystems & {
+      _sdGroundHeight: (x: number, y: number) => number;
+      _sdTrackBarrier: (x: number, y: number, out: number) => void;
+    };
+    const point = m._malloc(12);
+    const sides = m._malloc(8 * 8);
+    const wrong: number[] = [];
+    for (let d = 0; d < m._sdTrackLength(); d += 25) {
+      m._sdTrackLocal2Global(d, 0, point);
+      const [x = 0, y = 0, z = 0] = new Float32Array(
+        m.HEAPF32.buffer,
+        point,
+        3,
+      );
+      m._sdTrackBarrier(x, y, sides);
+      const [left = 0, , , , right = 0] = new Float64Array(
+        m.HEAPF64.buffer,
+        sides,
+        8,
+      );
+      if (
+        Math.abs(m._sdGroundHeight(x, y) - z) > 0.05 ||
+        left <= 0 ||
+        right <= 0
+      )
+        wrong.push(d);
+    }
+    expect(wrong).toEqual([]);
+  });
 
   test("a stop replaces only the front wing, and only when asked", async () => {
     const m = await startRace();
@@ -425,6 +497,45 @@ describe.runIf(existsSync(wasm))(
       m._sdStep(seconds(1));
       for (const wheel of [0, 1, 2, 3]) expect(tyres().leak(wheel)).toBe(1);
     });
+
+    test("a flat tyre only shreds while it is driven on, and a new set is whole", async () => {
+      const m = await startRace({ wear: 0 });
+      const tyres = tyreReader(m);
+      const pilot = new Pilot(m, 0.5);
+      m._sdStep(1000);
+      m._sdTyreDamage(frontLeft, 1, 0);
+      m._sdStep(seconds(3));
+      expect(tyres().leak(frontLeft)).toBe(1);
+      expect(tyres().shred(frontLeft)).toBe(0);
+      for (let i = 0; i < seconds(15); i++) pilot.tick();
+      const driven = tyres();
+      expect(driven.shred(frontLeft)).toBeGreaterThan(0.2);
+      expect(driven.shred(frontRight)).toBe(0);
+      m._sdPitService(50, 0);
+      m._sdStep(1);
+      expect(tyres().shred(frontLeft)).toBe(0);
+    }, 60000);
+
+    test("a lock-up leaves its flat spot at one place on the tyre", async () => {
+      const m = await startRace();
+      const tyres = tyreReader(m);
+      const pilot = new Pilot(m, 0.95);
+      m._sdStep(1000);
+      pilot.driveUntil(() => pilot.lapsDone() >= 1 && speedOf(m) >= 70);
+      m._sdTyresFit(1, 95, 0);
+      m._sdInputAnalog(1, 0, 0, 1);
+      for (let i = 0; i < 5000 && speedOf(m) > 5; i++) m._sdStep(1);
+      const locked = tyres();
+      expect(locked.flat(frontRight)).toBeGreaterThan(0.05);
+      pilot.scale = 0.6;
+      for (let i = 0; i < seconds(5); i++) pilot.tick();
+      const later = tyres();
+      expect(later.flat(frontRight)).toBeCloseTo(locked.flat(frontRight), 2);
+      expect(later.flatAt(frontRight)).toBeCloseTo(
+        locked.flatAt(frontRight),
+        3,
+      );
+    }, 60000);
 
     test("a new set of tyres fixes a puncture and flat spots", async () => {
       const m = await startRace();

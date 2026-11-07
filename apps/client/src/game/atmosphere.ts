@@ -87,6 +87,8 @@ const detailScaleMax = 1.5;
 const detailPixels = 3.6e6;
 const detailSharpen = 0.7;
 const grade = new THREE.Vector3(1.0, 1.0, 1.0);
+const shockGrey = 0.68;
+const shockBright = 1.25;
 
 export interface AtmosphereState {
   sunDirection: THREE.Vector3;
@@ -103,6 +105,7 @@ export interface AtmosphereState {
   glare: number;
   glowMirror: number;
   sheen: number;
+  shock: number;
 }
 
 type FloatNode = THREE.Node<"float">;
@@ -196,6 +199,7 @@ export class Atmosphere {
   private readonly lensTime = uniform(0);
   private readonly aspect = uniform(16 / 9);
   private readonly sharpen = uniform(0);
+  private readonly shock = uniform(0);
   private readonly texel = uniform(new THREE.Vector2());
   private readonly reflections = uniform(0);
   private readonly glowMirror = uniform(0);
@@ -441,7 +445,13 @@ export class Atmosphere {
       });
       return result;
     })();
-    this.pipeline = new THREE.RenderPipeline(renderer, vec4(wetLens, 1));
+    const grey = vec3(dot(wetLens, vec3(0.2126, 0.7152, 0.0722)));
+    const shaken = mix(
+      wetLens,
+      grey.mul(shockBright),
+      this.shock.mul(shockGrey),
+    );
+    this.pipeline = new THREE.RenderPipeline(renderer, vec4(shaken, 1));
   }
 
   update(state: AtmosphereState): void {
@@ -466,6 +476,7 @@ export class Atmosphere {
       .transformDirection(this.camera.matrixWorldInverse);
     this.airflow.value = state.airflow;
     this.lensTime.value = state.time;
+    this.shock.value = state.shock;
     this.aspect.value = this.camera.aspect;
     const size = this.renderer.getDrawingBufferSize(this.texel.value);
     const pixels = Math.max(1, size.x * size.y);

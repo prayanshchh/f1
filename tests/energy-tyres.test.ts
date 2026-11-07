@@ -181,6 +181,11 @@ describe("damage alerts", () => {
     flat: 0,
     leak: 0,
     cut: 0,
+    dirt: 0,
+    gravel: 0,
+    flatAt: 0,
+    shred: 0,
+    water: 0,
   };
   const tyres = (leak = 0, flat = 0): TyreInfo => ({
     compound: 1,

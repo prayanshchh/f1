@@ -6,8 +6,17 @@ import {
   type DamageLook,
   newLook,
   tagDamageZones,
+  type WheelSlump,
+  wheelGone,
+  wheelSlump,
   zeroZones,
 } from "./car-damage.ts";
+import {
+  type CarPieces,
+  type WheelPiece,
+  gltfWheelPiece,
+  zonePieces,
+} from "./debris.ts";
 import type {
   CarEnvironment,
   CarMaterials,
@@ -20,8 +29,9 @@ import { gltfLoader } from "./gltf-loader.ts";
 import { mergedMesh, placedCopy } from "./merge.ts";
 import { setTyreShadows, shadowOnlyLayer } from "./road.ts";
 import { carFile } from "./teams.ts";
-import { compounds } from "./tyres.ts";
+import { compounds, type WheelTyre } from "./tyres.ts";
 import {
+  deflatedSag,
   markTyres,
   spinBlur,
   type TyreLook,
@@ -67,6 +77,9 @@ export const gltfToSdCar = new THREE.Matrix4().set(
   1,
 );
 const wheelNames = ["wheel-fr", "wheel-fl", "wheel-rr", "wheel-rl"] as const;
+const lostWheelRadius = 0.36;
+const lostWheelWidth = 0.42;
+const lostWheelShadowDrop = 100;
 const mirrorDistance = 1200;
 const mirrorInterval = 2;
 const mirrorPixels = [1024, 320] as const;
@@ -120,9 +133,12 @@ export function placeOnTrack(
 interface Wheel {
   pivot: THREE.Object3D;
   spin: THREE.Object3D;
+  tyre: THREE.Object3D | null;
   rest: THREE.Vector3;
   restZ: number | null;
   look: TyreLook;
+  flatSpin: number;
+  slump: WheelSlump;
 }
 
 export function contactShadow(wheels: THREE.Vector3[]): THREE.Mesh {
@@ -155,13 +171,17 @@ export function contactShadow(wheels: THREE.Vector3[]): THREE.Mesh {
   return shadow;
 }
 
-const flatSquash = 0.22;
+const worldDown = new THREE.Vector3(0, 0, -1);
+const towardGround = new THREE.Vector3();
+const meshToWorld = new THREE.Matrix4();
 
-function tyreSquash(leak: number): number {
-  return 1 - flatSquash * leak;
+function groundIn(mesh: THREE.Object3D, out: THREE.Vector2): THREE.Vector2 {
+  meshToWorld.copy(mesh.matrixWorld).invert();
+  towardGround.copy(worldDown).transformDirection(meshToWorld);
+  return out.set(towardGround.y, towardGround.z).normalize();
 }
 
-function shadowCaster(model: THREE.Object3D): THREE.Object3D {
+function shadowCaster(model: THREE.Object3D, look: DamageLook): THREE.Object3D {
   model.updateMatrixWorld(true);
   const parts: THREE.BufferGeometry[] = [];
   model.traverse((object) => {
@@ -174,10 +194,14 @@ function shadowCaster(model: THREE.Object3D): THREE.Object3D {
         ),
       );
   });
-  const caster = mergedMesh(
-    parts,
-    new THREE.MeshBasicNodeMaterial({ shadowSide: THREE.BackSide }),
-  );
+  const material = new THREE.MeshBasicNodeMaterial({
+    shadowSide: THREE.BackSide,
+  });
+  const caster = mergedMesh(parts, material);
+  if (tagDamageZones(caster.geometry)) {
+    damageable(material);
+    caster.userData = { ...caster.userData, damage: look };
+  }
   caster.castShadow = true;
   caster.layers.set(shadowOnlyLayer);
   return caster;
@@ -188,6 +212,8 @@ function withinChassis(object: THREE.Object3D): boolean {
     if (node.name === "chassis") return true;
   return false;
 }
+
+export const armMaterial = "titanium";
 
 export function makeDamageable(
   model: THREE.Object3D,
@@ -200,7 +226,13 @@ export function makeDamageable(
   });
   const zoned = new Set<THREE.Material>();
   for (const mesh of meshes)
-    if (breakable(mesh) && tagDamageZones(mesh.geometry))
+    if (
+      breakable(mesh) &&
+      tagDamageZones(
+        mesh.geometry,
+        (mesh.material as THREE.Material).name === armMaterial,
+      )
+    )
       zoned.add(mesh.material as THREE.Material);
   for (const mesh of meshes) {
     if (!zoned.has(mesh.material as THREE.Material)) continue;
@@ -213,6 +245,8 @@ export function makeDamageable(
 export class GltfCar {
   readonly root = new THREE.Group();
   readonly damage = newLook();
+  pieces: CarPieces = new Map();
+  wheelPieces: WheelPiece[] = [];
   private readonly model = new THREE.Group();
   private readonly wheels: Wheel[] = [];
   private steeringWheel: THREE.Object3D | null = null;
@@ -278,7 +312,7 @@ export class GltfCar {
     this.mirrors.set(name, { target, camera, view: new THREE.Frustum() });
     return target.texture;
   }
-  private deflation: number[] = [];
+  private readonly flatDown = new THREE.Vector2();
   private posedAt = 0;
 
   static async load(
@@ -315,10 +349,11 @@ export class GltfCar {
       object.material = materials.build(source);
     });
     makeDamageable(gltf.scene, car.damage, withinChassis);
+    car.pieces = zonePieces(gltf.scene, new Set(car.glass));
     const axes = new THREE.Group();
     axes.matrixAutoUpdate = false;
     axes.matrix.copy(gltfToSdCar);
-    axes.add(gltf.scene, shadowCaster(lod.scene));
+    axes.add(gltf.scene, shadowCaster(lod.scene, car.damage));
     car.model.add(axes);
     car.root.matrixAutoUpdate = false;
     car.root.add(car.model);
@@ -327,19 +362,31 @@ export class GltfCar {
       const spin = gltf.scene.getObjectByName(`${name}-spin`);
       if (!pivot || !spin) throw new Error(`car model has no ${name}`);
       const look = { ...tyreLook(), compound: car.compoundColour };
+      let tyre: THREE.Object3D | null = null;
       spin.traverse((part) => {
-        if ((part as THREE.Mesh).material === tyres)
-          part.userData = { ...part.userData, tyre: look };
+        if ((part as THREE.Mesh).material !== tyres) return;
+        part.userData = { ...part.userData, tyre: look };
+        tyre ??= part;
       });
       car.wheels.push({
         pivot,
         spin,
+        tyre,
         rest: pivot.position.clone(),
         restZ: null,
         look,
+        flatSpin: 0,
+        slump: wheelSlump(0, true, true),
       });
     }
     car.measureWheels();
+    car.wheelPieces = car.wheels.map((wheel, i) =>
+      gltfWheelPiece(
+        wheel.pivot,
+        car.radii[i] ?? lostWheelRadius,
+        lostWheelWidth,
+      ),
+    );
     car.steeringWheel = gltf.scene.getObjectByName("steering-wheel") ?? null;
     car.driverHead = gltf.scene.getObjectByName("driver-head") ?? null;
     car.visualAxleMid =
@@ -415,8 +462,25 @@ export class GltfCar {
       );
       contact.axis.normalize();
       contact.centre.setFromMatrixPosition(wheel.pivot.matrixWorld);
+      if (!wheel.pivot.visible) contact.centre.z -= lostWheelShadowDrop;
     });
     setTyreShadows(!this.wheelsOff, this.contacts);
+  }
+
+  private orientTyres(): void {
+    for (const wheel of this.wheels) {
+      if (!wheel.tyre) continue;
+      groundIn(wheel.tyre, wheel.look.down);
+      if (wheel.look.flat <= 0) continue;
+      const turning = wheel.spin.rotation.x;
+      wheel.spin.rotation.x = wheel.flatSpin;
+      wheel.spin.updateMatrixWorld(true);
+      groundIn(wheel.tyre, this.flatDown);
+      wheel.look.flatTurn =
+        Math.atan2(this.flatDown.y, this.flatDown.x) / (Math.PI * 2);
+      wheel.spin.rotation.x = turning;
+      wheel.spin.updateMatrixWorld(true);
+    }
   }
 
   setDash(dash: Pick<DashReadout, "fuel" | "tyres">): void {
@@ -488,13 +552,26 @@ export class GltfCar {
     renderer.setRenderTarget(previous);
   }
 
-  setDeflation(leaks: number[]): void {
-    this.deflation = leaks;
+  setSuspension(bends: ArrayLike<number>): void {
+    this.wheels.forEach((wheel, i) => {
+      wheel.slump = wheelSlump(bends[i] ?? 0, i % 2 === 1, i < 2);
+      wheel.pivot.visible = !wheelGone(bends[i] ?? 0);
+    });
   }
 
-  setWear(wear: number[]): void {
+  setTyreCondition(wheels: WheelTyre[]): void {
+    const unit = (value: number) => THREE.MathUtils.clamp(value, 0, 1);
     this.wheels.forEach((wheel, i) => {
-      wheel.look.wear = THREE.MathUtils.clamp(wear[i] ?? 0, 0, 1);
+      const state = wheels[i];
+      if (!state) return;
+      const look = wheel.look;
+      look.wear = unit(state.wear);
+      look.flat = unit(state.flat);
+      look.shred = unit(state.shred);
+      look.sag = deflatedSag(state.leak);
+      look.dirt = unit(state.dirt);
+      look.gravel = unit(state.gravel);
+      wheel.flatSpin = state.flatAt;
     });
   }
 
@@ -532,23 +609,21 @@ export class GltfCar {
     }
     this.wheels.forEach((w, i) => {
       w.restZ ??= wheel(i, 2);
-      const squash = tyreSquash(this.deflation[i] ?? 0);
+      const { slump } = w;
       w.pivot.position.set(
-        w.rest.x,
-        w.rest.y +
-          (wheel(i, 2) - w.restZ) -
-          (1 - squash) * (this.radii[i] ?? 0),
-        w.rest.z,
+        w.rest.x + slump.out,
+        w.rest.y + (wheel(i, 2) - w.restZ) - w.look.sag - slump.drop,
+        w.rest.z + slump.back,
       );
-      w.pivot.scale.set(1, squash, squash);
       w.pivot.rotation.set(0, 0, 0);
-      w.pivot.rotateY(wheel(i, 5));
-      w.pivot.rotateZ(wheel(i, 3));
+      w.pivot.rotateY(wheel(i, 5) + slump.toe);
+      w.pivot.rotateZ(wheel(i, 3) + slump.camber);
       w.spin.rotation.set(wheel(i, 4), 0, 0);
       w.look.blur = spinBlur(wheel(i, 6), seconds);
       w.spin.visible = !this.wheelsOff;
     });
     this.updateTyreShadows();
+    this.orientTyres();
     this.steeringWheel?.rotation.set(
       0,
       0,

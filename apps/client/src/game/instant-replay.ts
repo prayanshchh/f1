@@ -44,14 +44,20 @@ export class InstantReplay {
     const { engine } = ctx;
     engine.cars();
     engine.carsDamage();
+    engine.carsTyres();
     engine.passes(0);
     this.tape = new ReplayTape(engine.carCount);
     this.history = new HeapHistory(() => engine.heap());
     this.highlights = new Highlights(0, (from, to) => this.tape.copy(from, to));
     const length = engine.trackLength();
-    const stations = trackStations(length, (d, l) =>
-      engine.trackPoint(((d % length) + length) % length, l),
-    );
+    const point = (d: number, l: number) =>
+      engine.trackPoint(((d % length) + length) % length, l);
+    const stations = trackStations(length, point, (d, side) => {
+      const [x, y] = point(d, 0);
+      const barrier = engine.barriers(x, y);
+      const k = side > 0 ? 0 : 4;
+      return (barrier[k + 3] ?? -1) < 0 ? Infinity : (barrier[k] ?? Infinity);
+    });
     this.stations = stations;
     this.reel = new VictoryReel(
       ctx.reelRoot,
@@ -183,7 +189,7 @@ export class InstantReplay {
     trace.load(moment.extra.trace);
     hud.rewindLaps(moment.extra.laps);
     this.tape.cut(moment.time);
-    this.ctx.scene.clearDebris();
+    this.ctx.scene.cutDebris(moment.time);
     this.simTime = moment.time;
     this.leave();
     hud.notify(

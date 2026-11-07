@@ -21,7 +21,7 @@
     },
     "apps/client": {
       "entry": ["api-server.ts", "engine-build.ts", "phone-tunnel.ts"],
-      "project": ["src/**/*.ts"],
+      "project": ["src/**/*.ts", "*.ts"],
       "ignoreDependencies": ["flag-icons"]
     },
     "apps/api": {

@@ -9,7 +9,13 @@
 
 [Speed Dreams](https://www.speed-dreams.net/) physics compiled to WebAssembly · three.js WebGPU graphics · 22-car AI field · weather · strategy · race control
 
-![A RevRacers race start](docs/readme/hero.jpg)
+![On the grid at Hill Country, waiting for lights out](docs/readme/hero.jpg)
+
+### Watch the trailer
+
+[![RevRacers trailer: wheel-to-wheel at Hill Country](docs/readme/trailer.jpg)](https://revracers.com/intro/trailer.mp4)
+
+**[Play now at revracers.com](https://revracers.com)**
 
 </div>
 
@@ -39,16 +45,20 @@ RevRacers is an independent project and is not endorsed by the Speed Dreams team
 
 <table>
   <tr>
+    <td><img src="docs/readme/racing.jpg" alt="Wheel to wheel with the race HUD"></td>
+    <td><img src="docs/readme/onboard.jpg" alt="Onboard T-cam with the 2026 dash"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/readme/rain.jpg" alt="Heavy rain and spray"></td>
+    <td><img src="docs/readme/start.jpg" alt="Lights out, 22 cars heading for Turn 1"></td>
+  </tr>
+  <tr>
     <td><img src="docs/readme/team-select.jpg" alt="Team select"></td>
-    <td><img src="docs/readme/grid.jpg" alt="Pre-race build-up on the grid"></td>
+    <td><img src="docs/readme/grid.jpg" alt="Pre-race build-up on the starting grid"></td>
   </tr>
   <tr>
-    <td><img src="docs/readme/racing.jpg" alt="Turn 1 under the tower"></td>
-    <td><img src="docs/readme/dusk.jpg" alt="Racing at dusk"></td>
-  </tr>
-  <tr>
-    <td><img src="docs/readme/track.jpg" alt="Circuit flyover in the build-up"></td>
-    <td><img src="docs/readme/credits.jpg" alt="In-game credits"></td>
+    <td><img src="docs/readme/circuit.jpg" alt="Circuit guide in the build-up"></td>
+    <td><img src="docs/readme/turn-one.jpg" alt="The climb to Turn 1"></td>
   </tr>
 </table>
 

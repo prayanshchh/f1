@@ -6,12 +6,12 @@ import {
   inputChannel,
   peerConfig,
   postOffer,
+  sensitivities,
   waitAnswer,
 } from "./pad-signal.ts";
 import { PlayerError, playerMessage } from "./game/player-error.ts";
 
 const fullLock = Math.PI / 4 / 1.3;
-const sensitivities = [0.5, 0.65, 0.8, 0.9, 1, 1.15, 1.3, 1.5, 1.75, 2, 2.5, 3];
 const defaultSensitivity = sensitivities.indexOf(1);
 const sensitivityKey = "f1pad.sensitivity";
 const calibrateTime = 3000;
@@ -247,6 +247,8 @@ class Pad {
   private pagePresses = 0;
   private wingPresses = 0;
   private tyrePresses = 0;
+  private recenters = 0;
+  private recentering = false;
   private sequence = 0;
   private sentAt = 0;
 
@@ -342,6 +344,7 @@ class Pad {
       this.tyrePresses++;
     });
     press("center", () => {
+      this.recentering = true;
       this.calibrate();
     });
     press("less", () => {
@@ -415,6 +418,10 @@ class Pad {
     this.center = sin !== 0 || cos !== 0 ? Math.atan2(sin, cos) : this.angle;
     this.calibration = null;
     element("calibrate").hidden = true;
+    if (!this.recentering) return;
+    this.recentering = false;
+    this.recenters++;
+    this.send();
   }
 
   private setSensitivity(index: number): void {
@@ -636,6 +643,8 @@ class Pad {
         this.wingPresses,
         this.tyrePresses,
         this.sequence,
+        sensitivities[this.sensitivity] ?? 1,
+        this.recenters,
       ]),
     );
   }

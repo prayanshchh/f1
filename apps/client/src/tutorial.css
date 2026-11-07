@@ -3,7 +3,6 @@
   inset: 0;
   z-index: 36;
   pointer-events: none;
-  --tone: var(--red);
 }
 
 .tutorial[hidden],
@@ -11,7 +10,10 @@
   display: none;
 }
 
-.tutorial.away {
+.tutorial.away,
+.tutorial.covered .tut-stack,
+.tutorial.covered .tut-alert,
+.tutorial.covered .tut-spot {
   visibility: hidden;
 }
 
@@ -24,7 +26,8 @@
 
 .tutorial[data-mode="modal"] .tut-dim {
   opacity: 1;
-  background: rgb(8 9 14 / 58%);
+  background: rgb(8 9 14 / 62%);
+  backdrop-filter: grayscale(1) brightness(0.75);
 }
 
 .tutorial[data-mode="freeze"] .tut-dim {
@@ -38,9 +41,10 @@
 }
 
 .tutorial[data-mode="pause"] .tut-dim {
+  pointer-events: auto;
   opacity: 1;
-  background: rgb(8 9 14 / 66%);
-  backdrop-filter: grayscale(0.85) brightness(0.8);
+  background: rgb(8 9 14 / 70%);
+  backdrop-filter: grayscale(1) brightness(0.7);
 }
 
 .tutorial.spotlit[data-mode="modal"] .tut-dim,
@@ -101,28 +105,56 @@
   top: calc(130px * var(--s));
 }
 
+.tutorial.low[data-mode="pause"] .tut-stack {
+  top: auto;
+  bottom: calc(24px * var(--s));
+  translate: -50% 0;
+  transform-origin: bottom center;
+}
+
+.tutorial.high[data-mode="pause"] .tut-stack {
+  top: calc(24px * var(--s));
+  translate: -50% 0;
+  transform-origin: top center;
+}
+
+.tutorial.high[data-mode="pause"] .tut-card {
+  width: 640px;
+}
+
 .tut-card {
   position: relative;
   width: 780px;
   box-sizing: border-box;
   padding: 16px 26px 20px;
-  background: var(--panel);
-  border-left: 6px solid var(--tone);
-  border-radius: 6px;
-  box-shadow: 0 18px 40px rgb(0 0 0 / 35%);
-  pointer-events: auto;
+  color: #fff;
+  text-align: center;
 }
 
-.tut-card[data-tone="go"] {
-  --tone: var(--green);
+.tut-card::before,
+.tut-alert::before {
+  content: "";
+  position: absolute;
+  inset: -90px -100vw;
+  z-index: -1;
+  background: linear-gradient(
+    to bottom,
+    rgb(0 0 0 / 0%),
+    rgb(0 0 0 / 8%) 12%,
+    rgb(0 0 0 / 24%) 26%,
+    rgb(0 0 0 / 44%) 40%,
+    rgb(0 0 0 / 54%) 50%,
+    rgb(0 0 0 / 44%) 60%,
+    rgb(0 0 0 / 24%) 74%,
+    rgb(0 0 0 / 8%) 88%,
+    rgb(0 0 0 / 0%)
+  );
+  pointer-events: none;
 }
 
-.tut-card[data-tone="brake"] {
-  --tone: var(--hot);
-}
-
-.tut-card[data-tone="lift"] {
-  --tone: var(--yellow);
+.tutorial-tour .menu,
+.tutorial-tour .menu * {
+  pointer-events: none;
 }
 
 .tut-card.enter {
@@ -144,146 +176,35 @@
   padding: 10px 18px 12px;
 }
 
-.tut-head {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  margin-bottom: 4px;
-}
-
-.tut-chapter {
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--dim);
-}
-
-.tutorial[data-mode="freeze"] .tut-head::after,
-.tutorial[data-mode="pause"] .tut-head::after {
-  content: "Paused";
-  order: 3;
-  padding: 2px 10px;
-  border-radius: 10px;
-  background: var(--cold);
-  font-size: 12px;
-  font-weight: 800;
-  text-transform: uppercase;
-  color: #fff;
-}
-
-.tut-progress {
-  position: relative;
-  flex: 1;
-  height: 4px;
-  overflow: hidden;
-  border-radius: 2px;
-  background: var(--line);
-}
-
-.tut-progress::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: var(--tone);
-  transform-origin: left;
-  scale: var(--done) 1;
-  transition: scale 0.6s var(--ease);
-}
-
 .tut-title {
   margin: 0;
-  font-size: 34px;
+  font-size: 40px;
   font-stretch: 125%;
   font-weight: 800;
   font-style: italic;
   text-transform: uppercase;
   line-height: 1.1;
+  text-shadow:
+    0 1px 3px rgb(0 0 0 / 80%),
+    0 0 22px rgb(0 0 0 / 70%);
 }
 
-.tut-card[data-tone="brake"] .tut-title {
-  color: var(--hot);
-}
-
-.tut-card[data-tone="go"] .tut-title {
-  color: var(--green);
-}
-
-.tutorial[data-mode="freeze"] .tut-card[data-tone="brake"] .tut-title {
+.tutorial[data-mode="freeze"] .tut-title {
   font-size: 56px;
-  animation: tut-throb 0.9s ease-in-out infinite;
 }
 
 .tut-card.compact .tut-title {
-  font-size: 22px;
+  font-size: 28px;
 }
 
 .tut-body {
-  margin: 8px 0 0;
-  font-size: 19px;
-  line-height: 1.45;
-  color: var(--dim);
-}
-
-.tut-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px 22px;
-  margin-top: 14px;
-}
-
-.tut-action {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0;
-  border: 0;
-  background: none;
-  font-size: 16px;
-  font-weight: 700;
-  text-transform: uppercase;
-  color: var(--fg);
-}
-
-button.tut-action {
-  padding: 8px 16px 8px 10px;
-  border-radius: 6px;
-  background: rgb(255 255 255 / 8%);
-}
-
-button.tut-action:hover {
-  background: rgb(255 255 255 / 16%);
-}
-
-button.tut-action.confirm,
-button.tut-action.finish {
-  background: var(--fg);
-  color: #0b0c12;
-}
-
-.tut-action kbd {
-  min-width: 34px;
-  height: 30px;
-  border-radius: 8px;
-  font-size: 14px;
-}
-
-.tut-action kbd.pad {
-  padding: 0 10px;
-  border: 0;
-  background: rgb(255 255 255 / 16%);
-  color: #fff;
-}
-
-.tut-action.gas kbd.pad,
-.tut-action.again kbd.pad {
-  background: rgb(48 209 88 / 70%);
-}
-
-.tut-action.brake kbd.pad,
-.tut-action.confirm kbd.pad,
-.tut-action.finish kbd.pad {
-  background: rgb(255 69 58 / 70%);
+  margin: 10px 0 0;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-shadow:
+    0 1px 3px rgb(0 0 0 / 80%),
+    0 0 22px rgb(0 0 0 / 70%);
 }
 
 .tut-coach {
@@ -291,12 +212,12 @@ button.tut-action.finish {
   align-items: center;
   gap: 10px;
   padding: 6px 16px 6px 10px;
-  border-radius: 20px;
-  background: var(--panel-soft);
   font-size: 18px;
   font-weight: 800;
   font-stretch: 125%;
   text-transform: uppercase;
+  color: #fff;
+  text-shadow: 0 2px 14px rgb(0 0 0 / 75%);
   --cue: var(--green);
 }
 
@@ -313,8 +234,6 @@ button.tut-action.finish {
 
 .tut-coach[data-cue="brake"] {
   --cue: var(--hot);
-  color: var(--hot);
-  animation: tut-throb 0.6s ease-in-out infinite;
 }
 
 .tut-toast {
@@ -352,10 +271,6 @@ button.tut-action.finish {
   text-shadow: 0 1px 8px rgb(0 0 0 / 70%);
 }
 
-.tut-toast[data-kind="info"] {
-  --grade: var(--cold);
-}
-
 .tut-alert {
   position: absolute;
   left: 50%;
@@ -366,9 +281,9 @@ button.tut-action.finish {
   translate: -50% 0;
   scale: var(--s);
   transform-origin: top center;
-  background: var(--panel);
-  border-top: 3px solid var(--hot);
-  border-radius: 6px;
+  color: #fff;
+  text-align: center;
+  text-shadow: 0 2px 14px rgb(0 0 0 / 75%);
   animation: tut-drop 0.35s var(--ease) both;
 }
 
@@ -376,17 +291,11 @@ button.tut-action.finish {
   font-size: 22px;
   font-weight: 800;
   text-transform: uppercase;
-  color: var(--hot);
 }
 
 .tut-alert p {
   margin: 4px 0 0;
   font-size: 17px;
-  color: var(--dim);
-}
-
-.tut-alert .tut-actions {
-  margin-top: 10px;
 }
 
 .tut-controls {
@@ -448,11 +357,7 @@ button.tut-action.finish {
   inset: 0;
   transform-origin: bottom;
   scale: 1 var(--v, 0);
-  background: var(--green);
-}
-
-.tut-pedal.brake i::after {
-  background: var(--hot);
+  background: #fff;
 }
 
 .tut-checks {
@@ -479,8 +384,8 @@ button.tut-action.finish {
 }
 
 .tut-checks li.done {
-  background: rgb(30 215 96 / 22%);
-  color: var(--green);
+  background: rgb(255 255 255 / 22%);
+  color: #fff;
 }
 
 .tut-checks li.done::before {
@@ -489,6 +394,7 @@ button.tut-action.finish {
 
 .tut-legend {
   display: flex;
+  justify-content: center;
   gap: 14px;
   margin-top: 14px;
 }
@@ -520,52 +426,209 @@ button.tut-action.finish {
   background: linear-gradient(90deg, #f0832a, #e3302a);
 }
 
-.tut-lights {
+.tut-phone {
+  width: 600px;
+  margin: 18px auto 0;
+  padding: 12px;
+  border-radius: 38px;
+  background: #050506;
+  box-shadow:
+    inset 0 0 0 2px #2c2d33,
+    0 12px 30px rgb(0 0 0 / 45%);
+}
+
+.tut-phone-screen {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, 1fr);
+  gap: 12px;
+  height: 290px;
+  padding: 12px 18px;
+  box-sizing: border-box;
+  border-radius: 28px;
+  background: #000;
+  color: #f5f5f7;
+  font-family: -apple-system, ui-sans-serif, system-ui, sans-serif;
+}
+
+.tut-phone-pedal {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.tut-phone-pedal i {
+  flex: 1;
+  width: 100%;
+  border: 1px solid rgb(245 245 247 / 22%);
+  border-radius: 22px;
+  background: rgb(255 69 58 / 6%);
+}
+
+.tut-phone-pedal.gas i {
+  background: rgb(48 209 88 / 6%);
+}
+
+.tut-phone-pedal small,
+.tut-phone-dial small,
+.tut-phone-meter small {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: rgb(245 245 247 / 55%);
+}
+
+.tut-phone-mid {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tut-phone-status {
   display: flex;
   align-items: center;
-  gap: 14px;
-  margin-top: 16px;
+  gap: 6px;
+  font-size: 9px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: rgb(245 245 247 / 55%);
 }
 
-.tut-lights i {
+.tut-phone-status i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #30d158;
+}
+
+.tut-phone-read {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.tut-phone-dial {
+  position: relative;
+  display: grid;
+  place-content: center;
+  width: 84px;
+  height: 84px;
+  box-sizing: border-box;
+  border: 2px solid rgb(245 245 247 / 22%);
+  border-radius: 50%;
+  text-align: center;
+}
+
+.tut-phone-dial::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -4px;
+  width: 4px;
+  height: 14px;
+  translate: -50% 0;
+  border-radius: 2px;
+  background: #ff9f0a;
+}
+
+.tut-phone-dial b {
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.tut-phone-gear {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.tut-phone-sens {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.tut-phone-sens > span {
+  display: grid;
+  place-items: center;
   width: 38px;
   height: 38px;
+  box-sizing: border-box;
+  border: 1px solid rgb(245 245 247 / 22%);
   border-radius: 50%;
-  background: #2a0b0b;
-  box-shadow: inset 0 0 0 3px #111;
+  font-size: 22px;
+  line-height: 1;
+  opacity: 0.45;
 }
 
-.tut-lights i.on {
-  background: #ff2a1f;
-  box-shadow:
-    inset 0 0 0 3px #111,
-    0 0 18px #ff2a1f;
-}
-
-.tut-lights b {
-  margin-left: 14px;
-  font-size: 30px;
-  font-weight: 900;
-  font-style: italic;
-  text-transform: uppercase;
-  color: var(--green);
-  opacity: 0;
-}
-
-.tut-lights.go b {
+.tut-phone .tut-phone-hit {
+  border: 3px solid var(--yellow);
+  box-shadow: 0 0 16px rgb(245 212 0 / 60%);
   opacity: 1;
+  animation: tut-pulse 1.4s ease-in-out infinite;
 }
 
-.front-hub-tag {
-  justify-self: start;
-  padding: 2px 10px;
-  border-radius: 10px;
-  background: var(--red);
-  font-size: 12px;
-  font-style: normal;
-  font-weight: 800;
+.tut-phone-meter {
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  min-width: 84px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tut-phone-meter b {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.tut-phone-meter span {
+  width: 100%;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: rgb(245 245 247 / 22%);
+}
+
+.tut-phone-meter i {
+  display: block;
+  height: 100%;
+  background: #ff9f0a;
+}
+
+.tut-phone-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  width: 100%;
+}
+
+.tut-phone-grid span {
+  display: grid;
+  padding: 4px 2px;
+  border: 1px solid rgb(245 245 247 / 22%);
+  border-radius: 12px;
+  text-align: center;
   text-transform: uppercase;
-  color: #fff;
+  white-space: nowrap;
+  opacity: 0.45;
+}
+
+.tut-phone-grid small {
+  font-size: 8px;
+  opacity: 0.75;
+}
+
+.tut-phone-grid b {
+  font-size: 11px;
+}
+
+.tut-phone-grid .center {
+  border-color: #ff9f0a;
+  color: #ff9f0a;
 }
 
 @keyframes tut-enter {
@@ -585,12 +648,6 @@ button.tut-action.finish {
 @keyframes tut-pulse {
   50% {
     border-color: #fff;
-  }
-}
-
-@keyframes tut-throb {
-  50% {
-    opacity: 0.72;
   }
 }
 

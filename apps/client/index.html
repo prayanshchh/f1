@@ -8,8 +8,52 @@
     <link rel="stylesheet" href="/src/loader.css" />
   </head>
   <body data-drive-status="loading">
+    <div class="intro" data-intro data-testid="intro">
+      <video
+        src="/intro/trailer.mp4"
+        preload="none"
+        playsinline
+        aria-label="RevRacers trailer"
+      ></video>
+      <p class="intro-sound" data-intro-sound hidden>
+        Click or press a key for sound
+      </p>
+      <button class="intro-skip" type="button" data-intro-skip hidden>
+        Skip
+      </button>
+    </div>
+    <script>
+      (() => {
+        const box = document.querySelector("[data-intro]");
+        const query = new URLSearchParams(location.search);
+        const skip =
+          sessionStorage.getItem("revracers.introPlayed") === "1" ||
+          sessionStorage.getItem("revracers.autostart") === "1" ||
+          query.has("autostart") ||
+          query.get("intro") === "off" ||
+          !("gpu" in navigator);
+        if (skip) {
+          box.remove();
+          return;
+        }
+        sessionStorage.setItem("revracers.introPlayed", "1");
+        const video = box.querySelector("video");
+        video.preload = "auto";
+        video
+          .play()
+          .catch(() => {
+            video.muted = true;
+            return video.play();
+          })
+          .catch(() => undefined);
+      })();
+    </script>
     <canvas data-testid="drive-canvas"></canvas>
     <div class="status" data-testid="drive-status" role="status">
+      <div class="show" aria-hidden="true">
+        <img class="show-slide" src="/loading/01.jpg" alt="" data-show-slide />
+        <img class="show-slide" alt="" data-show-slide />
+      </div>
       <svg class="status-word" aria-hidden="true">
         <use href="#brand-word" />
       </svg>
@@ -17,6 +61,22 @@
         <i></i><i></i><i></i><i></i><i></i>
       </div>
       <p data-status-text>Loading</p>
+      <p class="show-bytes" data-show-bytes data-testid="load-bytes"></p>
+      <p class="show-sound" data-show-sound hidden>
+        Click or press a key for sound
+      </p>
+      <div
+        class="show-line"
+        data-show-line
+        data-testid="load-line"
+        role="progressbar"
+        aria-label="Download"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        aria-valuenow="0"
+      >
+        <i></i>
+      </div>
     </div>
     <svg width="0" height="0" aria-hidden="true">
       <symbol id="brand-word" viewBox="0 -0.2 122 15.4">
@@ -54,6 +114,23 @@
           fill="none"
           stroke="currentColor"
           stroke-width="2"
+          stroke-linejoin="round"
+        />
+      </symbol>
+      <symbol id="proximity-arrow" viewBox="0 0 48 64">
+        <path
+          d="M12 19 29 32 12 45Z"
+          fill="currentColor"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linejoin="round"
+        />
+        <path
+          d="M19 5 35 23Q42 32 35 41L19 59"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="7"
+          stroke-linecap="round"
           stroke-linejoin="round"
         />
       </symbol>
@@ -129,6 +206,20 @@
         </div>
       </section>
 
+      <svg
+        class="proximity proximity-left part-proximity"
+        data-hud="proximity-left"
+        aria-hidden="true"
+      >
+        <use href="#proximity-arrow" />
+      </svg>
+      <svg
+        class="proximity proximity-right part-proximity"
+        data-hud="proximity-right"
+        aria-hidden="true"
+      >
+        <use href="#proximity-arrow" />
+      </svg>
       <div class="lights part-lights" data-hud="lights"></div>
       <div class="start-hint part-lights" data-hud="start-hint">
         Wait for lights out<span>Moving early is a jump start penalty</span>
@@ -280,8 +371,9 @@
       <div class="help part-help">
         <span><kbd>Esc</kbd> Menu</span><span><kbd>Arrows</kbd> Drive</span
         ><span><kbd>E</kbd><kbd>Q</kbd> Shift</span><span><kbd>Y</kbd> MFD</span
-        ><span><kbd>P</kbd> Phone</span><span><kbd>R</kbd> Replay</span
-        ><span><kbd>C</kbd> Cameras</span><span><kbd>F2–F11</kbd> Cameras</span>
+        ><span data-help="phone"><kbd>P</kbd> Phone</span
+        ><span><kbd>R</kbd> Replay</span><span><kbd>C</kbd> Cameras</span
+        ><span><kbd>F2–F11</kbd> Cameras</span>
       </div>
     </div>
 
@@ -310,6 +402,9 @@
           </button>
           <button type="button" data-menu="replay" hidden>
             <i class="btn-glyph">V</i>Replay &amp; Flashback
+          </button>
+          <button type="button" data-menu="quit" hidden>
+            <i class="btn-glyph">M</i>Main Menu
           </button>
           <button type="button" data-menu="resume">
             <i class="btn-glyph">Esc</i
@@ -479,6 +574,6 @@
       </p>
       <p class="pad-close"><kbd>P</kbd>Close</p>
     </div>
-    <script type="module" src="/src/drive.ts"></script>
+    <script type="module" src="/src/boot.ts"></script>
   </body>
 </html>

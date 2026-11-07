@@ -8,11 +8,12 @@ import type { PitPhase } from "./pitstop.ts";
 import { fetchJson } from "./scene.ts";
 import { SlowClock } from "./slow-clock.ts";
 import {
-  type Action,
+  type Command,
   type CourseTurn,
   type Finish,
   type Pedals,
   Tutorial,
+  type TutorialEvent,
   type TutorialSample,
 } from "./tutorial.ts";
 import { TutorialScreen } from "./tutorial-view.ts";
@@ -23,6 +24,8 @@ export interface TutorialHooks {
   engine: Engine;
   pad: PadLink;
   menuOpen: () => boolean;
+  pause: () => void;
+  guardMenu: (guard: (event: KeyboardEvent) => boolean) => void;
   mfdPage: () => string;
   mute: (muted: boolean) => void;
   finish: (result: Finish) => void;
@@ -49,13 +52,12 @@ const arrows: Partial<Record<string, keyof Held>> = {
   ArrowUp: "up",
   ArrowDown: "down",
 };
-const keyActions: Partial<Record<string, "confirm" | "skip" | "keyboard">> = {
-  Enter: "confirm",
+const keyActions: Partial<Record<string, "skip" | "keyboard">> = {
   Escape: "skip",
   k: "keyboard",
   K: "keyboard",
 };
-const cameraKey = /^(c|C|F[2-9]|F1[01])$/;
+const cameraKey = /^(c|C)$/;
 const offSurface = 2;
 const offWheels = 3;
 
@@ -122,9 +124,7 @@ export class TutorialRun {
       ...track,
     });
     this.clock.hold();
-    this.screen = new TutorialScreen(hooks.root, (action) => {
-      this.act(action);
-    });
+    this.screen = new TutorialScreen(hooks.root);
     window.addEventListener(
       "keydown",
       (event) => {
@@ -142,10 +142,15 @@ export class TutorialRun {
     window.addEventListener("blur", () => {
       this.release();
     });
+    hooks.guardMenu((event) => this.guard(event));
   }
 
   get holding(): boolean {
     return this.machine.holding;
+  }
+
+  get touring(): boolean {
+    return this.machine.touring;
   }
 
   get quiet(): boolean {
@@ -198,14 +203,19 @@ export class TutorialRun {
 
   stop(): void {
     this.ended = true;
+    document.body.classList.remove("tutorial-tour");
     this.screen.close();
   }
 
   private tick(now: number): void {
     const live = this.live;
     if (!live || this.ended) return;
-    this.screen.hidden = false;
     const events = this.machine.update(this.sample(now, live));
+    const touring = this.machine.touring;
+    document.body.classList.toggle("tutorial-tour", touring);
+    this.screen.hidden = this.hooks.menuOpen() && !touring;
+    this.screen.covered = this.hooks.pad.panelOpen;
+    this.run(events);
     this.screen.play(events, now);
     this.screen.render(this.machine.view, now);
     this.muteFrozen();
@@ -234,7 +244,30 @@ export class TutorialRun {
       boost: live.boost,
       retired: live.status.retired !== 0,
       crashed: this.incidents.crashed,
+      gear: value(frameIndex.gear),
+      menu: this.hooks.menuOpen(),
+      panel: this.hooks.pad.panelOpen,
+      sensitivity: this.hooks.pad.sensitivity,
+      centers: this.hooks.pad.centers,
     };
+  }
+
+  private run(events: TutorialEvent[]): void {
+    for (const event of events) {
+      if (event.kind === "command") this.perform(event.command);
+      if (event.kind === "slow") this.hooks.engine.slowPlayer(event.speed);
+    }
+  }
+
+  private perform(command: Command): void {
+    if (command === "pause") this.hooks.pause();
+    else this.hooks.pad.toggle();
+  }
+
+  private guard(event: KeyboardEvent): boolean {
+    if (!this.machine.touring || this.ended) return false;
+    if (event.key === "Escape" && !event.repeat) this.machine.press("skip");
+    return true;
   }
 
   private input(now: number): Pedals {
@@ -274,18 +307,6 @@ export class TutorialRun {
     this.hooks.finish(result);
   }
 
-  private act(action: Action): void {
-    if (action === "phone") {
-      this.hooks.pad.toggle();
-      return;
-    }
-    if (action === "skip" || action === "keyboard") {
-      this.machine.press(action);
-      return;
-    }
-    this.machine.press("confirm");
-  }
-
   private release(): void {
     this.held.left = false;
     this.held.right = false;
@@ -294,6 +315,11 @@ export class TutorialRun {
   }
 
   private onKey(event: KeyboardEvent, down: boolean): void {
+    if (this.machine.touring && !this.ended) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      return;
+    }
     const arrow = arrows[event.key];
     const menu = this.hooks.menuOpen();
     if (arrow) {

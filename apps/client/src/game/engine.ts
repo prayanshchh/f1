@@ -480,6 +480,10 @@ export class Engine {
     this.module._sdTimeScale(scale);
   }
 
+  slowPlayer(speed: number): void {
+    this.module._sdPlayerSlowTo(speed);
+  }
+
   setPitCompound(compound: number): void {
     this.module._sdSessionPitCompound(compound);
   }

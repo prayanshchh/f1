@@ -1,5 +1,4 @@
 import * as THREE from "three/webgpu";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { float, smoothstep, uv, vec3 } from "three/tsl";
 import { carMaterials, carTextures, mirrorLayout } from "./carpaint.ts";
 import {
@@ -17,6 +16,7 @@ import type {
   MirrorName,
 } from "./carpaint.ts";
 import { frameIndex } from "./frame-layout.ts";
+import { gltfLoader } from "./gltf-loader.ts";
 import { mergedMesh, placedCopy } from "./merge.ts";
 import { setTyreShadows, shadowOnlyLayer } from "./road.ts";
 import { carFile } from "./teams.ts";
@@ -25,8 +25,8 @@ import {
   deflatedSag,
   markTyres,
   spinBlur,
-  treadPattern,
   type TyreLook,
+  treadOf,
   tyreLook,
   tyreMaterial,
 } from "./tyre-paint.ts";
@@ -295,7 +295,7 @@ export class GltfCar {
   ): Promise<GltfCar> {
     const car = new GltfCar();
     const anisotropy = renderer.getMaxAnisotropy();
-    const loader = new GLTFLoader();
+    const loader = gltfLoader();
     const [gltf, lod] = await Promise.all([
       loader.loadAsync(carFile(team, "car.glb")),
       loader.loadAsync(carFile(team, "lod.glb")),
@@ -388,7 +388,7 @@ export class GltfCar {
     if (index === this.compoundShown) return;
     this.compoundShown = index;
     this.compoundColour.set((compounds[index] ?? compounds[1]).colour);
-    for (const wheel of this.wheels) wheel.look.pattern = treadPattern(index);
+    for (const wheel of this.wheels) wheel.look.tread = treadOf(index);
   }
 
   wheelRadii(): number[] {
@@ -527,7 +527,6 @@ export class GltfCar {
       look.sag = deflatedSag(state.leak);
       look.dirt = unit(state.dirt);
       look.gravel = unit(state.gravel);
-      look.wet = unit(state.water);
       wheel.flatSpin = state.flatAt;
     });
   }

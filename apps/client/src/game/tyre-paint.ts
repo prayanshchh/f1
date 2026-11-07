@@ -7,6 +7,7 @@ import {
   float,
   Fn,
   fract,
+  fwidth,
   If,
   max,
   mix,
@@ -26,6 +27,8 @@ import { carFile } from "./teams.ts";
 import { releaseOnceUploaded } from "./preload.ts";
 import { screenBump } from "./track-surface.ts";
 import { compounds } from "./tyres.ts";
+
+type FloatNode = THREE.Node<"float">;
 
 export const tyreAttribute = "tyre";
 const wallFrom = 0.224;
@@ -69,26 +72,26 @@ const carcassDark = 0.03;
 const carcassLight = 0.075;
 const tornRoughness = 0.78;
 const chunkTipRoughness = 0.42;
-const grooveRubber = 0.006;
-const grooveRoughness = 0.9;
-const wetRings = [0.16, 0.36, 0.56, 0.76];
-const ringHalf = 0.016;
-const sipeDepth = 0.55;
-const treadedRubber = 0.05;
-const treadedRoughness = 0.66;
-const treadedWetRoughness = 0.3;
-const treadedWetDarken = 0;
-const wetSheen = 2.2;
 const grassDirt = new THREE.Color(0.036, 0.035, 0.027);
 const grassBlade = new THREE.Color(0.038, 0.048, 0.026);
 const gravelDust = new THREE.Color(0.19, 0.182, 0.17);
 const gritSpeck = new THREE.Color(0.36, 0.345, 0.32);
-const wetDarken = 0.4;
-const wetRoughness = 0.22;
+const interSipes = 30;
+const wetSipes = 38;
+const interSlant = 1.4;
+const wetSlant = 0.9;
+const interSipeWidth = 0.16;
+const wetSipeWidth = 0.22;
+const ringWidth = 0.025;
+const grooveShade = 0.45;
+const grooveDepth = 0.6;
+const wetRoughness = 0.45;
+const wetCoat = 0.3;
+const wetCoatRoughness = 0.5;
 
 export interface TyreLook {
   compound: THREE.Color;
-  pattern: number;
+  tread: number;
   blur: number;
   wear: number;
   flat: number;
@@ -98,13 +101,14 @@ export interface TyreLook {
   down: THREE.Vector2;
   dirt: number;
   gravel: number;
-  wet: number;
 }
+
+export const tyreWetness = uniform(0);
 
 export function tyreLook(): TyreLook {
   return {
     compound: new THREE.Color(compounds[1].colour),
-    pattern: 0,
+    tread: 0,
     blur: 0,
     wear: 0,
     flat: 0,
@@ -114,17 +118,67 @@ export function tyreLook(): TyreLook {
     down: new THREE.Vector2(-1, 0),
     dirt: 0,
     gravel: 0,
-    wet: 0,
   };
-}
-
-export function treadPattern(compound: number): number {
-  return Math.max(0, compound - 2);
 }
 
 export function deflatedSag(leak: number): number {
   const deflated = THREE.MathUtils.clamp(leak, 0, 1);
   return maxSag * deflated * deflated;
+}
+
+export function treadOf(compound: number): number {
+  const id = compounds[compound]?.id;
+  if (id === "wet") return 2;
+  return id === "inter" ? 1 : 0;
+}
+
+function band(phase: THREE.Node<"float">, width: number, smear: FloatNode) {
+  const centre = fract(phase).sub(0.5).abs();
+  const edge = fwidth(phase).add(smear).max(1e-4);
+  const sharp = smoothstep(
+    float(width / 2).add(edge),
+    float(width / 2).sub(edge),
+    centre,
+  );
+  return mix(sharp, float(width), smoothstep(0.2, 0.6, edge));
+}
+
+function grooves(
+  angle: FloatNode,
+  across: FloatNode,
+  tread: FloatNode,
+  blur: FloatNode,
+): FloatNode {
+  const wet = step(1.5, tread);
+  const inter = step(0.5, tread).mul(float(1).sub(wet));
+  const sipePitch = mix(float(interSipes), float(wetSipes), wet);
+  const sipeSlant = mix(float(interSlant), float(wetSlant), wet);
+  const phase = angle.mul(sipePitch).add(across.mul(sipeSlant));
+  const smear = blur.mul(sipePitch);
+  const sipe = mix(
+    band(phase, interSipeWidth, smear),
+    band(phase, wetSipeWidth, smear),
+    wet,
+  );
+  const inside = smoothstep(
+    mix(float(0.26), float(0.1), wet),
+    mix(float(0.34), float(0.16), wet),
+    across,
+  ).mul(
+    smoothstep(
+      mix(float(0.8), float(0.9), wet),
+      mix(float(0.72), float(0.84), wet),
+      across,
+    ),
+  );
+  const ring = (centre: number) =>
+    smoothstep(
+      float(ringWidth).add(fwidth(across)),
+      float(ringWidth).sub(fwidth(across)).max(0),
+      across.sub(centre).abs(),
+    );
+  const rings = ring(0.37).max(ring(0.7)).mul(wet);
+  return sipe.mul(inside).max(rings).mul(wet.add(inter));
 }
 
 export function spinBlur(radiansPerSecond: number, seconds: number): number {
@@ -197,7 +251,7 @@ function lookUniforms() {
   });
   coat.onObjectUpdate(({ object }) => {
     const look = lookOf(object);
-    coat.value.set(look.dirt, look.gravel, look.wet, look.pattern);
+    coat.value.set(look.dirt, look.gravel, look.tread, 0);
   });
   shape.onObjectUpdate(({ object }) => {
     const look = lookOf(object);
@@ -207,16 +261,9 @@ function lookUniforms() {
 }
 
 function detailed(look: TyreLook): boolean {
-  return (
-    look.wear > 0.3 ||
-    look.flat > 0 ||
-    look.shred > 0 ||
-    look.dirt > 0 ||
-    look.pattern > 0
-  );
+  return look.wear > 0.3 || look.flat > 0 || look.shred > 0 || look.dirt > 0;
 }
 
-type FloatNode = THREE.Node<"float">;
 type Vec2Node = THREE.Node<"vec2">;
 type Vec4Node = THREE.Node<"vec4">;
 
@@ -250,6 +297,7 @@ function buildMaterial(
   const wear = surface.x;
   const flat = surface.y;
   const shred = surface.w;
+  const treadKind = coat.z;
   const local = attribute<"vec4">(tyreAttribute, "vec4");
   const axial = local.x;
   const radial = vec2(local.y, local.z);
@@ -430,22 +478,7 @@ function buildMaterial(
       ),
     )
     .mul(flatMask.max(smoothstep(0, 0.08, flat).mul(onTread).mul(0.5)));
-  const ringEdge = dFdx(across).abs().add(dFdy(across).abs()).max(0.004);
-  const rings = wetRings
-    .map((ring) =>
-      float(1).sub(
-        smoothstep(
-          ringEdge.negate().add(ringHalf),
-          ringEdge.add(ringHalf),
-          across.sub(ring).abs(),
-        ),
-      ),
-    )
-    .reduce((a, b) => a.max(b));
-  const grooveDepth = pattern.r
-    .mul(step(0.5, coat.w))
-    .mul(step(coat.w, 1.5))
-    .add(pattern.g.mul(sipeDepth).max(rings).mul(step(1.5, coat.w)))
+  const groove = grooves(angle, across, treadKind, blur)
     .mul(float(1).sub(wear.mul(0.75)))
     .mul(onTread)
     .mul(float(1).sub(torn));
@@ -463,15 +496,11 @@ function buildMaterial(
     .mul(dirtReach)
     .mul(step(0.001, coat.x))
     .max(smoothstep(0.35, 1, coat.x).mul(coat.y).mul(dirtReach).mul(0.9))
-    .mul(float(1).sub(grooveDepth.mul(0.8)));
-  const wetness = smoothstep(0.02, 0.3, coat.z);
-  const treaded = step(0.5, coat.w);
+    .mul(float(1).sub(groove.mul(0.8)));
 
-  const fresh = mix(
-    mix(float(treadRubber), float(wornRubber), wear),
-    float(treadedRubber),
-    treaded,
-  ).mul(grain.mul(0.12).add(1));
+  const fresh = mix(float(treadRubber), float(wornRubber), wear).mul(
+    grain.mul(0.12).add(1),
+  );
   const treadTone = mix(
     mix(fresh, float(scuffedRubber), scuff),
     float(lumpRubber),
@@ -497,8 +526,11 @@ function buildMaterial(
     ),
     onTread,
   );
-  const grooved = mix(rubber, float(grooveRubber), grooveDepth);
-  const base = vec3(mix(grooved, float(pickupRubber), pickup));
+  const base = vec3(
+    mix(rubber, float(pickupRubber), pickup).mul(
+      float(1).sub(groove.mul(1 - grooveShade)),
+    ),
+  );
   const coloured = compound.xyz.mul(paintGain);
   const withCompound = mix(base, coloured, paint.r);
   const painted = mix(withCompound, vec3(whitePaint), paint.g);
@@ -526,26 +558,17 @@ function buildMaterial(
     mix(soil, vec3(gritSpeck.r, gritSpeck.g, gritSpeck.b), speck),
     dirty,
   );
-  material.colorNode = soiled.mul(
-    float(1).sub(
-      wetness.mul(mix(float(wetDarken), float(treadedWetDarken), treaded)),
-    ),
-  );
+  material.colorNode = soiled;
   const isPainted = paint.r.max(paint.g);
   const rough = mix(
     float(wallRoughness).add(scuff.mul(0.12)),
-    mix(float(treadRoughness), float(treadedRoughness), treaded)
+    float(treadRoughness)
       .add(matte.mul(0.16))
       .add(scuff.mul(0.2))
       .sub(ripple.mul(cover).mul(0.2))
       .sub(marbles.mul(0.2))
       .add(flatMask.mul(0.2)),
     onTread,
-  );
-  const wetRough = mix(
-    float(wetRoughness),
-    float(treadedWetRoughness),
-    treaded.mul(onTread),
   );
   const dry = mix(
     mix(
@@ -564,16 +587,15 @@ function buildMaterial(
     float(0.96),
     dirty,
   );
-  material.roughnessNode = mix(
-    mix(dry, wetRough, wetness.mul(0.7)),
-    float(grooveRoughness),
-    grooveDepth,
-  );
+  material.roughnessNode = mix(dry, dry.min(wetRoughness), tyreWetness);
   material.metalnessNode = float(0);
   material.specularIntensityNode = float(1)
     .sub(torn.mul(float(0.55).add(smoothstep(0.1, 0.5, cracks).mul(0.4))))
-    .sub(dirty.mul(0.4))
-    .mul(wetness.mul(wetSheen).mul(float(1).sub(grooveDepth)).add(1));
+    .sub(dirty.mul(0.4));
+  material.clearcoatNode = tyreWetness
+    .mul(wetCoat)
+    .mul(float(1).sub(groove.mul(0.6)));
+  material.clearcoatRoughnessNode = float(wetCoatRoughness);
   const relief = paint.b
     .add(pickup.mul(0.25))
     .add(ripple.mul(cover).mul(2.2))
@@ -581,7 +603,7 @@ function buildMaterial(
     .add(marbles.mul(1.6))
     .add(tread.r.sub(0.5).mul(flatMask).mul(3))
     .sub(smoothstep(0.16, 0.3, lumps).mul(flatMask).mul(1.5))
-    .sub(grooveDepth.mul(2.2))
+    .sub(groove.mul(grooveDepth))
     .sub(torn.mul(1.2))
     .add(tearEdge.mul(0.8))
     .add(lumps.mul(torn).mul(14))

@@ -27,53 +27,73 @@ async function hold(page: Page, key: string, ms: number): Promise<void> {
   await page.keyboard.up(key);
 }
 
-test.describe("driving school", () => {
-  test.setTimeout(120_000);
-
-  test("a new player is offered Driving School before naming themselves, and a skip is remembered", async ({
-    page,
-  }) => {
-    await page.goto("/");
-    const offer = page.locator(".front-offer");
-    await expect(offer).toBeVisible({ timeout: 60_000 });
-    await expect(page.locator("[data-front=name]")).toHaveCount(0);
-    await expect(offer.locator(".front-hub-item.active")).toContainText(
-      "Driving School",
-    );
-
-    await page.keyboard.press("Escape");
-    await expect(page.locator("[data-front=name]")).toBeVisible();
-
-    await page.reload();
-    await expect(page.locator("[data-front=name]")).toBeVisible({
-      timeout: 60_000,
-    });
-    await expect(offer).toHaveCount(0);
-  });
-
-  test("onboarded drivers find Driving School in the hub and are not offered it again", async ({
-    page,
-    context,
-  }) => {
-    await seedPlayer(context);
-    await page.goto("/");
-    await page.mouse.move(1, 1);
-    await expect(page.locator(".front-hub")).toBeVisible({ timeout: 60_000 });
-    await expect(page.locator(".front-offer")).toHaveCount(0);
-    await expect(
-      page.getByRole("button", { name: /^Driving School/ }),
-    ).toBeVisible();
-  });
+test("onboarded drivers find Driving School in the hub and are not dropped into it", async ({
+  page,
+  context,
+}) => {
+  await seedPlayer(context);
+  await page.goto("/?intro=off");
+  await page.mouse.move(1, 1);
+  await expect(page.locator(".front-hub")).toBeVisible({ timeout: 60_000 });
+  await expect(page.locator("[data-tutorial=root]")).toBeHidden();
+  await expect(
+    page.getByRole("button", { name: /^Driving School/ }),
+  ).toBeVisible();
 });
 
 if (!softwareGpu) {
+  test("Main Menu in the pause menu of a race opened with ?autostart goes to the hub instead of starting the race again", async ({
+    page,
+    context,
+  }) => {
+    test.setTimeout(480_000);
+    await seedPlayer(context);
+    await page.goto("/?autostart");
+    await page.waitForFunction(
+      () => document.body.dataset["driveStatus"] === "running",
+      null,
+      { timeout: 360_000 },
+    );
+    await page.waitForTimeout(800);
+    await page.keyboard.press("Escape");
+    await expect(page.locator("[data-menu=quit]")).toBeVisible();
+    await page.keyboard.press("m");
+    await expect(page.locator(".front-hub")).toBeVisible({ timeout: 120_000 });
+    expect(new URL(page.url()).searchParams.has("autostart")).toBe(false);
+  });
+
+  test("a new player lands straight in Driving School, and skipping it leads to naming and is remembered", async ({
+    page,
+  }) => {
+    test.setTimeout(480_000);
+    await page.goto("/?intro=off");
+    await page.waitForFunction(
+      () => document.body.dataset["driveStatus"] === "running",
+      null,
+      { timeout: 360_000 },
+    );
+    await reach(page, "welcome");
+    await expect(page.locator(".front-hub")).toHaveCount(0);
+    await page.waitForTimeout(800);
+    await page.keyboard.press("Escape");
+    await expect(page.locator("[data-front=name]")).toBeVisible({
+      timeout: 120_000,
+    });
+
+    await page.reload();
+    await expect(page.locator("[data-front=name]")).toBeVisible({
+      timeout: 120_000,
+    });
+    await expect(page.locator("[data-tutorial=root]")).toBeHidden();
+  });
+
   test("leaving Driving School takes a named driver to the hub, not back into the tutorial", async ({
     page,
     context,
   }) => {
     test.setTimeout(480_000);
     await seedPlayer(context);
-    await page.goto("/?tutorial");
+    await page.goto("/?tutorial&intro=off");
     await page.waitForFunction(
       () => document.body.dataset["driveStatus"] === "running",
       null,
@@ -88,15 +108,11 @@ if (!softwareGpu) {
     await expect(page.locator("[data-tutorial=root]")).toBeHidden();
   });
 
-  test("Driving School holds the clock on the grid, stops time at the first braking point and can be skipped from the pause menu", async ({
+  test("Driving School holds the clock on the grid, stops time at the first braking point and can be left from the pause menu", async ({
     page,
   }) => {
     test.setTimeout(480_000);
-    await page.goto("/?debug");
-    await expect(page.locator(".front-offer")).toBeVisible({
-      timeout: 60_000,
-    });
-    await page.keyboard.press("Enter");
+    await page.goto("/?debug&intro=off");
     await page.waitForFunction(
       () => document.body.dataset["driveStatus"] === "running",
       null,
@@ -109,7 +125,6 @@ if (!softwareGpu) {
     expect(await engineClock(page)).toBe(gridClock);
     expect(gridClock).toBeLessThan(0);
 
-    await page.keyboard.press("Enter");
     await reach(page, "controls");
     await page.keyboard.press("k");
     await reach(page, "steer-left");
@@ -122,10 +137,6 @@ if (!softwareGpu) {
     await hold(page, "ArrowDown", 500);
     await reach(page, "gas-pedal");
     await hold(page, "ArrowUp", 500);
-    await reach(page, "lights");
-    expect(await engineClock(page)).toBe(gridClock);
-    await page.waitForTimeout(800);
-    await page.keyboard.press("Enter");
     await reach(page, "lights-wait");
     await expect.poll(() => engineClock(page)).toBeGreaterThan(gridClock);
 
@@ -137,7 +148,6 @@ if (!softwareGpu) {
     const paused = await engineClock(page);
     await page.waitForTimeout(1200);
     expect(await engineClock(page)).toBe(paused);
-    await page.keyboard.press("Enter");
     await reach(page, "t1-brake", 30_000);
     await expect(step(page)).toHaveAttribute("data-mode", "freeze");
     await page.waitForTimeout(1000);
@@ -154,13 +164,14 @@ if (!softwareGpu) {
 
     await page.keyboard.press("Escape");
     await expect(page.locator("[data-menu=root]")).toBeVisible();
+    await expect(page.locator("[data-tutorial=root]")).toHaveClass(/away/);
     await expect(page.locator("[data-menu=start-label]")).toHaveText(
-      "Skip Tutorial",
+      "Restart Session",
     );
-    await page.keyboard.press("Enter");
+    await expect(page.locator("[data-menu=quit]")).toBeVisible();
+    await page.keyboard.press("m");
     await expect(page.locator("[data-front=name]")).toBeVisible({
       timeout: 120_000,
     });
-    await expect(page.locator(".front-offer")).toHaveCount(0);
   });
 }

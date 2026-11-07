@@ -105,6 +105,63 @@ export const choices = {
 type ChoiceId<K extends keyof typeof choices> =
   (typeof choices)[K][number]["id"];
 
+export const weatherPresets = [
+  { id: "clear", label: "Clear", clouds: "no cloud", rain: "none" },
+  {
+    id: "light cloud",
+    label: "Light Cloud",
+    clouds: "scarce clouds",
+    rain: "none",
+  },
+  { id: "overcast", label: "Overcast", clouds: "full cover", rain: "none" },
+  {
+    id: "light rain",
+    label: "Light Rain",
+    clouds: "full cover",
+    rain: "little",
+  },
+  {
+    id: "heavy rain",
+    label: "Heavy Rain",
+    clouds: "full cover",
+    rain: "medium",
+  },
+  { id: "storm", label: "Storm", clouds: "full cover", rain: "heavy" },
+  { id: "dynamic", label: "Dynamic", clouds: "many clouds", rain: "dynamic" },
+  { id: "random", label: "Random", clouds: "random", rain: "random" },
+] as const satisfies readonly {
+  id: string;
+  label: string;
+  clouds: ChoiceId<"clouds">;
+  rain: ChoiceId<"rain">;
+}[];
+
+type WeatherPreset = (typeof weatherPresets)[number];
+
+const dryWeather: Record<string, WeatherPreset["id"]> = {
+  "no cloud": "clear",
+  "full cover": "overcast",
+  random: "random",
+};
+
+export function weatherOf(settings: {
+  clouds: string;
+  rain: string;
+}): WeatherPreset {
+  const id =
+    settings.rain === "none"
+      ? (dryWeather[settings.clouds] ?? "light cloud")
+      : (weatherPresets.find((p) => p.rain === settings.rain)?.id ?? "clear");
+  return weatherPresets.find((p) => p.id === id) ?? weatherPresets[0];
+}
+
+export function applyWeather(settings: Settings, id: string): void {
+  const preset = weatherPresets.find((p) => p.id === id);
+  if (!preset) return;
+  settings.clouds = preset.clouds;
+  settings.rain = preset.rain;
+}
+
 export interface Settings {
   track: string;
   car: string;
@@ -149,6 +206,7 @@ export const hudParts = {
   delta: "Delta Time",
   sectors: "Sector Times",
   map: "Track Map",
+  proximity: "Proximity Arrows",
   lights: "Start Lights",
   fuel: "Battery & Fuel",
   tyres: "Tyres (MFD)",
@@ -202,6 +260,7 @@ export const defaults: Settings = {
     delta: true,
     sectors: true,
     map: true,
+    proximity: true,
     lights: true,
     fuel: true,
     tyres: true,

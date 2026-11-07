@@ -51,6 +51,7 @@ static const double launchWindow = 20.0;
 static const double launchSpeed = 3.0;
 static const double launchBrake = 0.05;
 static const double launchThrottle = 0.02;
+static const double reverseBrake = 0.5;
 
 static bool assist = true;
 static bool antiLock = false;
@@ -226,12 +227,13 @@ void sdInputLaunch(tCarElt *car, tSituation *s)
     if (!assist)
         return;
     double since = sdRaceControlSinceSignal(s);
-    if (since > launchWindow || (since > 0 && fabs(car->_speed_x) > launchSpeed))
+    double wanted = analog ? analogThrottle : throttle;
+    double held = analog ? analogBrake : brake;
+    bool reversing = held >= reverseBrake && wanted < launchThrottle;
+    if (since > launchWindow || (since > 0 && (fabs(car->_speed_x) > launchSpeed || reversing)))
         launching = false;
     if (!launching)
         return;
-    double wanted = analog ? analogThrottle : throttle;
-    double held = analog ? analogBrake : brake;
     if (held < launchBrake && wanted >= launchThrottle)
         return;
     car->_clutchCmd = 1.0f;

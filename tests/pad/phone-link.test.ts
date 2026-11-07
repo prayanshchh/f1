@@ -74,7 +74,7 @@ describe.runIf(hasTunnel)("the dev server's phone link", () => {
   let site: PhoneSite = { origin: null, problem: null };
 
   beforeAll(async () => {
-    process.env["F1_DATA_DIR"] = mkdtempSync(
+    process.env["REVRACERS_DATA_DIR"] = mkdtempSync(
       path.join(os.tmpdir(), "f1-link-"),
     );
     const { default: config } =

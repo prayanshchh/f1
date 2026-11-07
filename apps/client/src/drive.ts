@@ -60,7 +60,7 @@ import { idealCompound } from "./game/weather.ts";
 import { IncidentCam } from "./game/incident-cam.ts";
 import { InstantReplay } from "./game/instant-replay.ts";
 import { LapTrace } from "./game/laptrace.ts";
-import { Menu } from "./game/menu.ts";
+import { Menu, type MenuAction } from "./game/menu.ts";
 import type { CarStatus } from "./game/mfd.ts";
 import { type PadCommands, PadLink } from "./game/pad.ts";
 import { PlayerError, playerMessage } from "./game/player-error.ts";
@@ -100,6 +100,7 @@ import {
   type Settings,
   stageOf,
   trackOf,
+  weatherOf,
 } from "./game/settings.ts";
 import type { CourseTurn } from "./game/tutorial.ts";
 import {
@@ -129,6 +130,8 @@ import {
 } from "./game/weekend.ts";
 import { WeekendFlow } from "./game/weekend-flow.ts";
 import { LoadBar } from "./game/load-bar.ts";
+import { intro } from "./game/intro.ts";
+import { LoadShow } from "./game/load-show.ts";
 import { showActions } from "./game/weekend-ui.ts";
 
 const canvas = document.querySelector<HTMLCanvasElement>(
@@ -143,6 +146,11 @@ const statusBar = new LoadBar(
 );
 const hudRoot = document.querySelector<HTMLElement>("[data-testid=hud]");
 const autostartKey = "revracers.autostart";
+const redeployKey = "revracers.redeploy";
+const loadShow = status && intro.shown ? new LoadShow(status) : null;
+void intro.done.then(() => {
+  loadShow?.arm();
+});
 
 function element(selector: string): HTMLElement {
   const found = document.querySelector<HTMLElement>(selector);
@@ -154,9 +162,29 @@ function padLink(): PadLink {
   return new PadLink(element("[data-pad=panel]"), element("[data-pad=badge]"));
 }
 
+function menuMusic(music: Music): void {
+  void intro.done.then(() => {
+    music.play("menu");
+  });
+}
+
+function scoreLoadShow(music: Music): void {
+  loadShow?.attach({
+    get blocked() {
+      return music.blocked;
+    },
+    start: () => {
+      if (!music.cue) music.play("menu");
+    },
+  });
+}
+
 function setStatus(text: string): void {
   if (text === "") statusBar.set(1);
-  else if (status?.hidden === true) statusBar.reset();
+  else if (status?.hidden === true) {
+    statusBar.reset();
+    loadShow?.restart();
+  }
   if (status) status.hidden = text === "";
   if (statusText && text) statusText.textContent = text;
 }
@@ -164,12 +192,35 @@ function setStatus(text: string): void {
 function toHub(): void {
   const url = new URL(location.href);
   url.searchParams.delete("tutorial");
+  url.searchParams.delete("autostart");
   location.assign(url);
 }
 
 function restart(autostart: boolean): void {
-  if (autostart) sessionStorage.setItem(autostartKey, "1");
+  if (!autostart) {
+    toHub();
+    return;
+  }
+  sessionStorage.setItem(autostartKey, "1");
   location.reload();
+}
+
+function entryScript(html: string): string | undefined {
+  return /<script type="module"[^>]*\ssrc="([^"]+)"/.exec(html)?.[1];
+}
+
+async function redeployed(tutorial: boolean): Promise<boolean> {
+  const ours = entryScript(document.documentElement.outerHTML);
+  const live = await fetch("/", { cache: "no-store" })
+    .then((response) => (response.ok ? response.text() : ""))
+    .catch(() => "");
+  const theirs = entryScript(live);
+  if (!ours || !theirs || ours === theirs) return false;
+  if (sessionStorage.getItem(redeployKey) === theirs) return false;
+  sessionStorage.setItem(redeployKey, theirs);
+  if (tutorial) armTutorial();
+  restart(true);
+  return true;
 }
 
 function cell(text: string, className = ""): HTMLTableCellElement {
@@ -750,19 +801,12 @@ function weatherFor(settings: Settings, rain: number): Weather {
     autumn: 26,
     winter: 15,
   };
-  const skies: Record<string, string> = {
-    "no cloud": "Clear",
-    "few clouds": "Light Cloud",
-    "scarce clouds": "Light Cloud",
-    "many clouds": "Cloudy",
-    "full cover": "Overcast",
-  };
   const wet = rain > 0;
   const overcast = ["many clouds", "full cover"].includes(settings.clouds);
   return {
     temperature:
       (seasonal[settings.season] ?? 27) - rain * 3 - (overcast ? 2 : 0),
-    label: wet ? "Rain (Wet)" : `${skies[settings.clouds] ?? "Clear"} (Dry)`,
+    label: `${weatherOf(settings).label} (${wet ? "Wet" : "Dry"})`,
     icon: wet ? "rain" : overcast ? "cloud" : "sun",
   };
 }
@@ -772,11 +816,8 @@ interface Entry {
   tutorial: boolean;
 }
 
-async function firstVisit(front: FrontEnd, driver: Driver): Promise<boolean> {
-  if (driver.onboarded || tutorialStatus() !== null) return false;
-  if ((await front.tutorialOffer()) === "tutorial") return true;
-  rememberTutorial("skipped");
-  return false;
+function newcomer(driver: Driver | null): boolean {
+  return tutorialStatus() === null && driver?.onboarded !== true;
 }
 
 async function enterGame(
@@ -784,13 +825,15 @@ async function enterGame(
   settings: Settings,
   menu: Menu,
   music: Music,
+  known: Driver | null,
 ): Promise<Entry> {
   const studio = new Studio(renderer);
   const front = new FrontEnd(element("[data-front=root]"), studio);
   front.open();
-  music.opening();
+  void intro.done.then(() => {
+    music.opening();
+  });
   void studio.preloadTeams();
-  const known = await currentDriver();
   setStatus("");
   let driver = known ?? (await front.welcome());
   const leave = (tutorial: boolean): Entry => {
@@ -799,9 +842,8 @@ async function enterGame(
     return { driver, tutorial };
   };
   for (;;) {
-    if (await firstVisit(front, driver)) return leave(true);
     if (!driver.onboarded) {
-      music.play("menu");
+      menuMusic(music);
       driver = await front.onboard(driver);
     }
     rememberDriver(driver);
@@ -811,7 +853,7 @@ async function enterGame(
     settings.car = driver.team ?? settings.car;
     if (choice.action === "tutorial") return leave(true);
     front.close();
-    music.play("menu");
+    menuMusic(music);
     const action = await menu.run(false);
     if (action === "start") return leave(false);
     front.open();
@@ -825,8 +867,10 @@ async function signIn(
   menu: Menu,
   music: Music,
 ): Promise<Entry> {
-  if (autostart) return { driver: await currentDriver(), tutorial: false };
-  const entry = await enterGame(renderer, settings, menu, music);
+  const known = await currentDriver();
+  if (autostart) return { driver: known, tutorial: false };
+  if (newcomer(known)) return { driver: known, tutorial: true };
+  const entry = await enterGame(renderer, settings, menu, music, known);
   saveWeekend(null);
   return entry;
 }
@@ -842,6 +886,7 @@ async function enter(
   const entry = consumeTutorial(params)
     ? { driver: await currentDriver(), tutorial: true }
     : await signIn(autostart, renderer, settings, menu, music);
+  if (await redeployed(entry.tutorial)) return new Promise(() => undefined);
   return { ...entry, autostart: autostart || entry.tutorial };
 }
 
@@ -931,6 +976,7 @@ async function main(): Promise<void> {
   const interventions = params.has("interventions");
   const menu = new Menu(source, settings, interventions);
   const music = new Music(() => settings.musicVolume / 100);
+  scoreLoadShow(music);
 
   const entry = await enter(params, renderer, settings, menu, music);
   const { driver, autostart } = entry;
@@ -968,6 +1014,7 @@ async function main(): Promise<void> {
     settings.racingLine,
     rivalCars(field),
     lights,
+    settings.clouds,
   );
   const draw = drawer(renderer, scene);
   debugHooks(params, engine, scene, renderer);
@@ -1040,9 +1087,10 @@ async function main(): Promise<void> {
     if (coach && auto) armTutorial();
     restart(auto);
   };
-  const leave = () => {
-    if (coach) coach.skip();
-    else restart(true);
+  const leave = (action: MenuAction) => {
+    if (action !== "quit") again(true);
+    else if (coach) coach.skip();
+    else restart(false);
   };
   const pause = () => {
     if (paused || finished()) return;
@@ -1057,17 +1105,19 @@ async function main(): Promise<void> {
         if (action === "replay") openReplay();
         return;
       }
-      leave();
+      leave(action);
     });
   };
 
+  const freshPress = (event: KeyboardEvent) =>
+    event.type === "keydown" && !event.repeat && coach?.touring !== true;
   const phoneKey = (event: KeyboardEvent) => {
     if (event.code !== "KeyP" || buildingUp || typing(event)) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    if (event.type !== "keydown" || event.repeat) return;
+    if (!freshPress(event)) return;
     pad.toggle();
-    if (pad.panelOpen && !waiting && coach?.holding !== true) pause();
+    if (pad.panelOpen && !waiting && coach?.busy !== true) pause();
   };
   window.addEventListener("keydown", phoneKey, true);
   window.addEventListener("keyup", phoneKey, true);
@@ -1115,6 +1165,7 @@ async function main(): Promise<void> {
   statusBar.followDownloads(0.85, 0.99);
   await scene.warmUp(renderer, draw);
   setStatus("");
+  await intro.fadeOut();
   replay = new InstantReplay({
     engine,
     scene,
@@ -1413,6 +1464,10 @@ async function main(): Promise<void> {
       engine,
       pad,
       menuOpen: () => menu.open,
+      pause,
+      guardMenu: (guard) => {
+        menu.guard(guard);
+      },
       mfdPage: () => element("[data-hud=mfd]").dataset["page"] ?? "quick",
       mute: (muted) => {
         sound.mute(muted);
@@ -1457,6 +1512,7 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
+  intro.stop();
   document.body.dataset["driveStatus"] = "error";
   statusBar.reset();
   setStatus(

@@ -107,6 +107,7 @@ declare module "*/wasm/speed-dreams.js" {
     _sdSafetyCarPose(out: number): number;
     _sdCars(out: number): void;
     _sdTimeScale(scale: number): void;
+    _sdPlayerSlowTo(speed: number): void;
     _sdKey(key: number, state: number): void;
     _sdUpdate(now: number): number;
     _sdStep(count: number): number;

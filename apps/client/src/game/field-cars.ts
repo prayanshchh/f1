@@ -573,7 +573,7 @@ export class FieldCars {
     this.setShadow(car, distance < shadowDistance);
     this.setCompound(car, data[at + carField.compound] ?? 1);
     this.setDetail(car, detailFor(car.detail, distance * spread));
-    if (car.spinning && distance < wheelDistance)
+    if ((car.spinning && distance < wheelDistance) || car.lost.includes(true))
       this.updateWheels(car, data, at, seconds);
   }
 }
